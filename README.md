@@ -16,3 +16,9 @@ Collection of files and documents related to my work on 2D modeling of the point
 7. Zernike_code.ipynb: code which is able to generate single images with comments and examples
 
 ![Overview of the notebook](https://www.dropbox.com/s/1v8sonvg5f23pgy/Screenshot%202018-07-30%2014.53.57.png?raw=1)
+
+8. Zernike_Module: (fluid)python module with definitions of functions - this implementation with module will eventually replace clumsy "Zernike.ipynb" where all definition are in the notebook itself
+
+9. Zernike_Work: latest (fluid) jupyter notebook used to investigate the problem
+
+10. ZernikeSingle_11_Mix_P_Aug.py: latest (fluid) code used to fit data on the cluster
