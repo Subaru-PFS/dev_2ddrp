@@ -809,9 +809,11 @@ class ZernikeFitter_PFS(object):
         # reduce oversampling by the factor of 4  to make things easier
         optPsf_downsampled=skimage.transform.resize(optPsf,(int(optPsf.shape[0]/(4)),int(optPsf.shape[0]/(4))),order=3)
         
-
+        mid_point_of_optPsf_downsampled=int(optPsf_downsampled.shape[0]/2)
         
+        #gives the size of one pixel in optPsf_downsampled in microns
         size_of_pixels_in_optPsf_downsampled=15/oversampling
+        #print(size_of_pixels_in_optPsf_downsampled)
         size_of_optPsf_in_Microns=size_of_pixels_in_optPsf_downsampled*(optPsf_downsampled.shape[0])
         pointsx = np.linspace(-(size_of_optPsf_in_Microns-size_of_pixels_in_optPsf_downsampled)/2,(size_of_optPsf_in_Microns-size_of_pixels_in_optPsf_downsampled)/2,num=optPsf_downsampled.shape[0])
         pointsy =np.linspace(-(size_of_optPsf_in_Microns-size_of_pixels_in_optPsf_downsampled)/2,(size_of_optPsf_in_Microns-size_of_pixels_in_optPsf_downsampled)/2,num=optPsf_downsampled.shape[0])
@@ -822,7 +824,18 @@ class ZernikeFitter_PFS(object):
         scattered_light=(r0**(-v['scattering_slope']))
         scattered_light=np.zeros((optPsf_downsampled.shape[0],optPsf_downsampled.shape[0]))+scattered_light
         scattered_light[scattered_light == np.inf] = 0
-        scattered_light=((v['scattering_amplitude'])*np.sum(optPsf_downsampled)/np.sum(scattered_light))*scattered_light
+        
+        # we use this only for normalization
+        # cuts the central part of the scattered light array to match the size of the final image
+        # not too happy about this solution - assumes that center of scaterring is in the center of the image
+        scattered_light_center_Guess=optPsf_downsampled[mid_point_of_optPsf_downsampled-oversampling*int(shape[0]/2):mid_point_of_optPsf_downsampled+oversampling*int(shape[0]/2),mid_point_of_optPsf_downsampled-oversampling*int(shape[0]/2):mid_point_of_optPsf_downsampled+oversampling*int(shape[0]/2)]
+      
+        #previous solution
+        #scattered_light=((v['scattering_amplitude'])*np.sum(optPsf_downsampled)/np.sum(scattered_light))*scattered_light
+        if np.sum(scattered_light_center_Guess)>0:
+            scattered_light=((v['scattering_amplitude'])*np.sum(self.image)/np.sum(scattered_light_center_Guess))*scattered_light
+        else:
+            scattered_light=np.zeros((optPsf_downsampled.shape[0],optPsf_downsampled.shape[0]))
         optPsf_downsampled_scattered=optPsf_downsampled+scattered_light
         fiber = astropy.convolution.Tophat2DKernel(round(oversampling*1*v['fiber_r']*self.dithering),mode='center').array
 
