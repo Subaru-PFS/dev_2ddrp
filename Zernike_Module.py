@@ -15,7 +15,8 @@ import numpy as np
 np.set_printoptions(suppress=True)
 np.seterr(divide='ignore', invalid='ignore')
 import math
-
+import pandas as pd
+import os
 
 import time
 
@@ -39,7 +40,8 @@ import skimage.transform
 #lmfit
 import lmfit
 
-
+import matplotlib.pyplot as plt
+from matplotlib.colors import LogNorm
 
 
 __all__ = ['PupilFactory', 'Pupil','ZernikeFitter_PFS','LN_PFS_single','LNP_PFS']
@@ -824,7 +826,7 @@ class ZernikeFitter_PFS(object):
         scattered_light=(r0**(-v['scattering_slope']))
         scattered_light=np.zeros((optPsf_downsampled.shape[0],optPsf_downsampled.shape[0]))+scattered_light
         scattered_light[scattered_light == np.inf] = 0
-        
+        #print(shape)
         # we use this only for normalization
         # cuts the central part of the scattered light array to match the size of the final image
         # not too happy about this solution - assumes that center of scaterring is in the center of the image
@@ -832,8 +834,8 @@ class ZernikeFitter_PFS(object):
       
         #previous solution
         #scattered_light=((v['scattering_amplitude'])*np.sum(optPsf_downsampled)/np.sum(scattered_light))*scattered_light
-        if np.sum(scattered_light_center_Guess)>0:
-            scattered_light=((v['scattering_amplitude'])*np.sum(self.image)/np.sum(scattered_light_center_Guess))*scattered_light
+        if np.sum(scattered_light)>0:
+            scattered_light=((v['scattering_amplitude'])*np.sum(scattered_light_center_Guess)/np.sum(scattered_light))*scattered_light
         else:
             scattered_light=np.zeros((optPsf_downsampled.shape[0],optPsf_downsampled.shape[0]))
         optPsf_downsampled_scattered=optPsf_downsampled+scattered_light
@@ -875,6 +877,7 @@ class ZernikeFitter_PFS(object):
         if self.save==1:
             np.save(TESTING_FINAL_IMAGES_FOLDER+'optPsf',optPsf)
             np.save(TESTING_FINAL_IMAGES_FOLDER+'optPsf_downsampled',optPsf_downsampled)
+            np.save(TESTING_FINAL_IMAGES_FOLDER+'scattered_light_center_Guess',scattered_light_center_Guess)
             np.save(TESTING_FINAL_IMAGES_FOLDER+'fiber',fiber)
             np.save(TESTING_FINAL_IMAGES_FOLDER+'optPsf_downsampled_scattered',optPsf_downsampled_scattered)        
             np.save(TESTING_FINAL_IMAGES_FOLDER+'optPsf_fiber_convolved',optPsf_fiber_convolved)
@@ -973,7 +976,7 @@ class LN_PFS_single(object):
         
         zmax=11
         
-        npix_value=int(math.ceil(int(1024*sci_image.shape[0]/(20*2)))*2)
+        npix_value=int(math.ceil(int(1024*sci_image.shape[0]/(20*2*self.dithering)))*2)
         
         single_image_analysis=ZernikeFitter_PFS(sci_image,var_image,npix=npix_value,dithering=dithering,save=save)
         single_image_analysis.initParams(zmax) 
@@ -1021,7 +1024,7 @@ class LN_PFS_single(object):
 
         #When running big fits these are limits which ensure that the code does not wander off in tottaly nonphyical region
 
-        
+
          # hsc frac
         if globalparameters[0]<=0.5:
             return -np.inf
@@ -1248,10 +1251,186 @@ class LNP_PFS(object):
     def __call__(self, image=None,image_var=None):
         return 0.0
     
+class Zernike_Analysis(object):
+    """!Pupil obscuration function.
+    """
+
+    def __init__(self, date,obs,single_number,eps):
+        """!
+
+        @param[in]
+        """
+        
+        
+        if obs=='8600':
+            sci_image=np.load("/Users/nevencaplar/Documents/PFS/TigerAnalysis/CutsForTigerAug15/sci"+str(obs)+str(single_number)+'Stacked_Cleaned_Dithered.npy')
+            var_image=np.load("/Users/nevencaplar/Documents/PFS/TigerAnalysis/CutsForTigerAug15/var"+str(obs)+str(single_number)+'Stacked_Dithered.npy')
+        else:       
+            sci_image=np.load("/Users/nevencaplar/Documents/PFS/TigerAnalysis/CutsForTigerAug15/sci"+str(obs)+str(single_number)+'Stacked_Cleaned.npy')
+            var_image=np.load("/Users/nevencaplar/Documents/PFS/TigerAnalysis/CutsForTigerAug15/var"+str(obs)+str(single_number)+'Stacked.npy')
+        
+        self.sci_image=sci_image
+        self.var_image=var_image
+        
+        columns=['z4','z5','z6','z7','z8','z9','z10','z11',
+                      'hscFrac','strutFrac','dxFocal','dyFocal','slitFrac','slitFrac_dy',
+                      'radiometricEffect','radiometricExponent',
+                      'x_ilum','y_ilum','minorAxis','pupilAngle',
+                      'grating_lines','scattering_radius','scattering_slope','scattering_amplitude',
+                      'pixel_effect','fiber_r','flux']    
+        
+        self.columns=columns
+        
+        RESULT_FOLDER='/Users/nevencaplar/Documents/PFS/TigerAnalysis/ResultsFromTiger/'+date+'/'
+        self.RESULT_FOLDER=RESULT_FOLDER
+        
+        IMAGES_FOLDER='/Users/nevencaplar/Documents/PFS/Images/'+date+'/'
+        if not os.path.exists(IMAGES_FOLDER):
+            os.makedirs(IMAGES_FOLDER)
+        self.IMAGES_FOLDER=IMAGES_FOLDER
+
+        self.date=date
+        self.obs=obs
+        self.single_number=single_number
+        self.eps=eps
+        
+        method='P'
+        self.method=method
+    
+    def create_likelihood(self):
+        chain_Emcee1=np.load(self.RESULT_FOLDER+'chain'+str(self.date)+'_Single_'+str(self.method)+'_'+str(self.obs)+str(self.single_number)+str(self.eps)+'Emcee1.npy')
+        likechain_Emcee1=np.load(self.RESULT_FOLDER+'likechain'+str(self.date)+'_Single_'+str(self.method)+'_'+str(self.obs)+str(self.single_number)+str(self.eps)+'Emcee1.npy')
+
+        # get chain number 0, which is has lowest temperature
+        likechain0_Emcee1=likechain_Emcee1[0]
+        chain0_Emcee1=chain_Emcee1[0]
+
+        chain_Emcee2=np.load(self.RESULT_FOLDER+'chain'+str(self.date)+'_Single_'+str(self.method)+'_'+str(self.obs)+str(self.single_number)+str(self.eps)+'Emcee2.npy')
+        likechain_Emcee2=np.load(self.RESULT_FOLDER+'likechain'+str(self.date)+'_Single_'+str(self.method)+'_'+str(self.obs)+str(self.single_number)+str(self.eps)+'Emcee2.npy')
+        
+        likechain0_Emcee2=likechain_Emcee2[0]
+        chain0_Emcee2=chain_Emcee2[0]        
+        
+        chain_Emcee3=np.load(self.RESULT_FOLDER+'chain'+str(self.date)+'_Single_'+str(self.method)+'_'+str(self.obs)+str(self.single_number)+str(self.eps)+'Emcee3.npy')
+        likechain_Emcee3=np.load(self.RESULT_FOLDER+'likechain'+str(self.date)+'_Single_'+str(self.method)+'_'+str(self.obs)+str(self.single_number)+str(self.eps)+'Emcee3.npy')
+        
+        # get chain number 0, which is has lowest temperature
+        likechain0_Emcee3=likechain_Emcee3[0]
+        chain0_Emcee3=chain_Emcee3[0]     
+        
+        # check the shape of the chain (number of walkers, number of steps, number of parameters)
+        print('(number of walkers, number of steps, number of parameters): '+str(chain0_Emcee3.shape))
+        
+        # see the best chain, in numpy and pandas form
+        minchain=chain0_Emcee3[np.abs(likechain0_Emcee3)==np.min(np.abs(likechain0_Emcee3))][0]
+        #print(minchain)
+        dfz22 = pd.DataFrame(np.array([np.array([minchain])[0][0:8]]),columns=self.columns[0:8])
+        print(dfz22)
+        dfglobal = pd.DataFrame(np.array([np.array([minchain])[0][8:]]),columns=self.columns[8:])
+        print(dfglobal)
+        
+        like_min=[]
+        for i in range(likechain0_Emcee1.shape[1]):
+            like_min.append(np.min(np.abs(likechain0_Emcee1[:,i])))
+        
+        for i in range(likechain0_Emcee2.shape[1]):
+            like_min.append(np.min(np.abs(likechain0_Emcee2[:,i])))    
+        
+        for i in range(likechain0_Emcee3.shape[1]):
+            like_min.append(np.min(np.abs(likechain0_Emcee3[:,i]))  )  
+            
+            
+        print('minimal likelihood is: '+str(np.min(like_min)))   
+        chi2=(np.array(like_min)*(2)-np.log(2*np.pi*np.sum(self.var_image)))/(self.sci_image.shape[0])**2
+        print('minimal chi2 reduced is: '+str(np.min(chi2)))
+        
+        return minchain,like_min
     
     
-    
-# ***********************    
+    def create_basic_comparison_plot(self):      
+        optPsf_cut_fiber_convolved_downsampled=np.load(TESTING_FINAL_IMAGES_FOLDER+'optPsf_cut_fiber_convolved_downsampled.npy')
+        res_iapetus=optPsf_cut_fiber_convolved_downsampled
+        sci_image=self.sci_image
+        var_image=self.var_image
+        
+        plt.figure(figsize=(20,20))
+        plt.subplot(221)
+        plt.imshow(res_iapetus,origin='lower',vmax=np.max(np.abs(sci_image)))
+        plt.plot(np.ones(len(sci_image))*14,np.array(range(len(sci_image))),'--',color='white')
+        plt.plot(np.ones(len(sci_image))*(14+2*6.5),np.array(range(len(sci_image))),'--',color='white')
+        plt.colorbar()
+        plt.title('Model')
+        plt.grid(False)
+        plt.subplot(222)
+        plt.imshow(sci_image,origin='lower',vmax=np.max(np.abs(sci_image)))
+        plt.plot(np.ones(len(sci_image))*14,np.array(range(len(sci_image))),'--',color='white')
+        plt.plot(np.ones(len(sci_image))*(14+2*6.5),np.array(range(len(sci_image))),'--',color='white')
+        plt.colorbar()
+        plt.title('Data')
+        plt.grid(False)
+        plt.subplot(223)
+        plt.imshow(res_iapetus-sci_image,origin='lower',cmap='bwr',vmin=-np.max(np.abs(sci_image))/20,vmax=np.max(np.abs(sci_image))/20)
+        plt.plot(np.ones(len(sci_image))*14,np.array(range(len(sci_image))),'--',color='black')
+        plt.plot(np.ones(len(sci_image))*(14+2*6.5),np.array(range(len(sci_image))),'--',color='black')
+        plt.colorbar()
+        plt.title('Residual')
+        plt.grid(False)
+        plt.subplot(224)
+        plt.imshow((res_iapetus-sci_image)/np.sqrt(var_image),origin='lower',cmap='bwr',vmax=np.max(np.abs((res_iapetus-sci_image)/np.sqrt(var_image))),vmin=-np.max(np.abs((res_iapetus-sci_image)/np.sqrt(var_image))))
+        plt.plot(np.ones(len(sci_image))*14,np.array(range(len(sci_image))),'--',color='black')
+        plt.plot(np.ones(len(sci_image))*(14+2*6.5),np.array(range(len(sci_image))),'--',color='black')
+        plt.colorbar()
+        plt.title('chi map')
+        print('chi**2 reduced is: '+str(np.sum((res_iapetus-sci_image)**2/((var_image.shape[0]*var_image.shape[1])*var_image))))
+        print('Abs of residual divided by total flux is: '+str(np.sum(np.abs((res_iapetus-sci_image)))/np.sum((res_iapetus))))
+        print('Abs of residual divided by largest value of a flux in the image is: '+str(np.max(np.abs((res_iapetus-sci_image)/np.max(res_iapetus)))))
+  
+    def create_basic_comparison_plot_log(self):      
+        optPsf_cut_fiber_convolved_downsampled=np.load(TESTING_FINAL_IMAGES_FOLDER+'optPsf_cut_fiber_convolved_downsampled.npy')
+        res_iapetus=optPsf_cut_fiber_convolved_downsampled
+        sci_image=self.sci_image
+        var_image=self.var_image
+        
+        plt.figure(figsize=(20,20))
+        plt.subplot(221)
+        plt.imshow(res_iapetus,origin='lower',vmin=1,vmax=np.max(np.abs(sci_image)),norm=LogNorm())
+        plt.colorbar()
+        plt.title('Model')
+        plt.grid(False)
+        plt.subplot(222)
+        plt.imshow(sci_image,origin='lower',vmin=1,vmax=np.max(np.abs(sci_image)),norm=LogNorm())
+        plt.colorbar()
+        plt.title('Data')
+        plt.grid(False)
+        plt.subplot(223)
+        plt.imshow(np.abs(res_iapetus-sci_image),origin='lower',vmax=np.max(np.abs(sci_image))/20,norm=LogNorm())
+        plt.colorbar()
+        plt.title('abs(Residual)')
+        plt.grid(False)
+        plt.subplot(224)
+        plt.imshow((res_iapetus-sci_image)**2/((1)*var_image),origin='lower',vmin=1,norm=LogNorm())
+        plt.colorbar()
+        plt.title('chi**2 map')
+        print(np.sum((res_iapetus-sci_image)**2/((var_image.shape[0]*var_image.shape[1])*var_image)))
+        np.sum(np.abs((res_iapetus-sci_image)))/np.sum((res_iapetus))
+        print('chi**2 reduced is: '+str(np.sum((res_iapetus-sci_image)**2/((var_image.shape[0]*var_image.shape[1])*var_image))))
+        print('Abs of residual divided by total flux is: '+str(np.sum(np.abs((res_iapetus-sci_image)))/np.sum((res_iapetus))))
+        print('Abs of residual divided by largest value of a flux in the image is: '+str(np.max(np.abs((res_iapetus-sci_image)/np.max(res_iapetus)))))     
+        
+        
+    def create_artificial_noise(self):
+        var_image=self.var_image
+        optPsf_cut_fiber_convolved_downsampled=np.load(TESTING_FINAL_IMAGES_FOLDER+'optPsf_cut_fiber_convolved_downsampled.npy')
+        res_iapetus=optPsf_cut_fiber_convolved_downsampled
+        
+        artifical_noise=np.zeros_like(res_iapetus)
+        artifical_noise=np.array(artifical_noise)
+        for i in range(len(artifical_noise)):
+            for j in range(len(artifical_noise)):
+                artifical_noise[i,j]=np.random.randn()*np.sqrt(var_image[i,j])       
+                
+        return artifical_noise
+   # ***********************    
 # 'free' (not inside a class) definitions below
 # ***********************   
 
@@ -1612,7 +1791,7 @@ def create_parInit(allparameters_proposal=None):
         globalparameters_flat_14=np.concatenate(([globalparameters_flatten[14]],
                                                  globalparameters_flat_14[np.all((globalparameters_flat_14>0.5,globalparameters_flat_14<3.5),axis=0)][0:nwalkers-1]))
         # scattering_amplitude
-        globalparameters_flat_15=np.random.normal(globalparameters_flatten[15],0.025,nwalkers*20)
+        globalparameters_flat_15=np.random.normal(globalparameters_flatten[15],0.1,nwalkers*20)
         globalparameters_flat_15=np.concatenate(([globalparameters_flatten[15]],
                                                  globalparameters_flat_15[np.all((globalparameters_flat_15>0.0,globalparameters_flat_15<1),axis=0)][0:nwalkers-1]))
         # pixel_effect
