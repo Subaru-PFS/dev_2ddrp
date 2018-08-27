@@ -803,20 +803,21 @@ class ZernikeFitter_PFS(object):
         
         # what is nyquistscale scale
         nyquistscale=self.nyquistscale
-        # how much is my generated image oversampled
+        
+        # how much is my generated image oversampled compared to final image
         oversampling_original=(self.pixelScale)/nyquistscale
-        
-        
-        oversampling=int(self.pixelScale/(4*nyquistscale))
         # reduce oversampling by the factor of 4  to make things easier
+        oversampling=int(self.pixelScale/(4*nyquistscale))
         optPsf_downsampled=skimage.transform.resize(optPsf,(int(optPsf.shape[0]/(4)),int(optPsf.shape[0]/(4))),order=3)
         
+        # gives middle point of the image to used for calculations of scattered light 
         mid_point_of_optPsf_downsampled=int(optPsf_downsampled.shape[0]/2)
         
-        #gives the size of one pixel in optPsf_downsampled in microns
-        size_of_pixels_in_optPsf_downsampled=15/oversampling
-        #print(size_of_pixels_in_optPsf_downsampled)
+        # gives the size of one pixel in optPsf_downsampled in microns
+        size_of_pixels_in_optPsf_downsampled=(15/self.dithering)/oversampling
+        # size of the created optical PSF images in microns
         size_of_optPsf_in_Microns=size_of_pixels_in_optPsf_downsampled*(optPsf_downsampled.shape[0])
+        # create grid to apply scattered light
         pointsx = np.linspace(-(size_of_optPsf_in_Microns-size_of_pixels_in_optPsf_downsampled)/2,(size_of_optPsf_in_Microns-size_of_pixels_in_optPsf_downsampled)/2,num=optPsf_downsampled.shape[0])
         pointsy =np.linspace(-(size_of_optPsf_in_Microns-size_of_pixels_in_optPsf_downsampled)/2,(size_of_optPsf_in_Microns-size_of_pixels_in_optPsf_downsampled)/2,num=optPsf_downsampled.shape[0])
         xs, ys = np.meshgrid(pointsx, pointsy)
@@ -877,6 +878,7 @@ class ZernikeFitter_PFS(object):
         if self.save==1:
             np.save(TESTING_FINAL_IMAGES_FOLDER+'optPsf',optPsf)
             np.save(TESTING_FINAL_IMAGES_FOLDER+'optPsf_downsampled',optPsf_downsampled)
+            np.save(TESTING_FINAL_IMAGES_FOLDER+'scattered_light',scattered_light)                        
             np.save(TESTING_FINAL_IMAGES_FOLDER+'scattered_light_center_Guess',scattered_light_center_Guess)
             np.save(TESTING_FINAL_IMAGES_FOLDER+'fiber',fiber)
             np.save(TESTING_FINAL_IMAGES_FOLDER+'optPsf_downsampled_scattered',optPsf_downsampled_scattered)        
@@ -975,8 +977,10 @@ class LN_PFS_single(object):
         
         
         zmax=11
-        
-        npix_value=int(math.ceil(int(1024*sci_image.shape[0]/(20*2*self.dithering)))*2)
+        if dithering is None:
+            npix_value=int(math.ceil(int(1024*sci_image.shape[0]/(20*2)))*2)
+        else:
+            npix_value=int(math.ceil(int(1024*sci_image.shape[0]/(20*2*self.dithering)))*2)
         
         single_image_analysis=ZernikeFitter_PFS(sci_image,var_image,npix=npix_value,dithering=dithering,save=save)
         single_image_analysis.initParams(zmax) 
@@ -1324,11 +1328,7 @@ class Zernike_Analysis(object):
         # see the best chain, in numpy and pandas form
         minchain=chain0_Emcee3[np.abs(likechain0_Emcee3)==np.min(np.abs(likechain0_Emcee3))][0]
         #print(minchain)
-        dfz22 = pd.DataFrame(np.array([np.array([minchain])[0][0:8]]),columns=self.columns[0:8])
-        print(dfz22)
-        dfglobal = pd.DataFrame(np.array([np.array([minchain])[0][8:]]),columns=self.columns[8:])
-        print(dfglobal)
-        
+ 
         like_min=[]
         for i in range(likechain0_Emcee1.shape[1]):
             like_min.append(np.min(np.abs(likechain0_Emcee1[:,i])))
@@ -1779,11 +1779,11 @@ def create_parInit(allparameters_proposal=None):
         globalparameters_flat_11=np.concatenate(([globalparameters_flatten[11]],
                                                  globalparameters_flat_11[np.all((globalparameters_flat_11>-np.pi/2,globalparameters_flat_11<np.pi/2),axis=0)][0:nwalkers-1]))
         # grating lines
-        globalparameters_flat_12=np.random.normal(globalparameters_flatten[12],10000,nwalkers*20)
+        globalparameters_flat_12=np.random.normal(globalparameters_flatten[12],30000,nwalkers*20)
         globalparameters_flat_12=np.concatenate(([globalparameters_flatten[12]],
                                                  globalparameters_flat_12[np.all((globalparameters_flat_12>1200,globalparameters_flat_12<120000),axis=0)][0:nwalkers-1]))
         # scattering_radius
-        globalparameters_flat_13=np.random.normal(globalparameters_flatten[13],10,nwalkers*20)
+        globalparameters_flat_13=np.random.normal(globalparameters_flatten[13],300,nwalkers*20)
         globalparameters_flat_13=np.concatenate(([globalparameters_flatten[13]],
                                                  globalparameters_flat_13[np.all((globalparameters_flat_13>1,globalparameters_flat_13<1200),axis=0)][0:nwalkers-1]))
         # scattering_slope
@@ -1799,7 +1799,7 @@ def create_parInit(allparameters_proposal=None):
         globalparameters_flat_16=np.concatenate(([globalparameters_flatten[16]],
                                                  globalparameters_flat_16[np.all((globalparameters_flat_16>0.2,globalparameters_flat_16<1.1),axis=0)][0:nwalkers-1]))
         
-        # flux
+        # fiber_r
         globalparameters_flat_17=np.random.normal(globalparameters_flatten[17],0.2,nwalkers*20)
         globalparameters_flat_17=np.concatenate(([globalparameters_flatten[17]],
                                                  globalparameters_flat_17[np.all((globalparameters_flat_17>1.4,globalparameters_flat_17<2.4),axis=0)][0:nwalkers-1]))
