@@ -760,15 +760,16 @@ class ZernikeFitter_PFS(object):
         img_apod = np.abs(ftexpwf)**2
         
 
-        """
-        np.save(TESTING_PUPIL_IMAGES_FOLDER+'aperilluminated',aper.illuminated)  
-        np.save(TESTING_PUPIL_IMAGES_FOLDER+'radiometricEffectArray',radiometricEffectArray)     
-        np.save(TESTING_PUPIL_IMAGES_FOLDER+'ilum',ilum)   
-        np.save(TESTING_PUPIL_IMAGES_FOLDER+'ilum_radiometric',ilum_radiometric) 
-        np.save(TESTING_PUPIL_IMAGES_FOLDER+'r_resize',r)  
-        np.save(TESTING_WAVEFRONT_IMAGES_FOLDER+'wf_grid',wf_grid)  
-        np.save(TESTING_WAVEFRONT_IMAGES_FOLDER+'expwf_grid',expwf_grid)   
-        """
+
+        if self.save==1:
+            np.save(TESTING_PUPIL_IMAGES_FOLDER+'aperilluminated',aper.illuminated)  
+            np.save(TESTING_PUPIL_IMAGES_FOLDER+'radiometricEffectArray',radiometricEffectArray)     
+            np.save(TESTING_PUPIL_IMAGES_FOLDER+'ilum',ilum)   
+            np.save(TESTING_PUPIL_IMAGES_FOLDER+'ilum_radiometric',ilum_radiometric) 
+            np.save(TESTING_PUPIL_IMAGES_FOLDER+'r_resize',r)  
+            np.save(TESTING_WAVEFRONT_IMAGES_FOLDER+'wf_grid',wf_grid)  
+            np.save(TESTING_WAVEFRONT_IMAGES_FOLDER+'expwf_grid',expwf_grid)   
+
         return img_apod
 
 
@@ -808,6 +809,7 @@ class ZernikeFitter_PFS(object):
         oversampling_original=(self.pixelScale)/nyquistscale
         # reduce oversampling by the factor of 4  to make things easier
         oversampling=int(self.pixelScale/(4*nyquistscale))
+     
         optPsf_downsampled=skimage.transform.resize(optPsf,(int(optPsf.shape[0]/(4)),int(optPsf.shape[0]/(4))),order=3)
         
         # gives middle point of the image to used for calculations of scattered light 
@@ -832,7 +834,8 @@ class ZernikeFitter_PFS(object):
         # cuts the central part of the scattered light array to match the size of the final image
         # not too happy about this solution - assumes that center of scaterring is in the center of the image
         scattered_light_center_Guess=optPsf_downsampled[mid_point_of_optPsf_downsampled-oversampling*int(shape[0]/2):mid_point_of_optPsf_downsampled+oversampling*int(shape[0]/2),mid_point_of_optPsf_downsampled-oversampling*int(shape[0]/2):mid_point_of_optPsf_downsampled+oversampling*int(shape[0]/2)]
-      
+        print(optPsf_downsampled.shape)
+        print(scattered_light_center_Guess.shape)
         #previous solution
         #scattered_light=((v['scattering_amplitude'])*np.sum(optPsf_downsampled)/np.sum(scattered_light))*scattered_light
         if np.sum(scattered_light)>0:
@@ -868,7 +871,7 @@ class ZernikeFitter_PFS(object):
         optPsf_cut_grating_convolved=scipy.signal.fftconvolve(optPsf_cut_pixel_response_convolved, kernel, mode='same')
         
 
-
+        print(optPsf_cut_grating_convolved.shape)
         #finds the best downsampling combination automatically 
         optPsf_cut_fiber_convolved_downsampled=find_single_realization_min_cut(optPsf_cut_grating_convolved,
                                                                                int(oversampling),shape[0],self.image,self.image_var,
@@ -981,7 +984,7 @@ class LN_PFS_single(object):
             npix_value=int(math.ceil(int(1024*sci_image.shape[0]/(20*2)))*2)
         else:
             npix_value=int(math.ceil(int(1024*sci_image.shape[0]/(20*2*self.dithering)))*2)
-        
+
         single_image_analysis=ZernikeFitter_PFS(sci_image,var_image,npix=npix_value,dithering=dithering,save=save)
         single_image_analysis.initParams(zmax) 
         self.single_image_analysis=single_image_analysis
@@ -1346,39 +1349,68 @@ class Zernike_Analysis(object):
         
         return minchain,like_min
     
+    def create_chains(self):
+         
+        chain_Emcee1=np.load(self.RESULT_FOLDER+'chain'+str(self.date)+'_Single_'+str(self.method)+'_'+str(self.obs)+str(self.single_number)+str(self.eps)+'Emcee1.npy')
+        likechain_Emcee1=np.load(self.RESULT_FOLDER+'likechain'+str(self.date)+'_Single_'+str(self.method)+'_'+str(self.obs)+str(self.single_number)+str(self.eps)+'Emcee1.npy')
+
+        # get chain number 0, which is has lowest temperature
+        likechain0_Emcee1=likechain_Emcee1[0]
+        chain0_Emcee1=chain_Emcee1[0]
+
+        chain_Emcee2=np.load(self.RESULT_FOLDER+'chain'+str(self.date)+'_Single_'+str(self.method)+'_'+str(self.obs)+str(self.single_number)+str(self.eps)+'Emcee2.npy')
+        likechain_Emcee2=np.load(self.RESULT_FOLDER+'likechain'+str(self.date)+'_Single_'+str(self.method)+'_'+str(self.obs)+str(self.single_number)+str(self.eps)+'Emcee2.npy')
+        
+        likechain0_Emcee2=likechain_Emcee2[0]
+        chain0_Emcee2=chain_Emcee2[0]        
+        
+        chain_Emcee3=np.load(self.RESULT_FOLDER+'chain'+str(self.date)+'_Single_'+str(self.method)+'_'+str(self.obs)+str(self.single_number)+str(self.eps)+'Emcee3.npy')
+        likechain_Emcee3=np.load(self.RESULT_FOLDER+'likechain'+str(self.date)+'_Single_'+str(self.method)+'_'+str(self.obs)+str(self.single_number)+str(self.eps)+'Emcee3.npy')
+        
+        # get chain number 0, which is has lowest temperature
+        likechain0_Emcee3=likechain_Emcee3[0]
+        chain0_Emcee3=chain_Emcee3[0]     
+        
+        
+        return chain0_Emcee3,likechain0_Emcee3   
     
     def create_basic_comparison_plot(self):      
         optPsf_cut_fiber_convolved_downsampled=np.load(TESTING_FINAL_IMAGES_FOLDER+'optPsf_cut_fiber_convolved_downsampled.npy')
         res_iapetus=optPsf_cut_fiber_convolved_downsampled
         sci_image=self.sci_image
         var_image=self.var_image
+        size=sci_image.shape[0]
+        if size==40:
+            dithering=2
+        else:
+            dithering=1
         
         plt.figure(figsize=(20,20))
         plt.subplot(221)
         plt.imshow(res_iapetus,origin='lower',vmax=np.max(np.abs(sci_image)))
-        plt.plot(np.ones(len(sci_image))*14,np.array(range(len(sci_image))),'--',color='white')
-        plt.plot(np.ones(len(sci_image))*(14+2*6.5),np.array(range(len(sci_image))),'--',color='white')
+        plt.plot(np.ones(len(sci_image))*(size/2-3.5),np.array(range(len(sci_image))),'--',color='white')
+        plt.plot(np.ones(len(sci_image))*((size/2-dithering*3.5)+7*dithering),np.array(range(len(sci_image))),'--',color='white')
         plt.colorbar()
         plt.title('Model')
         plt.grid(False)
         plt.subplot(222)
         plt.imshow(sci_image,origin='lower',vmax=np.max(np.abs(sci_image)))
-        plt.plot(np.ones(len(sci_image))*14,np.array(range(len(sci_image))),'--',color='white')
-        plt.plot(np.ones(len(sci_image))*(14+2*6.5),np.array(range(len(sci_image))),'--',color='white')
+        plt.plot(np.ones(len(sci_image))*(size/2-3.5),np.array(range(len(sci_image))),'--',color='white')
+        plt.plot(np.ones(len(sci_image))*((size/2-dithering*3.5)+7*dithering),np.array(range(len(sci_image))),'--',color='white')
         plt.colorbar()
         plt.title('Data')
         plt.grid(False)
         plt.subplot(223)
         plt.imshow(res_iapetus-sci_image,origin='lower',cmap='bwr',vmin=-np.max(np.abs(sci_image))/20,vmax=np.max(np.abs(sci_image))/20)
-        plt.plot(np.ones(len(sci_image))*14,np.array(range(len(sci_image))),'--',color='black')
-        plt.plot(np.ones(len(sci_image))*(14+2*6.5),np.array(range(len(sci_image))),'--',color='black')
+        plt.plot(np.ones(len(sci_image))*(size/2-3.5),np.array(range(len(sci_image))),'--',color='black')
+        plt.plot(np.ones(len(sci_image))*((size/2-dithering*3.5)+7*dithering),np.array(range(len(sci_image))),'--',color='black')
         plt.colorbar()
         plt.title('Residual')
         plt.grid(False)
         plt.subplot(224)
         plt.imshow((res_iapetus-sci_image)/np.sqrt(var_image),origin='lower',cmap='bwr',vmax=np.max(np.abs((res_iapetus-sci_image)/np.sqrt(var_image))),vmin=-np.max(np.abs((res_iapetus-sci_image)/np.sqrt(var_image))))
-        plt.plot(np.ones(len(sci_image))*14,np.array(range(len(sci_image))),'--',color='black')
-        plt.plot(np.ones(len(sci_image))*(14+2*6.5),np.array(range(len(sci_image))),'--',color='black')
+        plt.plot(np.ones(len(sci_image))*(size/2-3.5),np.array(range(len(sci_image))),'--',color='black')
+        plt.plot(np.ones(len(sci_image))*((size/2-dithering*3.5)+7*dithering),np.array(range(len(sci_image))),'--',color='black')
         plt.colorbar()
         plt.title('chi map')
         print('chi**2 reduced is: '+str(np.sum((res_iapetus-sci_image)**2/((var_image.shape[0]*var_image.shape[1])*var_image))))
@@ -1528,8 +1560,11 @@ def create_single_realization(optPsf_cut_pixel_response_convolved_pixelized_conv
     # what is the size of the input
     shape_of_input_img=optPsf_cut_pixel_response_convolved_pixelized_convolved.shape[0]
     #we do not analyze the full image to save time; I assume that centering is in the inner half of the image
+
     min_value_to_analyse=int(shape_of_input_img/2-int(oversampling*(sci_image_0.shape[0]/2+3)))
     max_value_to_analyse=int(shape_of_input_img/2+int(oversampling*(sci_image_0.shape[0]/2+3)))
+    #print(min_value_to_analyse)
+    #print(max_value_to_analyse)
     assert max_value_to_analyse+oversampling<shape_of_input_img, "oversampled image is too small to downsample"
     assert min_value_to_analyse>0, "oversampled image is too small to downsample"
     #how big is the final image 
