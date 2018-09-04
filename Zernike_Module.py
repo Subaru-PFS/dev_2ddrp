@@ -773,7 +773,8 @@ class ZernikeFitter_PFS(object):
 
         
         # do Fourier and square it to create image
-        ftexpwf = galsim.fft.fft2(expwf_grid,shift_in=True,shift_out=True)
+        #ftexpwf = galsim.fft.fft2(expwf_grid,shift_in=True,shift_out=True)
+        ftexpwf =np.fft.fftshift(np.fft.fft2(np.fft.fftshift(expwf_grid)))
         img_apod = np.abs(ftexpwf)**2
         
 
