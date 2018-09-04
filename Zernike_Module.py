@@ -15,17 +15,17 @@ import numpy as np
 np.set_printoptions(suppress=True)
 np.seterr(divide='ignore', invalid='ignore')
 import math
-import pandas as pd
+#import pandas as pd
 import os
 
-import time
+#import time
 
 # lsst stack
 #import lsst.afw
-from lsst.afw.cameraGeom import PupilFactory
-from lsst.afw.geom import Angle, degrees
+#from lsst.afw.cameraGeom import PupilFactory
+#from lsst.afw.geom import Angle, degrees
 #from lsst.afw import geom
-from lsst.afw.geom import Point2D
+#from lsst.afw.geom import Point2D
 
 # astropy
 import astropy
@@ -226,7 +226,7 @@ class PupilFactory(object):
                           ((self.v-p0[1])*np.cos(-angleRad)-(self.u-p0[0])*np.sin(-angleRad)>y21))] = False    
         
         
-    def _cutRay(self, pupil, p0, angle, thickness):
+    def _cutRay(self, pupil, p0, angle, thickness,angleunit=None):
         """Cut out a ray from a Pupil.
 
         @param[in,out] pupil  Pupil to modify in place
@@ -234,7 +234,10 @@ class PupilFactory(object):
         @param[in] angle      Ray angle measured CCW from +x.
         @param[in] thickness  Thickness of cutout
         """
-        angleRad = angle.asRadians()
+        if angleunit is None:
+            angleRad = angle.asRadians()
+        else:   
+            angleRad = angle       
         # the 1 is arbitrary, just need something to define another point on
         # the line
         p1 = (p0[0] + 1, p0[1] + np.tan(angleRad))
@@ -256,8 +259,11 @@ class PFSPupilFactory(PupilFactory):
         PupilFactory.__init__(self, pupilSize,npix,input_angle,hscFrac,strutFrac,slitFrac,slitFrac_dy,minorAxis,pupilAngle)
         self.minorAxis=minorAxis
         self.pupilAngle=pupilAngle
+        '''
         hra = self._horizonRotAngle()
         hraRad = hra.asRadians()
+        print(hra)
+        print(hraRad)
         rot = np.array([[np.cos(hraRad), np.sin(hraRad)],
                         [-np.sin(hraRad), np.cos(hraRad)]])
 
@@ -268,7 +274,8 @@ class PFSPupilFactory(PupilFactory):
                          np.array([0, 0])]
         # Half angle between pair of struts that meet at Subaru prime focus
         # ring.
-        strutAngle =60*degrees
+
+        astrutAngle =60*degrees
         alpha = strutAngle - 60.0*degrees
         unrotAngles = [90*degrees + alpha,
                        210*degrees - alpha,
@@ -279,8 +286,11 @@ class PFSPupilFactory(PupilFactory):
         for pos, angle in zip(unrotStartPos, unrotAngles):
             self._spiderStartPos.append(np.dot(rot, pos))
             self._spiderAngles.append(angle - hra)
+        '''            
+        self._spiderStartPos=[np.array([ 0.,  0.]), np.array([ 0.,  0.]), np.array([ 0.,  0.])]
+        self._spiderAngles=[1.57-1.57,3.66519-1.57,5.75959-1.57]
 
-    def _horizonRotAngle(self):
+    def _horizonRotAngle(self,resultunit=None):
         """!Compute rotation angle of camera with respect to horizontal
         coordinates from self.visitInfo.
 
@@ -307,8 +317,13 @@ class PFSPupilFactory(PupilFactory):
         bra = self.visitInfo.getBoresightRotAngle()
         #return (bra - parAng).wrap()
         """
-        parAng = Angle(self.input_angle)
-        return parAng.wrap()
+        
+        if resultunit is None:
+            parAng = Angle(self.input_angle)
+            return parAng.wrap()
+        else:   
+            return 0   
+        
 
     def getPupil(self, point):
         """!Calculate a Pupil at a given point in the focal plane.
@@ -345,8 +360,8 @@ class PFSPupilFactory(PupilFactory):
 
 
         hscPlateScale = 380  
-        thetaX = point.getX() * hscPlateScale 
-        thetaY = point.getY() * hscPlateScale 
+        thetaX = point[0] * hscPlateScale 
+        thetaY = point[1] * hscPlateScale 
 
         pupil = self._fullPupil()
         # Cut out primary mirror exterior
@@ -367,10 +382,12 @@ class PFSPupilFactory(PupilFactory):
         for pos, angle in zip(self._spiderStartPos, self._spiderAngles):
             x = pos[0] + camX
             y = pos[1] + camY
-            self._cutRay(pupil, (x, y), angle, subaruStrutThick)
+            self._cutRay(pupil, (x, y), angle, subaruStrutThick,'rad')
             
-        self._cutRay(pupil, (2,slitFrac_dy/18), Angle(-np.pi),subaruSlit) 
-        #self._cutRay(pupil, (0.6,2), Angle(-np.pi/2),0.2*subaruSlit) 
+        #self._cutRay(pupil, (2,slitFrac_dy/18), Angle(-np.pi),subaruSlit) 
+        
+        self._cutRay(pupil, (2,slitFrac_dy/18),-np.pi,subaruSlit,'rad') 
+
         return pupil
 
 class ZernikeFitter_PFS(object):
@@ -682,7 +699,7 @@ class ZernikeFitter_PFS(object):
                                     params['slitFrac_dy'.format(i)],params['minorAxis'.format(i)],params['pupilAngle'.format(i)])
         
         # here we specify what is the position of the detector, i.e., what is the position of the central obscuration in the exit pupil
-        point=Point2D(params['dxFocal'.format(i)],params['dyFocal'.format(i)])
+        point=[params['dxFocal'.format(i)],params['dyFocal'.format(i)]]
         pupil=Pupil_Image.getPupil(point)
         
         #np.save(TESTING_PUPIL_IMAGES_FOLDER+'pupililluminated',pupil.illuminated)  
@@ -1645,8 +1662,8 @@ def find_single_realization_min_cut(optPsf_cut_pixel_response_convolved_pixelize
     """
   
     res=[]
-    for deltax in xrange(0,oversampling):
-        for deltay in xrange(0,oversampling):
+    for deltax in range(0,oversampling):
+        for deltay in range(0,oversampling):
             # create single realization of the downsampled image
             single_realization=create_single_realization(optPsf_cut_pixel_response_convolved_pixelized_convolved,deltax,deltay,oversampling,sci_image_0)
             # find best chi for this single realization 
