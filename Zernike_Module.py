@@ -842,6 +842,8 @@ class ZernikeFitter_PFS(object):
         pointsy =np.linspace(-(size_of_optPsf_in_Microns-size_of_pixels_in_optPsf_downsampled)/2,(size_of_optPsf_in_Microns-size_of_pixels_in_optPsf_downsampled)/2,num=optPsf_downsampled.shape[0])
         xs, ys = np.meshgrid(pointsx, pointsy)
         r0 = np.sqrt((xs-0)** 2 + (ys-0)** 2)+.01
+        
+        """
         r0[r0<v['scattering_radius']]=0
         
         scattered_light=(r0**(-v['scattering_slope']))
@@ -861,14 +863,33 @@ class ZernikeFitter_PFS(object):
         else:
             scattered_light=np.zeros((optPsf_downsampled.shape[0],optPsf_downsampled.shape[0]))
         optPsf_downsampled_scattered=optPsf_downsampled+scattered_light
+        """
+        #r0[r0<v['scattering_radius']]=0
+        scattered_light_kernel=(r0**(-v['scattering_slope']))
+        scattered_light_kernel=np.zeros((optPsf_downsampled.shape[0],optPsf_downsampled.shape[0]))+scattered_light_kernel
+        scattered_light_kernel[scattered_light_kernel == np.inf] = 0
+        #scattered_light=scipy.signal.fftconvolve(optPsf_downsampled,scattered_light_kernel,mode='same')
+        scattered_light= custom_fftconvolve(optPsf_downsampled,scattered_light_kernel)
+
+        if np.sum(scattered_light)>0:
+            scattered_light=((v['scattering_amplitude'])*np.sum(optPsf_downsampled)/np.sum(scattered_light))*scattered_light
+        else:
+            scattered_light=np.zeros((optPsf_downsampled.shape[0],optPsf_downsampled.shape[0]))
+            
+        optPsf_downsampled_scattered=optPsf_downsampled+scattered_light        
+        
+        
         fiber = astropy.convolution.Tophat2DKernel(round(oversampling*1*v['fiber_r']*self.dithering),mode='center').array
 
+        fiber_padded=np.zeros_like(optPsf_downsampled_scattered)
+        mid_point_of_optPsf_downsampled=int(optPsf_downsampled.shape[0]/2)
+        fiber_array_size=fiber.shape[0]
+        fiber_padded[int(mid_point_of_optPsf_downsampled-fiber_array_size/2):int(mid_point_of_optPsf_downsampled+fiber_array_size/2),int(mid_point_of_optPsf_downsampled-fiber_array_size/2):int(mid_point_of_optPsf_downsampled+fiber_array_size/2)]=fiber
 
         # convolve with fiber
-        optPsf_fiber_convolved=scipy.signal.fftconvolve(optPsf_downsampled_scattered, fiber, mode = 'same') 
+        #optPsf_fiber_convolved=scipy.signal.fftconvolve(optPsf_downsampled_scattered, fiber, mode = 'same') 
+        optPsf_fiber_convolved=custom_fftconvolve(optPsf_downsampled_scattered,fiber_padded)
 
-
-        
         #cut part which you need
         optPsf_cut_fiber_convolved=cut_Centroid_of_natural_resolution_image(optPsf_fiber_convolved,len(optPsf_fiber_convolved)/1.5,1,0,0)
       
@@ -889,7 +910,7 @@ class ZernikeFitter_PFS(object):
         optPsf_cut_grating_convolved=scipy.signal.fftconvolve(optPsf_cut_pixel_response_convolved, kernel, mode='same')
         
 
-        print(optPsf_cut_grating_convolved.shape)
+        #print(optPsf_cut_grating_convolved.shape)
         #finds the best downsampling combination automatically 
         optPsf_cut_fiber_convolved_downsampled=find_single_realization_min_cut(optPsf_cut_grating_convolved,
                                                                                int(oversampling),shape[0],self.image,self.image_var,
@@ -900,7 +921,9 @@ class ZernikeFitter_PFS(object):
             np.save(TESTING_FINAL_IMAGES_FOLDER+'optPsf',optPsf)
             np.save(TESTING_FINAL_IMAGES_FOLDER+'optPsf_downsampled',optPsf_downsampled)
             np.save(TESTING_FINAL_IMAGES_FOLDER+'scattered_light',scattered_light)                        
-            np.save(TESTING_FINAL_IMAGES_FOLDER+'scattered_light_center_Guess',scattered_light_center_Guess)
+            #np.save(TESTING_FINAL_IMAGES_FOLDER+'scattered_light_center_Guess',scattered_light_center_Guess)
+            np.save(TESTING_FINAL_IMAGES_FOLDER+'scattered_light',scattered_light)
+            np.save(TESTING_FINAL_IMAGES_FOLDER+'scattered_light_kernel',scattered_light_kernel)
             np.save(TESTING_FINAL_IMAGES_FOLDER+'fiber',fiber)
             np.save(TESTING_FINAL_IMAGES_FOLDER+'optPsf_downsampled_scattered',optPsf_downsampled_scattered)        
             np.save(TESTING_FINAL_IMAGES_FOLDER+'optPsf_fiber_convolved',optPsf_fiber_convolved)
@@ -1147,7 +1170,7 @@ class LN_PFS_single(object):
         # scattering_amplitude
         if globalparameters[15]<0:
             return -np.inf
-        if globalparameters[15]>+1:
+        if globalparameters[15]>+10:
             return -np.inf             
         
         # pixel_effect
@@ -1883,4 +1906,48 @@ def create_parInit(allparameters_proposal=None):
 def Ifun16Ne (lambdaV,lambda0,Ne):
     return (lambda0/(Ne*np.pi*np.sqrt(2)))**2/((lambdaV-lambda0)**2+(lambda0/(Ne*np.pi*np.sqrt(2)))**2)
 
+def create_res_data(FFTTest_fiber_and_pixel_convolved_downsampled_40,mask=None,custom_cent=None,size_pixel=None):
+    
+    if size_pixel is None:
+        size_pixel=7.5
+    
+    image_shape=np.array(FFTTest_fiber_and_pixel_convolved_downsampled_40.shape)
+    if custom_cent is None:
+        xs0=0
+        ys0=0
+    else:
 
+        xs0=(find_centroid_of_flux(FFTTest_fiber_and_pixel_convolved_downsampled_40)[0]-int(image_shape[0]/2))*size_pixel
+        ys0=(find_centroid_of_flux(FFTTest_fiber_and_pixel_convolved_downsampled_40)[1]-int(image_shape[0]/2))*size_pixel
+    pointsx = np.linspace(-(int(image_shape[0]*size_pixel)-size_pixel)/2,(int(image_shape[0]*size_pixel)-size_pixel)/2,num=int(image_shape[0]))
+    pointsy = np.linspace(-(int(image_shape[0]*size_pixel)-size_pixel)/2,(int(image_shape[0]*size_pixel)-size_pixel)/2,num=int(image_shape[0]))
+    xs, ys = np.meshgrid(pointsx, pointsy)
+    r0 = np.sqrt((xs-xs0)** 2 + (ys-ys0)** 2)
+    
+    if mask is None:
+        mask=np.ones((FFTTest_fiber_and_pixel_convolved_downsampled_40.shape[0],FFTTest_fiber_and_pixel_convolved_downsampled_40.shape[1]))
+    
+    distances=range(int(image_shape[0]/2*size_pixel*1.2))
+
+    res_test_data=[]
+    for r in distances:
+        pixels_upper_limit=(mask*FFTTest_fiber_and_pixel_convolved_downsampled_40)[r0<(r+size_pixel)]
+        pixels_lower_limit=(mask*FFTTest_fiber_and_pixel_convolved_downsampled_40)[r0<(r)]
+        
+        mask_upper_limit=mask[r0<(r+size_pixel)]
+        mask_lower_limit=mask[r0<(r)]
+        
+        number_of_valid_pixels=np.sum(mask_upper_limit)-np.sum(mask_lower_limit)
+        
+        if number_of_valid_pixels==0:
+            res_test_data.append(0)
+        else:                  
+            average_flux=(np.sum(pixels_upper_limit)-np.sum(pixels_lower_limit))/number_of_valid_pixels
+            res_test_data.append(average_flux)        
+
+    return res_test_data 
+
+def custom_fftconvolve(array1, array2):
+    assert array1.shape==array2.shape
+    return np.fft.fftshift(np.real(np.fft.irfft2(np.fft.rfft2(array1)*np.fft.rfft2(array2))))
+    
