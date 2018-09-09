@@ -11,14 +11,23 @@ Created on Mon Aug 13 10:01:03 2018
 #general import statments
 from __future__ import absolute_import, division, print_function
 import galsim
+
+import os
+os.environ["MKL_NUM_THREADS"] = "1" 
+os.environ["NUMEXPR_NUM_THREADS"] = "1" 
+os.environ["OMP_NUM_THREADS"] = "1" 
+
 import numpy as np
 np.set_printoptions(suppress=True)
 np.seterr(divide='ignore', invalid='ignore')
 import math
+#import pyfftw
 #import pandas as pd
-import os
 
-#import time
+
+#print(np.__config__)
+
+import time
 
 # lsst stack
 #import lsst.afw
@@ -401,7 +410,7 @@ class ZernikeFitter_PFS(object):
     """
     def __init__(self, image=None,image_var=None,pixelScale=None,wavelength=None,
                  jacobian=None,diam_sic=None,npix=None,pupilExplicit=None,
-                 wf_full_Image=None,radiometricEffectArray_Image=None,ilum_Image=None,dithering=None,save=None,*args):
+                 wf_full_Image=None,radiometricEffectArray_Image=None,ilum_Image=None,dithering=None,save=None,pupil_parameters=None,*args):
         """
         @param image        image to analyze
         @param image_var    variance image
@@ -496,6 +505,12 @@ class ZernikeFitter_PFS(object):
         else:
             save=1
             self.save=save
+
+        if pupil_parameters is None:
+            self.pupil_parameters=pupil_parameters
+        else:
+            self.pupil_parameters=pupil_parameters
+
             
             self.args = args
     
@@ -534,9 +549,10 @@ class ZernikeFitter_PFS(object):
         @param scattering_amplitudeInit  amplitude of scattering compared to optical PSF
         @param fiber_rInit               radius of perfect tophat fiber, as seen on the detector [in units of 15 microns] 
         """
-        
-        self.zmax=zmax
+        #print(hscFracInit)
+        self.zmax=zmax      
         params = lmfit.Parameters()
+        
 
         if z4Init is None:
             params.add('z4', 0.0)
@@ -545,7 +561,7 @@ class ZernikeFitter_PFS(object):
             
         for i in range(5, self.zmax+1):
             params.add('z{}'.format(i), 0.0)
-            
+
         if dxInit is None:
             params.add('dx', 0.0)
         else:
@@ -555,11 +571,13 @@ class ZernikeFitter_PFS(object):
             params.add('dy', 0.0)
         else:
             params.add('dy', dyInit)   
-            
+
+
+      
         if hscFracInit is None:
             params.add('hscFrac', 0)
         else:
-            params.add('hscFrac', hscFracInit)        
+            params.add('hscFrac',hscFracInit)        
 
         if strutFracInit is None:
             params.add('strutFrac', 0)
@@ -572,12 +590,7 @@ class ZernikeFitter_PFS(object):
         else:
             params.add('dxFocal', focalPlanePositionInit[0]) 
             params.add('dyFocal', focalPlanePositionInit[1])  
-            
-        if fiber_rInit is None:
-            params.add('fiber_r', 1.8)
-        else:
-            params.add('fiber_r', fiber_rInit)  
-    
+
         if slitFracInit is None:
             params.add('slitFrac', 0)
         else:
@@ -586,7 +599,15 @@ class ZernikeFitter_PFS(object):
         if slitFrac_dy_Init is None:
             params.add('slitFrac_dy', 0)
         else:
-            params.add('slitFrac_dy', slitFrac_dy_Init)   
+            params.add('slitFrac_dy', slitFrac_dy_Init)  
+
+            
+        if fiber_rInit is None:
+            params.add('fiber_r', 1.8)
+        else:
+            params.add('fiber_r', fiber_rInit)  
+    
+ 
             
         #if apodizationInit is None:
         #    params.add('apodization', 10)
@@ -673,7 +694,7 @@ class ZernikeFitter_PFS(object):
         nyquistscale=nyQuistScale(self.diam_sic,self.wavelength,1.162)
         self.nyquistscale=nyquistscale
         #print('self.nyquistscale: '+str(self.nyquistscale))
-        
+        #print(params)
         self.params = params
     
     def _getOptPsf_naturalResolution(self,params):
@@ -692,15 +713,27 @@ class ZernikeFitter_PFS(object):
         for i in range(4, self.zmax + 1):
             aberrations.append(params['z{}'.format(i)])
             
+            
+            
+
         # here we create pupil image, given the parameters describing the obscuration and the shape of the pupil
-        Pupil_Image=PFSPupilFactory(diam_sic,1024,
+        if self.pupil_parameters is None:
+            Pupil_Image=PFSPupilFactory(diam_sic,1024,
                                     np.pi/2,
                                   params['hscFrac'.format(i)],params['strutFrac'.format(i)],params['slitFrac'.format(i)],
                                     params['slitFrac_dy'.format(i)],params['minorAxis'.format(i)],params['pupilAngle'.format(i)])
+                    # here we specify what is the position of the detector, i.e., what is the position of the central obscuration in the exit pupil
+            point=[params['dxFocal'.format(i)],params['dyFocal'.format(i)]]
+            pupil=Pupil_Image.getPupil(point)
+        else:
+            Pupil_Image=PFSPupilFactory(diam_sic,1024,
+                                    np.pi/2,
+                                  self.pupil_parameters[0],self.pupil_parameters[1],self.pupil_parameters[4],
+                                    self.pupil_parameters[4],params['minorAxis'.format(i)],params['pupilAngle'.format(i)])
+            point=[self.pupil_parameters[2],self.pupil_parameters[3]]
+            pupil=Pupil_Image.getPupil(point)
         
-        # here we specify what is the position of the detector, i.e., what is the position of the central obscuration in the exit pupil
-        point=[params['dxFocal'.format(i)],params['dyFocal'.format(i)]]
-        pupil=Pupil_Image.getPupil(point)
+
         
         #np.save(TESTING_PUPIL_IMAGES_FOLDER+'pupililluminated',pupil.illuminated)  
         
@@ -738,9 +771,10 @@ class ZernikeFitter_PFS(object):
         #r = gaussian_filter(ilum_radiometric, sigma=params['apodization'.format(i)])
         
         r=ilum_radiometric 
+        #print(r.shape)
         # resize image here to a custom resolution before doing FFT
-        r=skimage.transform.resize(r,(npix*2,npix*2),order=3)
-
+        r=skimage.transform.resize(r,(npix*2,npix*2),order=3,mode='constant')
+        #print(r.shape)
         # put pixels for which amplitue is less than 0.01 to 0
         r_ilum_pre=np.copy(r)
         r_ilum_pre[r>0.01]=1
@@ -774,9 +808,20 @@ class ZernikeFitter_PFS(object):
         
         # do Fourier and square it to create image
         #ftexpwf = galsim.fft.fft2(expwf_grid,shift_in=True,shift_out=True)
+        
+        
+        #time_start_single=time.time()
         ftexpwf =np.fft.fftshift(np.fft.fft2(np.fft.fftshift(expwf_grid)))
         img_apod = np.abs(ftexpwf)**2
-        
+        #time_end_single=time.time()
+        #print('Time for FFT is '+str(time_end_single-time_start_single))
+
+        #time_start_single=time.time()
+        #ftexpwf =np.fft.fftshift(pyfftw.builders.fft2(np.fft.fftshift(expwf_grid)))
+        #img_apod = np.abs(ftexpwf)**2
+        #time_end_single=time.time()
+        #print('Time for FFT is '+str(time_end_single-time_start_single))
+
 
 
         if self.save==1:
@@ -816,7 +861,7 @@ class ZernikeFitter_PFS(object):
             v = params.valuesdict()
         except AttributeError:
             v = params
-        
+
         # This give image in nyquist resolution
         optPsf=self._getOptPsf_naturalResolution(v)
         
@@ -828,7 +873,19 @@ class ZernikeFitter_PFS(object):
         # reduce oversampling by the factor of 4  to make things easier
         oversampling=int(self.pixelScale/(4*nyquistscale))
      
-        optPsf_downsampled=skimage.transform.resize(optPsf,(int(optPsf.shape[0]/(4)),int(optPsf.shape[0]/(4))),order=3)
+        #optPsf_downsampled=skimage.transform.resize(optPsf,(int(optPsf.shape[0]/(4)),int(optPsf.shape[0]/(4))),order=3)
+        #print(optPsf_downsampled.shape)
+        optPsf_downsampled=skimage.transform.downscale_local_mean(optPsf,(int(4),int(4)))
+        #print(optPsf_downsampled.shape)
+        
+        # ensure it is shape is even nubmer, needed for fft convolutions later
+        if optPsf_downsampled.shape[0] % 2 ==0:
+            pass
+        else:
+            optPsf_downsampled=optPsf_downsampled[:optPsf_downsampled.shape[0]-1,:optPsf_downsampled.shape[0]-1]
+        
+        
+        
         
         # gives middle point of the image to used for calculations of scattered light 
         mid_point_of_optPsf_downsampled=int(optPsf_downsampled.shape[0]/2)
@@ -842,6 +899,7 @@ class ZernikeFitter_PFS(object):
         pointsy =np.linspace(-(size_of_optPsf_in_Microns-size_of_pixels_in_optPsf_downsampled)/2,(size_of_optPsf_in_Microns-size_of_pixels_in_optPsf_downsampled)/2,num=optPsf_downsampled.shape[0])
         xs, ys = np.meshgrid(pointsx, pointsy)
         r0 = np.sqrt((xs-0)** 2 + (ys-0)** 2)+.01
+        print(r0.shape)
         
         """
         r0[r0<v['scattering_radius']]=0
@@ -866,10 +924,17 @@ class ZernikeFitter_PFS(object):
         """
         #r0[r0<v['scattering_radius']]=0
         scattered_light_kernel=(r0**(-v['scattering_slope']))
-        scattered_light_kernel=np.zeros((optPsf_downsampled.shape[0],optPsf_downsampled.shape[0]))+scattered_light_kernel
+        print(scattered_light_kernel.shape)
+        scattered_light_kernel[r0<v['scattering_radius']]=v['scattering_radius']**(-v['scattering_slope'])
+        print(scattered_light_kernel.shape)
+        scattered_light_kernel=scattered_light_kernel/np.sum(scattered_light_kernel)
+        
+        #scattered_light_kernel=np.zeros((optPsf_downsampled.shape[0],optPsf_downsampled.shape[0]))+scattered_light_kernel
         scattered_light_kernel[scattered_light_kernel == np.inf] = 0
+        print(scattered_light_kernel.shape)
         #scattered_light=scipy.signal.fftconvolve(optPsf_downsampled,scattered_light_kernel,mode='same')
         scattered_light= custom_fftconvolve(optPsf_downsampled,scattered_light_kernel)
+        print(scattered_light.shape)
 
         if np.sum(scattered_light)>0:
             scattered_light=((v['scattering_amplitude'])*np.sum(optPsf_downsampled)/np.sum(scattered_light))*scattered_light
@@ -1001,7 +1066,7 @@ class ZernikeFitter_PFS(object):
 
 class LN_PFS_single(object):
         
-    def __init__(self,sci_image,var_image,dithering=None,save=None):    
+    def __init__(self,sci_image,var_image,dithering=None,save=None,pupil_parameters=None):    
         """
         @param image        image to analyze
         @param image_var    variance image
@@ -1017,6 +1082,9 @@ class LN_PFS_single(object):
         self.sci_image=sci_image
         self.var_image=var_image
         self.dithering=dithering
+        self.pupil_parameters=pupil_parameters
+        
+        
         
         
         
@@ -1025,10 +1093,19 @@ class LN_PFS_single(object):
             npix_value=int(math.ceil(int(1024*sci_image.shape[0]/(20*2)))*2)
         else:
             npix_value=int(math.ceil(int(1024*sci_image.shape[0]/(20*2*self.dithering)))*2)
-
-        single_image_analysis=ZernikeFitter_PFS(sci_image,var_image,npix=npix_value,dithering=dithering,save=save)
-        single_image_analysis.initParams(zmax) 
-        self.single_image_analysis=single_image_analysis
+            
+     
+        
+        if pupil_parameters is None:
+            single_image_analysis=ZernikeFitter_PFS(sci_image,var_image,npix=npix_value,dithering=dithering,save=save,pupil_parameters=pupil_parameters)     
+            single_image_analysis.initParams(zmax) 
+            self.single_image_analysis=single_image_analysis
+        else:
+            single_image_analysis=ZernikeFitter_PFS(sci_image,var_image,npix=npix_value,dithering=dithering,save=save,pupil_parameters=pupil_parameters)  
+            single_image_analysis.initParams(zmax,hscFracInit=pupil_parameters[0],strutFracInit=pupil_parameters[1],
+                   focalPlanePositionInit=(pupil_parameters[2],pupil_parameters[3]),slitFracInit=pupil_parameters[4],
+                  slitFrac_dy_Init=pupil_parameters[5]) 
+            self.single_image_analysis=single_image_analysis
 
     def create_chi_2_almost(self,modelImg,sci_image,var_image):
         """
@@ -1041,7 +1118,7 @@ class LN_PFS_single(object):
         @param sci_image    scientific image 
         @param var_image    variance image
         """ 
-
+            
         sigma = np.sqrt(var_image)
         chi = (sci_image - modelImg)/sigma
         chi2_intrinsic=np.sum(sci_image**2/var_image)
@@ -1067,6 +1144,8 @@ class LN_PFS_single(object):
         @param sci_image    scientific image 
         @param var_image    variance image
         """ 
+        #print('sum'+str(np.abs(np.sum(allparameters))))
+        #return np.abs(np.sum(allparameters))
         zparameters=allparameters[0:8]
         globalparameters=allparameters[len(zparameters):]
 
@@ -1074,20 +1153,19 @@ class LN_PFS_single(object):
 
 
          # hsc frac
-        if globalparameters[0]<=0.5:
-            return -np.inf
-        if globalparameters[0]>1.2:
+        if globalparameters[0]<=0.5 or globalparameters[0]>1.2:
+            #print('globalparameters[0] outside limits')
             return -np.inf
         
          #strut frac
-        if globalparameters[1]<0.05:
-            return -np.inf
-        if globalparameters[1]>0.2:
+        if globalparameters[1]<0.05 or globalparameters[1]>0.2:
+            #print('globalparameters[1] outside limits')
             return -np.inf
         
         #strut frac < slit_frac
-        if globalparameters[1]<globalparameters[4]:
-            return -np.inf
+        #if globalparameters[1]<globalparameters[4]:
+            #print('globalparameters[1] not smaller than 4 outside limits')
+            #return -np.inf
         
          #dx Focal
         if globalparameters[2]>0.8:
@@ -1122,7 +1200,7 @@ class LN_PFS_single(object):
         # radiometricExponent
         if globalparameters[7]<-0.5:
             return -np.inf
-        if globalparameters[7]>5:
+        if globalparameters[7]>20:
             return -np.inf 
         
         # x_ilum
@@ -1186,16 +1264,16 @@ class LN_PFS_single(object):
             return -np.inf  
         
         # flux
-        if globalparameters[18]<0.8:
+        if globalparameters[18]<0.9:
             return -np.inf
-        if globalparameters[18]>1.2:
+        if globalparameters[18]>1.1:
             return -np.inf      
 
         x=self.create_x(zparameters,globalparameters)
         for i in range(len(self.columns)):
             self.single_image_analysis.params[self.columns[i]].set(x[i])
         modelImg = self.single_image_analysis.constructModelImage_PFS_naturalResolution(self.single_image_analysis.params)  
-        
+ 
         #np.save(RESULT_FOLDER+NAME_OF_CHAIN+'x',x)
         #np.save(RESULT_FOLDER+NAME_OF_CHAIN+'modelImg',modelImg)            
         #np.save(self.RESULT_FOLDER+self.NAME_OF_CHAIN+'zparameters',zparameters)
@@ -1204,17 +1282,19 @@ class LN_PFS_single(object):
 
         chi_2_almost_multi_values=self.create_chi_2_almost(modelImg,self.sci_image,self.var_image)
         chi_2_almost=chi_2_almost_multi_values[0]
-        chi_2_max=chi_2_almost_multi_values[1]     
-        chi_2_Q=chi_2_almost_multi_values[2]
+        #chi_2_max=chi_2_almost_multi_values[1]     
+        #chi_2_Q=chi_2_almost_multi_values[2]
 
 
-        chi_2_almost_reduced=chi_2_almost/(self.sci_image.shape[0]**2)
+        #chi_2_almost_reduced=chi_2_almost/(self.sci_image.shape[0]**2)
         
         #print(chi_2_almost)
         #print(chi_2_almost_reduced)
         #print(chi_2_Q)
-
         res=-(1/2)*(chi_2_almost+np.log(2*np.pi*np.sum(self.var_image)))
+        #res=-(1/2)*(chi_2_almost+np.log(2*np.pi*np.sum(self.var_image)))
+        #res=-np.abs(np.sum(globalparameters))+np.log(2*np.pi*np.sum(self.var_image))
+        #print('res'+str(res),flush=True)
         return res
 
     def create_x(self,zparameters,globalparameters):
@@ -1641,8 +1721,12 @@ def find_min_chi_single_realization(single_realization,size_natural_resolution,s
     for x in range(single_realization.shape[1]-size_natural_resolution):
         for y in range(single_realization.shape[0]-size_natural_resolution):
             single_realization_cut=single_realization[y:y+size_natural_resolution,x:x+size_natural_resolution]
-            trace_and_serial_suggestion=estimate_trace_and_serial(sci_image_0,single_realization_cut)
-            single_realization_trace=create_trace(single_realization_cut,trace_and_serial_suggestion[0],trace_and_serial_suggestion[1])
+            #trace_and_serial_suggestion=estimate_trace_and_serial(sci_image_0,single_realization_cut)
+            #single_realization_trace=create_trace(single_realization_cut,trace_and_serial_suggestion[0],trace_and_serial_suggestion[1])
+            
+            #trace_and_serial_suggestion=estimate_trace_and_serial(sci_image_0,single_realization_cut)
+            single_realization_trace=create_trace(single_realization_cut,0,0)          
+            
             multiplicative_factor=np.sum(sci_image_0)/np.sum(single_realization_trace)
             single_realization_trace_finalImg=v_flux*multiplicative_factor*single_realization_trace
             #np.save(TESTING_FOLDER+'single_realization_trace_finalImg'+str(x)+str(y),single_realization_trace_finalImg)
@@ -1661,7 +1745,7 @@ def find_min_chi_single_realization(single_realization,size_natural_resolution,s
     #print([x,y])
     single_realization_cut=single_realization[y:y+size_natural_resolution,x:x+size_natural_resolution]
     
-    trace_and_serial_suggestion=estimate_trace_and_serial(sci_image_0,single_realization_cut)
+    #trace_and_serial_suggestion=estimate_trace_and_serial(sci_image_0,single_realization_cut)
     
     #this line below is capable of creating artifical cross structure in order to help recreate the data
     #single_realization_trace=create_trace(single_realization_cut,trace_and_serial_suggestion[0],trace_and_serial_suggestion[1])
@@ -1724,15 +1808,17 @@ def nyQuistScale(diam,lamda,oversampling=0.5):
     
 
 def create_trace(best_img,norm_of_trace,norm_of_serial_trace):
+    if norm_of_trace==0:
+        return best_img
+    else:
+        data_shifted_left_right=np.zeros(np.shape(best_img))
+        data_shifted_left_right[:, :] =np.sum(best_img,axis=0)*norm_of_trace
     
-    data_shifted_left_right=np.zeros(np.shape(best_img))
-    data_shifted_left_right[:, :] =np.sum(best_img,axis=0)*norm_of_trace
-
-    data_shifted_up_down=np.transpose(np.zeros(np.shape(best_img)))         
-    data_shifted_up_down[:, :] =np.sum(best_img,axis=1)*norm_of_serial_trace
-    data_shifted_up_down=np.transpose(data_shifted_up_down)
-
-    return best_img+data_shifted_up_down+data_shifted_left_right     
+        data_shifted_up_down=np.transpose(np.zeros(np.shape(best_img)))         
+        data_shifted_up_down[:, :] =np.sum(best_img,axis=1)*norm_of_serial_trace
+        data_shifted_up_down=np.transpose(data_shifted_up_down)
+    
+        return best_img+data_shifted_up_down+data_shifted_left_right     
     
 def estimate_trace_and_serial(sci_image,model_image):
 
@@ -1837,7 +1923,7 @@ def create_parInit(allparameters_proposal=None):
         # radiometricExponent
         globalparameters_flat_7=np.random.normal(globalparameters_flatten[7],0.4,nwalkers*20)
         globalparameters_flat_7=np.concatenate(([globalparameters_flatten[7]],
-                                                globalparameters_flat_7[np.all((globalparameters_flat_7>-0.5,globalparameters_flat_7<5),axis=0)][0:nwalkers-1]))
+                                                globalparameters_flat_7[np.all((globalparameters_flat_7>-0.5,globalparameters_flat_7<20),axis=0)][0:nwalkers-1]))
         # x_ilum
         globalparameters_flat_8=np.abs(np.random.normal(globalparameters_flatten[8],0.1,nwalkers*20))
         globalparameters_flat_8=np.concatenate(([globalparameters_flatten[8]],
@@ -1869,7 +1955,7 @@ def create_parInit(allparameters_proposal=None):
         # scattering_amplitude
         globalparameters_flat_15=np.random.normal(globalparameters_flatten[15],0.1,nwalkers*20)
         globalparameters_flat_15=np.concatenate(([globalparameters_flatten[15]],
-                                                 globalparameters_flat_15[np.all((globalparameters_flat_15>0.0,globalparameters_flat_15<1),axis=0)][0:nwalkers-1]))
+                                                 globalparameters_flat_15[np.all((globalparameters_flat_15>0.0,globalparameters_flat_15<10),axis=0)][0:nwalkers-1]))
         # pixel_effect
         globalparameters_flat_16=np.random.normal(globalparameters_flatten[16],0.2,nwalkers*20)
         globalparameters_flat_16=np.concatenate(([globalparameters_flatten[16]],
@@ -1883,7 +1969,7 @@ def create_parInit(allparameters_proposal=None):
         # flux
         globalparameters_flat_18=np.random.normal(globalparameters_flatten[18],0.025,nwalkers*20)
         globalparameters_flat_18=np.concatenate(([globalparameters_flatten[18]],
-                                                 globalparameters_flat_18[np.all((globalparameters_flat_18>0.8,globalparameters_flat_18<1.2),axis=0)][0:nwalkers-1]))
+                                                 globalparameters_flat_18[np.all((globalparameters_flat_18>0.9,globalparameters_flat_18<1.1),axis=0)][0:nwalkers-1]))
 
 
         globalparameters_flat=np.column_stack((globalparameters_flat_0,globalparameters_flat_1,globalparameters_flat_2,globalparameters_flat_3

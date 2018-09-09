@@ -10,6 +10,8 @@ Created on Wed Aug 15 10:14:22 2018
 from __future__ import absolute_import, division, print_function
 import socket
 import time
+from multiprocessing import Pool
+from multiprocessing import current_process
 print(str(socket.gethostname())+': Start time for importing is: '+time.ctime())  
 import os
 os.environ["MKL_NUM_THREADS"] = "1" 
@@ -21,7 +23,7 @@ import galsim
 galsim.GSParams.maximum_fft_size=12000
 import numpy as np
 np.set_printoptions(suppress=True)
-from schwimmbad import MPIPool
+#from schwimmbad import MPIPool
 import emcee
 
 import sys
@@ -60,18 +62,22 @@ from Zernike_Module import LNP_PFS,LN_PFS_single,create_parInit
 ############################################################################################################
 
 def residual(pars):
+    #print('computing residual')
     try:
         # unpack parameters:
         #  extract .value attribute for each parameter
+        #print("step 1")
         parvals = pars.valuesdict()
-        #print(parvals, flush=True)
+        #print("step 2")
+        #print(parvals)
         values=np.array(list(parvals.items()))[:,1].astype(np.float32)
-        #print(values)
+        #print("step 3")
+        #print([values,current_process()])
         res=-model(values)
-        #print(values, flush=True)
-        #print(res, flush=True)
+        #print([res,current_process()])
         return res
     except (IndexError,ValueError):
+        #print('error')
         return np.inf
 """    
 def residual(pars):
@@ -91,7 +97,7 @@ def lmfit_f(x):
     #print('lmfit')
 
     minchain=np.load(RESULT_FOLDER+NAME_OF_CHAIN+'minchain.npy' )
-    
+
     parInit1=create_parInit(minchain)
     # 38 par, 8 is walker_mult from create_parInit
     parInitnT2D=parInit1.flatten().reshape(len(minchain)*8,len(minchain))
@@ -114,7 +120,7 @@ def lmfit_f(x):
             min_bound=0.5
             max_bound=1.2
         if columns[i]=='strutFrac':
-            min_bound=0.05
+            min_bound=0.02
             max_bound=0.2
         if columns[i]=='dxFocal':
             min_bound=-0.8
@@ -168,8 +174,9 @@ def lmfit_f(x):
             min_bound=0.9
             max_bound=1.1
         paramsp.add(columns[i], value=parInitnT2D[x][i],min=min_bound,max=max_bound)    
+        #paramsp.add(columns[i], value=parInitnT2D[x][i])    
  
-        
+    #print(paramsp)    
     res_iter=[]
     time_start=time.time() 
     #print(time_start)
@@ -185,13 +192,16 @@ def lmfit_f(x):
                 res=np.array(res)
                 res=np.concatenate((res,[resid]),axis=0)
                 res_iter.append(res)
-                #print([iter,resid ,socket.gethostname()])
+                #print([iter,resid,res,socket.gethostname()])
+                #print([iter,resid,res,current_process()])
+                
+                
                 #if resid>0:
-                #print(res)
+                #    print(res)
                 if resid==np.inf:
                     return True
-                else:
-                    return None
+                #else:
+                #    return None
                     
                 return None
             else:
@@ -305,10 +315,8 @@ modelP =LNP_PFS(sci_image,var_image)
 
   
 #pool = MPIPool(loadbalance=True)
-pool = MPIPool()
-if not pool.is_master():
-    pool.wait()
-    sys.exit(0) 
+pool=Pool()
+
 
     
     
@@ -377,8 +385,9 @@ for i in pool.map(lmfit_f,range(int(parInitnT.shape[1]))):
     res_lmfit.append([i])  
 
 res_lmfit=np.array(res_lmfit)
-print(res_lmfit[:,:,-1])
-minchain=res_lmfit[res_lmfit[:,:,-1]==np.min(np.abs(res_lmfit[:,:,-1]))][0]
+#np.save(RESULT_FOLDER+NAME_OF_CHAIN+'res_lmfit',res_lmfit)
+#print('res_lmfit[:,:,-1]'+str(np.abs(res_lmfit[:,:,-1])))
+minchain=res_lmfit[np.abs(res_lmfit[:,:,-1])==np.min(np.abs(res_lmfit[:,:,-1]))][0]
 like_lmfit=minchain[-1]
 minchain=minchain[0:len(minchain)-1]
 #Export this file
@@ -434,7 +443,7 @@ for i in pool.map(lmfit_f,range(int(parInitnT.shape[1]))):
     res_lmfit.append([i])  
 
 res_lmfit=np.array(res_lmfit)
-minchain=res_lmfit[res_lmfit[:,:,-1]==np.min(np.abs(res_lmfit[:,:,-1]))][0]
+minchain=res_lmfit[np.abs(res_lmfit[:,:,-1])==np.min(np.abs(res_lmfit[:,:,-1]))][0]
 like_lmfit=minchain[-1]
 minchain=minchain[0:len(minchain)-1]
 
