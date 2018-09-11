@@ -1,9 +1,8 @@
-#!/usr/bin/env python2
-# -*- coding: utf-8 -*-
 """
 Created on Mon Aug 13 10:01:03 2018
 
-@author: nevencaplar
+@author: Neven Caplar
+@contact: ncaplar@princeton.edu
 """
 
 
@@ -105,7 +104,7 @@ class PupilFactory(object):
         """
         self.pupilSize = pupilSize
         self.npix = npix
-        print(npix)
+        #print(npix)
         self.input_angle=input_angle
         self.hscFrac=hscFrac
         self.strutFrac=strutFrac
@@ -149,7 +148,6 @@ class PupilFactory(object):
         """
         
         illuminated = np.ones(self.u.shape, dtype=np.bool)
-        print('full pupil'+str(illuminated.shape))
         #np.save(TESTING_FOLDER+'fullPupililluminated',illuminated) 
         return Pupil(illuminated, self.pupilSize, self.pupilScale)       
 
@@ -727,7 +725,7 @@ class ZernikeFitter_PFS(object):
                                     np.pi/2,
                                   params['hscFrac'.format(i)],params['strutFrac'.format(i)],params['slitFrac'.format(i)],
                                     params['slitFrac_dy'.format(i)],params['minorAxis'.format(i)],params['pupilAngle'.format(i)])
-                    # here we specify what is the position of the detector, i.e., what is the position of the central obscuration in the exit pupil
+            # here we specify what is the position of the detector, i.e., what is the position of the central obscuration in the exit pupil
             point=[params['dxFocal'.format(i)],params['dyFocal'.format(i)]]
             pupil=Pupil_Image.getPupil(point)
         else:
@@ -737,8 +735,7 @@ class ZernikeFitter_PFS(object):
                                     self.pupil_parameters[4],params['minorAxis'.format(i)],params['pupilAngle'.format(i)])
             point=[self.pupil_parameters[2],self.pupil_parameters[3]]
             pupil=Pupil_Image.getPupil(point)
-        
-        #np.save(TESTING_PUPIL_IMAGES_FOLDER+'pupililluminated',pupil.illuminated)  
+
         
         if self.pupilExplicit is None:
             aper = galsim.Aperture(
@@ -753,9 +750,9 @@ class ZernikeFitter_PFS(object):
                 pupil_plane_scale = pupil.scale,
                 pupil_plane_size = None)   
             
-        print('Supplied pupil size is (pupil.size) [m]:'+str(pupil.size))
-        print('One pixel has size of (pupil.scale) [m]:'+str(pupil.scale))
-        print('Supplied pupil has so many pixels (pupil_plane_im)'+str(pupil.illuminated.astype(np.int16).shape))
+        #print('Supplied pupil size is (pupil.size) [m]:'+str(pupil.size))
+        #print('One pixel has size of (pupil.scale) [m]:'+str(pupil.scale))
+        #print('Supplied pupil has so many pixels (pupil_plane_im)'+str(pupil.illuminated.astype(np.int16).shape))
         
         # create wavefront across the exit pupil      
         optics_screen = galsim.phase_screens.OpticalScreen(diam=diam_sic,aberrations=aberrations,lam_0=self.wavelength)
@@ -763,7 +760,7 @@ class ZernikeFitter_PFS(object):
         
         # create array with pixels=1 if the area is illuminated and 0 if it is obscured
         ilum=np.array(aper.illuminated, dtype=np.float64)
-        print('Size after padding zeros to 2x size and extra padding to get size suitable for FFT'+str(ilum.shape))
+        #print('Size after padding zeros to 2x size and extra padding to get size suitable for FFT'+str(ilum.shape))
        
         
         
@@ -814,17 +811,18 @@ class ZernikeFitter_PFS(object):
         expwf_grid[r_ilum] = r[r_ilum]*np.exp(2j*np.pi * wf_grid_rot[r_ilum])
         
 
-        
+        # legacy code
         # do Fourier and square it to create image
         #ftexpwf = galsim.fft.fft2(expwf_grid,shift_in=True,shift_out=True)
         
         
-        time_start_single=time.time()
+        #time_start_single=time.time()
         ftexpwf =np.fft.fftshift(np.fft.fft2(np.fft.fftshift(expwf_grid)))
         img_apod = np.abs(ftexpwf)**2
-        time_end_single=time.time()
-        print('Time for FFT is '+str(time_end_single-time_start_single))
+        #time_end_single=time.time()
+        #print('Time for FFT is '+str(time_end_single-time_start_single))
 
+        #code if we decide to use pyfftw - does not work with fftshift
         #time_start_single=time.time()
         #ftexpwf =np.fft.fftshift(pyfftw.builders.fft2(np.fft.fftshift(expwf_grid)))
         #img_apod = np.abs(ftexpwf)**2
@@ -880,8 +878,7 @@ class ZernikeFitter_PFS(object):
         # how much is my generated image oversampled compared to final image
         oversampling_original=(self.pixelScale)/self.scale_ModelImage_PFS_naturalResolution
         
-        print('size of image generated in microns: '+str(optPsf.shape[0]*15/oversampling_original))
-        print('sci_image size in microns: '+str(self.image.shape[0]*15/self.dithering))
+
         
         # from the large image cut the central portion (1.4 times larger than the size of actual image)
         size_of_central_cut=int(oversampling_original*self.image.shape[0]*1.4)
@@ -893,6 +890,8 @@ class ZernikeFitter_PFS(object):
         oversampling_int=int(oversampling)   
         #optPsf_downsampled=skimage.transform.resize(optPsf,(int(optPsf.shape[0]/(4)),int(optPsf.shape[0]/(4))),order=3)
         #print(optPsf_downsampled.shape)
+        
+        #optPsf_cut_downsampled=downsample_manual_function(optPsf_cut,int(len(optPsf_cut)/4))
         optPsf_cut_downsampled=skimage.transform.downscale_local_mean(optPsf_cut,(int(4),int(4)))
         #print(optPsf_downsampled.shape)
         
@@ -910,9 +909,11 @@ class ZernikeFitter_PFS(object):
         
         # gives the size of one pixel in optPsf_downsampled in microns
         size_of_pixels_in_optPsf_cut_downsampled=(15/self.dithering)/oversampling
+        
         # size of the created optical PSF images in microns
         size_of_optPsf_cut_in_Microns=size_of_pixels_in_optPsf_cut_downsampled*(optPsf_cut_downsampled.shape[0])
-        print('size_of_optPsf_cut_in_Microns: '+str(size_of_optPsf_cut_in_Microns))
+        #print('size_of_optPsf_cut_in_Microns: '+str(size_of_optPsf_cut_in_Microns))
+        
         # create grid to apply scattered light
         pointsx = np.linspace(-(size_of_optPsf_cut_in_Microns-size_of_pixels_in_optPsf_cut_downsampled)/2,(size_of_optPsf_cut_in_Microns-size_of_pixels_in_optPsf_cut_downsampled)/2,num=optPsf_cut_downsampled.shape[0])
         pointsy =np.linspace(-(size_of_optPsf_cut_in_Microns-size_of_pixels_in_optPsf_cut_downsampled)/2,(size_of_optPsf_cut_in_Microns-size_of_pixels_in_optPsf_cut_downsampled)/2,num=optPsf_cut_downsampled.shape[0])
@@ -921,6 +922,7 @@ class ZernikeFitter_PFS(object):
         #print(r0.shape)
         
         """
+        #legacy code
         r0[r0<v['scattering_radius']]=0
         
         scattered_light=(r0**(-v['scattering_slope']))
@@ -1011,8 +1013,10 @@ class ZernikeFitter_PFS(object):
             np.save(TESTING_FINAL_IMAGES_FOLDER+'optPsf_cut_pixel_response_convolved',optPsf_cut_pixel_response_convolved) 
             np.save(TESTING_FINAL_IMAGES_FOLDER+'optPsf_cut_grating_convolved',optPsf_cut_grating_convolved) 
             np.save(TESTING_FINAL_IMAGES_FOLDER+'optPsf_cut_fiber_convolved_downsampled',optPsf_cut_fiber_convolved_downsampled) 
-            print('oversampling of optPSF is: '+str(oversampling_original))
-            print('oversampling of optPsf_downsampled is: '+str(oversampling))
+            #print('size of image generated in microns: '+str(optPsf.shape[0]*15/oversampling_original))
+            #print('sci_image size in microns: '+str(self.image.shape[0]*15/self.dithering))
+            #print('oversampling of optPSF is: '+str(oversampling_original))
+            #print('oversampling of optPsf_downsampled is: '+str(oversampling))
         
 
 
@@ -1105,9 +1109,9 @@ class LN_PFS_single(object):
         
         zmax=11
         if dithering is None:
-            npix_value=int(math.ceil(int(1024*sci_image.shape[0]/(20*2)))*1)
+            npix_value=int(math.ceil(int(1024*sci_image.shape[0]/(20*4)))*2)
         else:
-            npix_value=int(math.ceil(int(1024*sci_image.shape[0]/(20*2*self.dithering)))*1)
+            npix_value=int(math.ceil(int(1024*sci_image.shape[0]/(20*4*self.dithering)))*2)
             
      
         
