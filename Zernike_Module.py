@@ -813,22 +813,33 @@ class ZernikeFitter_PFS(object):
         
         # how much is my generated image oversampled compared to final image
         oversampling_original=(self.pixelScale)/self.scale_ModelImage_PFS_naturalResolution
-        
+        #print('optPsf.shape'+str(optPsf.shape))
+        #print('oversampling_original:' +str(oversampling_original))
 
         
         # from the large image cut the central portion (1.4 times larger than the size of actual image)
+
         size_of_central_cut=int(oversampling_original*self.image.shape[0]*1.4)
+        assert size_of_central_cut<optPsf.shape[0]
+        #print('size_of_central_cut: '+str(size_of_central_cut))
         #cut part which you need
         optPsf_cut=cut_Centroid_of_natural_resolution_image(optPsf,size_of_central_cut,1,0,0)
-      
+        #print('optPsf_cut.shape'+str(optPsf_cut.shape))
         # reduce oversampling by the factor of 4  to make things easier
-        oversampling=self.pixelScale/(4*self.scale_ModelImage_PFS_naturalResolution) 
+        oversampling=np.round(oversampling_original/4)
+        #print('oversampling:' +str(oversampling))
         #oversampling_int=int(oversampling)   
         #optPsf_downsampled=skimage.transform.resize(optPsf,(int(optPsf.shape[0]/(4)),int(optPsf.shape[0]/(4))),order=3)
         #print(optPsf_downsampled.shape)
         
         #optPsf_cut_downsampled=downsample_manual_function(optPsf_cut,int(len(optPsf_cut)/4))
-        optPsf_cut_downsampled=skimage.transform.downscale_local_mean(optPsf_cut,(int(4),int(4)))
+        #optPsf_cut_downsampled=skimage.transform.downscale_local_mean(optPsf_cut,(int(4),int(4)))
+        
+        size_of_optPsf_cut_downsampled=np.round(optPsf_cut.shape[0]/(oversampling_original/oversampling))
+        #print('optPsf_cut.shape[0]'+str(optPsf_cut.shape[0]))
+        #print('size_of_optPsf_cut_downsampled: '+str(size_of_optPsf_cut_downsampled))
+        optPsf_cut_downsampled=resize(optPsf_cut,(size_of_optPsf_cut_downsampled,size_of_optPsf_cut_downsampled))
+        
         #print(optPsf_downsampled.shape)
         
         # ensure it is shape is even nubmer, needed for fft convolutions later
@@ -900,9 +911,11 @@ class ZernikeFitter_PFS(object):
             
         optPsf_cut_downsampled_scattered=optPsf_cut_downsampled+scattered_light        
         
-        
-        fiber = astropy.convolution.Tophat2DKernel(round(oversampling*1*v['fiber_r']*self.dithering),mode='center').array
-
+        #print(oversampling)
+        #print(v['fiber_r'])
+        #print(optPsf_cut_downsampled_scattered.shape)
+        fiber = astropy.convolution.Tophat2DKernel(oversampling*1*v['fiber_r']*self.dithering,mode='oversample').array
+        #print(fiber[0])
         fiber_padded=np.zeros_like(optPsf_cut_downsampled_scattered)
         mid_point_of_optPsf_cut_downsampled=int(optPsf_cut_downsampled.shape[0]/2)
         fiber_array_size=fiber.shape[0]
@@ -912,7 +925,9 @@ class ZernikeFitter_PFS(object):
         # legacy code is the line below
         #optPsf_fiber_convolved=scipy.signal.fftconvolve(optPsf_downsampled_scattered, fiber, mode = 'same') 
         optPsf_cut_fiber_convolved=custom_fftconvolve(optPsf_cut_downsampled_scattered,fiber_padded)
-          
+        
+        #optPsf_cut_fiber_convolved=scipy.signal.fftconvolve(optPsf_cut_fiber_convolved, fiber, mode = 'same')
+         
         #pixels are not perfect, sigma is around 7 microns Jim clames, controled by @param 'pixel_effect'
         # I should impllement custom_fft function
         optPsf_cut_pixel_response_convolved=scipy.signal.fftconvolve(optPsf_cut_fiber_convolved, Gaussian2DKernel(oversampling*v['pixel_effect']*self.dithering).array, mode = 'same')
@@ -931,13 +946,18 @@ class ZernikeFitter_PFS(object):
         
 
         #finds the best downsampling combination automatically 
+        # only accepts integer values for downsampling!
+        #print('optPsf_cut_grating_convolved.shape:'+str(optPsf_cut_grating_convolved.shape))
+        #print('int(round(oversampling))'+str(int(round(oversampling))))
+        
         optPsf_cut_fiber_convolved_downsampled=find_single_realization_min_cut(optPsf_cut_grating_convolved,
-                                                                               int(oversampling),shape[0],self.image,self.image_var,
+                                                                               int(round(oversampling)),shape[0],self.image,self.image_var,
                                                                                v['flux'])
         
         #print(self.save)
         if self.save==1:
             np.save(TESTING_FINAL_IMAGES_FOLDER+'optPsf',optPsf)
+            np.save(TESTING_FINAL_IMAGES_FOLDER+'optPsf_cut',optPsf_cut)
             np.save(TESTING_FINAL_IMAGES_FOLDER+'optPsf_cut_downsampled',optPsf_cut_downsampled)
             np.save(TESTING_FINAL_IMAGES_FOLDER+'scattered_light',scattered_light)                        
             #np.save(TESTING_FINAL_IMAGES_FOLDER+'scattered_light_center_Guess',scattered_light_center_Guess)
@@ -958,11 +978,12 @@ class ZernikeFitter_PFS(object):
 
         return optPsf_cut_fiber_convolved_downsampled
     
-    @lru_cache(maxsize=300)
+    #@lru_cache(maxsize=300)
     def _get_Pupil(self,params):
         
         diam_sic=self.diam_sic
-        npix=self.npix   
+        npix=self.npix
+        #print(npix)
         
 
         Pupil_Image=PFSPupilFactory(diam_sic,npix,
@@ -1023,6 +1044,9 @@ class ZernikeFitter_PFS(object):
         #print('Supplied pupil size is (pupil.size) [m]:'+str(pupil.size))
         #print('One pixel has size of (pupil.scale) [m]:'+str(pupil.scale))
         #print('Supplied pupil has so many pixels (pupil_plane_im)'+str(pupil.illuminated.astype(np.int16).shape))
+        #print('pupil.scale: '+str(pupil.scale))
+        #print('pupil.illuminated.astype(np.float32).shape: '+str(pupil.illuminated.astype(np.float32).shape))
+    
         
         if self.pupilExplicit is None:
             aper = galsim.Aperture(
@@ -1037,7 +1061,9 @@ class ZernikeFitter_PFS(object):
                 pupil_plane_scale = pupil.scale,
                 pupil_plane_size = None)           
         # create wavefront across the exit pupil      
+        #print('aberrations: '+str(aberrations))
         optics_screen = galsim.phase_screens.OpticalScreen(diam=diam_sic,aberrations=aberrations,lam_0=self.wavelength)
+        #optics_screen = galsim.phase_screens.OpticalScreen(diam=diam_sic,aberrations=np.array(aberrations)/2,lam_0=self.wavelength)
         screens = galsim.PhaseScreenList(optics_screen)   
         
         # create array with pixels=1 if the area is illuminated and 0 if it is obscured
@@ -1049,7 +1075,7 @@ class ZernikeFitter_PFS(object):
         
         # maximum extent of pupil image in units of radius of the pupil, needed for next step
         size_of_ilum_in_units_of_radius=ilum.shape[0]/pupil.illuminated.astype(np.int16).shape[0]
-        
+        #print('size_of_ilum_in_units_of_radius: '+str(size_of_ilum_in_units_of_radius))
         
         # add non-uniform illumination around custom center
         points = np.linspace(-size_of_ilum_in_units_of_radius, size_of_ilum_in_units_of_radius,num=ilum.shape[0])
@@ -1069,21 +1095,32 @@ class ZernikeFitter_PFS(object):
         r_ilum_pre[r>0.01]=1
         r_ilum_pre[r<0.01]=0
         r_ilum=r_ilum_pre.astype(bool)
-
+        #print('r_ilum.shape: '+str(r_ilum.shape))
         # manual creation of aper.u and aper.v (mimicking steps which were automatically done in galsim)
         # this gives position informaition about each point in the exit pupil so we can apply wavefront to it
+        
+        
+        #################################
+        #Possibly off by a factor 'size_of_ilum_in_units_of_radius' 
+        #Possibly off by a factor 'size_of_ilum_in_units_of_radius' 
+        #Possibly off by a factor 'size_of_ilum_in_units_of_radius' 
+        #Possibly off by a factor 'size_of_ilum_in_units_of_radius' 
+        #################################       
         aperu_manual=[]
         for i in range(len(r_ilum)):
-            aperu_manual.append(np.linspace(-diam_sic,diam_sic,len(r_ilum), endpoint=True))
+            aperu_manual.append(np.linspace(-diam_sic*(size_of_ilum_in_units_of_radius/2),diam_sic*(size_of_ilum_in_units_of_radius/2),len(r_ilum), endpoint=True))
+            #aperu_manual.append(np.linspace(-diam_sic*(size_of_ilum_in_units_of_radius/1),diam_sic*(size_of_ilum_in_units_of_radius/1),len(r_ilum), endpoint=True))
 
         u_manual=np.array(aperu_manual)
         v_manual=np.transpose(aperu_manual)        
         
         u=u_manual[r_ilum]
         v=v_manual[r_ilum]
-
+        #print('v[0]:' +str(v[0]))
         # apply wavefront to the array describing illumination
         wf = screens.wavefront(u, v, None, 0)
+        #print(np.max(u))
+        #print(screens.wavefront(np.max(u),np.max(v), None, 0))
         wf_grid = np.zeros_like(r_ilum, dtype=np.float64)
         wf_grid[r_ilum] = (wf/self.wavelength)
     
@@ -1122,6 +1159,7 @@ class ZernikeFitter_PFS(object):
             np.save(TESTING_PUPIL_IMAGES_FOLDER+'aperilluminated',aper.illuminated)  
             np.save(TESTING_PUPIL_IMAGES_FOLDER+'radiometricEffectArray',radiometricEffectArray)     
             np.save(TESTING_PUPIL_IMAGES_FOLDER+'ilum',ilum)   
+            np.save(TESTING_PUPIL_IMAGES_FOLDER+'r_ilum',r_ilum)
             np.save(TESTING_PUPIL_IMAGES_FOLDER+'ilum_radiometric',ilum_radiometric) 
             np.save(TESTING_PUPIL_IMAGES_FOLDER+'r_resize',r)  
             np.save(TESTING_WAVEFRONT_IMAGES_FOLDER+'wf_grid',wf_grid)  
@@ -1297,41 +1335,41 @@ class LN_PFS_single(object):
         #When running big fits these are limits which ensure that the code does not wander off in tottaly nonphyical region
 
          # hsc frac
-        if globalparameters[0]<=0.5 or globalparameters[0]>1.2:
+        if globalparameters[0]<=0.6 or globalparameters[0]>0.8:
             #print('globalparameters[0] outside limits')
             return -np.inf
         
          #strut frac
-        if globalparameters[1]<0.05 or globalparameters[1]>0.2:
+        if globalparameters[1]<0.07 or globalparameters[1]>0.11:
             #print('globalparameters[1] outside limits')
             return -np.inf
         
-        #strut frac < slit_frac
-        #if globalparameters[1]<globalparameters[4]:
+        #slit_frac < strut frac 
+        #if globalparameters[4]<globalparameters[1]:
             #print('globalparameters[1] not smaller than 4 outside limits')
             #return -np.inf
         
          #dx Focal
-        if globalparameters[2]>0.8:
+        if globalparameters[2]>0.4:
             #print('globalparameters[2] outside limits')
             return -np.inf
-        if globalparameters[2]<-0.8:
+        if globalparameters[2]<-0.4:
             #print('globalparameters[2] outside limits')
             return -np.inf
         
         # dy Focal
-        if globalparameters[3]>0.8:
+        if globalparameters[3]>0.4:
             #print('globalparameters[4] outside limits')
             return -np.inf
-        if globalparameters[3]<-0.8:
+        if globalparameters[3]<-0.4:
             #print('globalparameters[4] outside limits')
             return -np.inf
         
         # slitFrac
-        if globalparameters[4]<0:
+        if globalparameters[4]<0.05:
             #print('globalparameters[4] outside limits')
             return -np.inf
-        if globalparameters[4]>0.2:
+        if globalparameters[4]>0.09:
             #print('globalparameters[4] outside limits')
             return -np.inf
        
@@ -1354,15 +1392,15 @@ class LN_PFS_single(object):
             return -np.inf 
         
         # x_ilum
-        if globalparameters[8]<-0.8:
+        if globalparameters[8]<-0.4:
             return -np.inf
-        if globalparameters[8]>0.8:
+        if globalparameters[8]>0.4:
             return -np.inf
         
         # y_ilum
-        if globalparameters[9]<-0.8:
+        if globalparameters[9]<-0.4:
             return -np.inf
-        if globalparameters[9]>0.8:
+        if globalparameters[9]>0.4:
             return -np.inf   
         
         # minorAxis
@@ -1378,7 +1416,7 @@ class LN_PFS_single(object):
             return -np.inf        
   
         # effective_radius_illumination
-        if globalparameters[12]<0.5:
+        if globalparameters[12]<0.7:
             return -np.inf
         if globalparameters[12]>1.01:
             return -np.inf  
@@ -1397,9 +1435,9 @@ class LN_PFS_single(object):
             return -np.inf  
 
         # slitHolder_frac_dx
-        if globalparameters[15]<-0.8:
+        if globalparameters[15]<-0.4:
             return -np.inf
-        if globalparameters[15]>0.8:
+        if globalparameters[15]>0.4:
             return -np.inf  
      
         # grating_lines
@@ -1411,37 +1449,37 @@ class LN_PFS_single(object):
         # scattering_radius
         if globalparameters[17]<1:
             return -np.inf
-        if globalparameters[17]>+50:
+        if globalparameters[17]>+30:
             return -np.inf 
             
         # scattering_slope
-        if globalparameters[18]<0.5:
+        if globalparameters[18]<1.5:
             return -np.inf
-        if globalparameters[18]>+3.5:
+        if globalparameters[18]>+3.0:
             return -np.inf 
 
         # scattering_amplitude
         if globalparameters[19]<0:
             return -np.inf
-        if globalparameters[19]>+0.5:
+        if globalparameters[19]>+0.1:
             return -np.inf             
         
         # pixel_effect
-        if globalparameters[20]<0.2:
+        if globalparameters[20]<0.35:
             return -np.inf
-        if globalparameters[20]>+1.1:
+        if globalparameters[20]>+0.8:
             return -np.inf  
         
          # fiber_r
-        if globalparameters[21]<1.65:
+        if globalparameters[21]<1.7:
             return -np.inf
-        if globalparameters[21]>+1.95:
+        if globalparameters[21]>+1.90:
             return -np.inf  
         
         # flux
-        if globalparameters[22]<0.95:
+        if globalparameters[22]<0.98:
             return -np.inf
-        if globalparameters[22]>1.05:
+        if globalparameters[22]>1.02:
             return -np.inf      
 
         x=self.create_x(zparameters,globalparameters)
@@ -1458,7 +1496,14 @@ class LN_PFS_single(object):
         #np.save(self.RESULT_FOLDER+self.NAME_OF_CHAIN+'zparameters',zparameters)
         #np.save(self.RESULT_FOLDER+self.NAME_OF_CHAIN+'globalparameters',globalparameters)       
         #np.save(self.RESULT_FOLDER+'modelImg',modelImg)
-
+        
+        #test that fwmh is the same to up 2.5% 
+        mid_point_of_sci_image=int(self.sci_image.shape[0]/2)
+        dif_FWHM=(np.max(self.sci_image[mid_point_of_sci_image]*(1/2))-np.max(modelImg[mid_point_of_sci_image]*(1/2)))/np.max(self.sci_image[mid_point_of_sci_image]*(1/2))
+        #print(dif_FWHM)
+        #if np.abs(dif_FWHM)>.03:
+        #    return -np.inf
+        
         chi_2_almost_multi_values=self.create_chi_2_almost(modelImg,self.sci_image,self.var_image)
         chi_2_almost=chi_2_almost_multi_values[0]
         #chi_2_max=chi_2_almost_multi_values[1]     
@@ -1470,7 +1515,7 @@ class LN_PFS_single(object):
         #print(chi_2_almost)
         #print(chi_2_almost_reduced)
         #print(chi_2_Q)
-        res=-(1/2)*(chi_2_almost+np.log(2*np.pi*np.sum(self.var_image)))
+        res=-(1/2)*(chi_2_almost+np.log(2*np.pi*np.sum(self.var_image)))*(1+np.abs(dif_FWHM))
         #res=-(1/2)*(chi_2_almost+np.log(2*np.pi*np.sum(self.var_image)))
         #res=-np.abs(np.sum(globalparameters))+np.log(2*np.pi*np.sum(self.var_image))
         #print('res'+str(res),flush=True)
@@ -1605,18 +1650,38 @@ class Zernike_Analysis(object):
         #chain0_Emcee1=chain_Emcee1[0]
 
         #chain_Emcee2=np.load(self.RESULT_FOLDER+'chain'+str(self.date)+'_Single_'+str(self.method)+'_'+str(self.obs)+str(self.single_number)+str(self.eps)+'Emcee2.npy')
-        #likechain_Emcee2=np.load(self.RESULT_FOLDER+'likechain'+str(self.date)+'_Single_'+str(self.method)+'_'+str(self.obs)+str(self.single_number)+str(self.eps)+'Emcee2.npy')
+        likechain_Emcee2=np.load(self.RESULT_FOLDER+'likechain'+str(self.date)+'_Single_'+str(self.method)+'_'+str(self.obs)+str(self.single_number)+str(self.eps)+'Emcee2.npy')
+       
+        like_min_Emcee2=[]
+        for i in range(likechain_Emcee2.shape[1]):
+            like_min_Emcee2.append(np.min(np.abs(likechain_Emcee2[:,i]))  )     
+            
+        #chain_Swarm1=np.load(self.RESULT_FOLDER+'chain'+str(self.date)+'_Single_'+str(self.method)+'_'+str(self.obs)+str(self.single_number)+str(self.eps)+'Swarm1.npy')
+        likechain_Swarm1=np.load(self.RESULT_FOLDER+'likechain'+str(self.date)+'_Single_'+str(self.method)+'_'+str(self.obs)+str(self.single_number)+str(self.eps)+'Swarm1.npy')
         
+        like_min_swarm1=[]
+        for i in range(likechain_Swarm1.shape[0]):
+            like_min_swarm1.append(np.min(np.abs(likechain_Swarm1[i]))  )  
         #likechain0_Emcee2=likechain_Emcee2[0]
         #chain0_Emcee2=chain_Emcee2[0]        
+        
+        #chain_Swarm2=np.load(self.RESULT_FOLDER+'chain'+str(self.date)+'_Single_'+str(self.method)+'_'+str(self.obs)+str(self.single_number)+str(self.eps)+'Swarm2.npy')
+        likechain_Swarm2=np.load(self.RESULT_FOLDER+'likechain'+str(self.date)+'_Single_'+str(self.method)+'_'+str(self.obs)+str(self.single_number)+str(self.eps)+'Swarm2.npy')        
+
+        like_min_swarm2=[]
+        for i in range(likechain_Swarm2.shape[0]):
+            like_min_swarm2.append(np.min(np.abs(likechain_Swarm2[i]))  )  
         
         chain_Emcee3=np.load(self.RESULT_FOLDER+'chain'+str(self.date)+'_Single_'+str(self.method)+'_'+str(self.obs)+str(self.single_number)+str(self.eps)+'Emcee3.npy')
         likechain_Emcee3=np.load(self.RESULT_FOLDER+'likechain'+str(self.date)+'_Single_'+str(self.method)+'_'+str(self.obs)+str(self.single_number)+str(self.eps)+'Emcee3.npy')
         
         # get chain number 0, which is has lowest temperature
-        likechain0_Emcee3=likechain_Emcee3[0]
-        chain0_Emcee3=chain_Emcee3[0]     
-        
+        if len(likechain_Emcee3)<=4:
+            likechain0_Emcee3=likechain_Emcee3[0]
+            chain0_Emcee3=chain_Emcee3[0]     
+        else:
+            likechain0_Emcee3=likechain_Emcee3
+            chain0_Emcee3=chain_Emcee3
         # check the shape of the chain (number of walkers, number of steps, number of parameters)
         print('(number of walkers, number of steps, number of parameters): '+str(chain0_Emcee3.shape))
         
@@ -1624,7 +1689,7 @@ class Zernike_Analysis(object):
         minchain=chain0_Emcee3[np.abs(likechain0_Emcee3)==np.min(np.abs(likechain0_Emcee3))][0]
         #print(minchain)
         self.minchain=minchain
-        like_min=[]
+        like_min_Emcee3=[]
         #for i in range(likechain0_Emcee1.shape[1]):
         #    like_min.append(np.min(np.abs(likechain0_Emcee1[:,i])))
         
@@ -1632,8 +1697,9 @@ class Zernike_Analysis(object):
         #    like_min.append(np.min(np.abs(likechain0_Emcee2[:,i])))    
         
         for i in range(likechain0_Emcee3.shape[1]):
-            like_min.append(np.min(np.abs(likechain0_Emcee3[:,i]))  )  
-            
+            like_min_Emcee3.append(np.min(np.abs(likechain0_Emcee3[:,i]))  )  
+           
+        like_min=like_min_swarm1+like_min_Emcee2+like_min_swarm2+like_min_Emcee3
             
         print('minimal likelihood is: '+str(np.min(like_min)))   
         chi2=(np.array(like_min)*(2)-np.log(2*np.pi*np.sum(self.var_image)))/(self.sci_image.shape[0])**2
@@ -2016,10 +2082,11 @@ def create_single_realization(optPsf_cut_pixel_response_convolved_pixelized_conv
 
     min_value_to_analyse=int(shape_of_input_img/2-int(oversampling*(sci_image_0.shape[0]/2+3)))
     max_value_to_analyse=int(shape_of_input_img/2+int(oversampling*(sci_image_0.shape[0]/2+3)))
-    #print(min_value_to_analyse)
-    #print(max_value_to_analyse)
-    assert max_value_to_analyse+oversampling<shape_of_input_img, "oversampled image is too small to downsample"
-    assert min_value_to_analyse>0, "oversampled image is too small to downsample"
+    #print("min_value_to_analyse: "+str(min_value_to_analyse))
+    #print("max_value_to_analyse: "+str(max_value_to_analyse))
+    #print("shape_of_input_img: "+str(shape_of_input_img))
+    assert max_value_to_analyse+oversampling<=shape_of_input_img, "oversampled image is too small to downsample"
+    assert min_value_to_analyse>=0, "oversampled image is too small to downsample"
     #how big is the final image 
     #size_of_single_realization_y=len(np.arange(min_value_to_analyse+deltay,max_value_to_analyse,oversampling))
     #size_of_single_realization_x=len(np.arange(min_value_to_analyse+deltax,max_value_to_analyse,oversampling))
@@ -2204,16 +2271,17 @@ def create_parInit(allparameters_proposal,multi=None,pupil_parameters=None,allpa
     if allparameters_proposal_err is None:
         if multi is None:
             allparameters_proposal_err=[1,0.25,0.25,0.25,0.25,0.25,0.25,0.25,
-                                    0.1,0.1,0.1,0.1,0.05,0.1,
+                                    0.1,0.02,0.1,0.1,0.0,0.1,
                                     0.2, 0.4,0.1,0.1,
-                                    0.1,0.2,0.1,0.02,0.2,0.1,
+                                    0.1,0.2,0.1,
+                                    0.01,0.05,0.1,
                                     30000,10,0.5,0.01,
                                     0.1,0.05,0.01]
         else:
             allparameters_proposal_err=[1,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,
                                     0.1,0.1,0.1,0.1,0.05,0.1,
                                     0.2, 0.4,0.1,0.1,
-                                    0.1,0.2,0.1,0.02,0.2,0.1,
+                                    0.1,0.2,0.02,0.02,0.2,0.1,
                                     30000,10,0.5,0.01,
                                     0.1,0.05,0.01]        
     
@@ -2232,7 +2300,7 @@ def create_parInit(allparameters_proposal,multi=None,pupil_parameters=None,allpa
         globalparameters_flatten_err=allparameters_proposal_err[8:]
     else:
         zparameters_flatten=allparameters_proposal[0:8*2]
-        zparameters_flatten_err=allparameters_proposal_err[0:8]
+        zparameters_flatten_err=allparameters_proposal_err[0:8*2]
         globalparameters_flatten=allparameters_proposal[8*2:]
         globalparameters_flatten_err=allparameters_proposal_err[8*2:]
 
@@ -2255,11 +2323,7 @@ def create_parInit(allparameters_proposal,multi=None,pupil_parameters=None,allpa
     else:
         try: 
             for i in range(8*2):
-                if i==0:
-                    # larger search for defocus
-                    zparameters_flat_single_par=np.concatenate(([zparameters_flatten[i]],np.random.normal(zparameters_flatten[i],zparameters_flatten_err[i],nwalkers-1)))
-                else:
-                    zparameters_flat_single_par=np.concatenate(([zparameters_flatten[i]],np.random.normal(zparameters_flatten[i],zparameters_flatten_err[i],nwalkers-1)))
+                zparameters_flat_single_par=np.concatenate(([zparameters_flatten[i]],np.random.normal(zparameters_flatten[i],zparameters_flatten_err[i],nwalkers-1)))
                 if i==0:
                     zparameters_flat=zparameters_flat_single_par
                 else:
@@ -2274,24 +2338,24 @@ def create_parInit(allparameters_proposal,multi=None,pupil_parameters=None,allpa
         # hscFrac always positive
         globalparameters_flat_0=np.abs(np.random.normal(globalparameters_flatten[0],globalparameters_flatten_err[0],nwalkers*20))
         globalparameters_flat_0=np.concatenate(([globalparameters_flatten[0]],
-                                                globalparameters_flat_0[np.all((globalparameters_flat_0>0.5,globalparameters_flat_0<1.2),axis=0)][0:nwalkers-1]))
+                                                globalparameters_flat_0[np.all((globalparameters_flat_0>0.6,globalparameters_flat_0<0.8),axis=0)][0:nwalkers-1]))
         # strutFrac always positive
         globalparameters_flat_1_long=np.abs(np.random.normal(globalparameters_flatten[1],globalparameters_flatten_err[1],nwalkers*200))
         globalparameters_flat_1=globalparameters_flat_1_long
         globalparameters_flat_1=np.concatenate(([globalparameters_flatten[1]],
-                                                globalparameters_flat_1[np.all((globalparameters_flat_1>0.05,globalparameters_flat_1<0.2),axis=0)][0:nwalkers-1]))
+                                                globalparameters_flat_1[np.all((globalparameters_flat_1>0.07,globalparameters_flat_1<0.11),axis=0)][0:nwalkers-1]))
         # dxFocal
         globalparameters_flat_2=np.random.normal(globalparameters_flatten[2],globalparameters_flatten_err[2],nwalkers*20)
         globalparameters_flat_2=np.concatenate(([globalparameters_flatten[2]],
-                                                globalparameters_flat_2[np.all((globalparameters_flat_2>-0.8,globalparameters_flat_2<0.8),axis=0)][0:nwalkers-1]))
+                                                globalparameters_flat_2[np.all((globalparameters_flat_2>-0.4,globalparameters_flat_2<0.4),axis=0)][0:nwalkers-1]))
         # dyFocal
         globalparameters_flat_3=np.random.normal(globalparameters_flatten[3],globalparameters_flatten_err[3],nwalkers*20)
         globalparameters_flat_3=np.concatenate(([globalparameters_flatten[3]],
-                                                globalparameters_flat_3[np.all((globalparameters_flat_3>-0.8,globalparameters_flat_3<0.8),axis=0)][0:nwalkers-1]))
+                                                globalparameters_flat_3[np.all((globalparameters_flat_3>-0.4,globalparameters_flat_3<0.4),axis=0)][0:nwalkers-1]))
         # slitFrac
         globalparameters_flat_4=np.abs(np.random.normal(globalparameters_flatten[4],globalparameters_flatten_err[4],nwalkers*20))
         globalparameters_flat_4=np.concatenate(([globalparameters_flatten[4]],
-                                                globalparameters_flat_4[np.all((globalparameters_flat_4>0.0,globalparameters_flat_4<0.2),axis=0)][0:nwalkers-1]))
+                                                globalparameters_flat_4[np.all((globalparameters_flat_4>0.05,globalparameters_flat_4<0.09),axis=0)][0:nwalkers-1]))
         # slitFrac_dy
         globalparameters_flat_5=np.abs(np.random.normal(globalparameters_flatten[5],globalparameters_flatten_err[5],nwalkers*20))      
         globalparameters_flat_5=np.concatenate(([globalparameters_flatten[5]],
@@ -2307,11 +2371,11 @@ def create_parInit(allparameters_proposal,multi=None,pupil_parameters=None,allpa
         # x_ilum 
         globalparameters_flat_8=np.abs(np.random.normal(globalparameters_flatten[8],globalparameters_flatten_err[8],nwalkers*20))
         globalparameters_flat_8=np.concatenate(([globalparameters_flatten[8]],
-                                                globalparameters_flat_8[np.all((globalparameters_flat_8>-0.8,globalparameters_flat_8<0.8),axis=0)][0:nwalkers-1]))
+                                                globalparameters_flat_8[np.all((globalparameters_flat_8>-0.4,globalparameters_flat_8<0.4),axis=0)][0:nwalkers-1]))
         # y_ilum
         globalparameters_flat_9=np.abs(np.random.normal(globalparameters_flatten[9],globalparameters_flatten_err[9],nwalkers*20))
         globalparameters_flat_9=np.concatenate(([globalparameters_flatten[9]],
-                                                globalparameters_flat_9[np.all((globalparameters_flat_9>-0.8,globalparameters_flat_9<0.8),axis=0)][0:nwalkers-1]))
+                                                globalparameters_flat_9[np.all((globalparameters_flat_9>-0.4,globalparameters_flat_9<0.4),axis=0)][0:nwalkers-1]))
         # minorAxis
         globalparameters_flat_10=np.random.normal(globalparameters_flatten[10],globalparameters_flatten_err[10],nwalkers*20)
         globalparameters_flat_10=np.concatenate(([globalparameters_flatten[10]],
@@ -2324,20 +2388,20 @@ def create_parInit(allparameters_proposal,multi=None,pupil_parameters=None,allpa
         #effective_radius_illumination
         globalparameters_flat_12=np.random.normal(globalparameters_flatten[12],globalparameters_flatten_err[12],nwalkers*20)
         globalparameters_flat_12=np.concatenate(([globalparameters_flatten[12]],
-                                                 globalparameters_flat_12[np.all((globalparameters_flat_12>0.5,globalparameters_flat_12<1.01),axis=0)][0:nwalkers-1]))
+                                                 globalparameters_flat_12[np.all((globalparameters_flat_12>0.7,globalparameters_flat_12<1.01),axis=0)][0:nwalkers-1]))
         # frd_sigma
         globalparameters_flat_13=np.random.normal(globalparameters_flatten[13],globalparameters_flatten_err[13],nwalkers*20)
         globalparameters_flat_13=np.concatenate(([globalparameters_flatten[13]],
-                                                 globalparameters_flat_13[np.all((globalparameters_flat_13>0.0,globalparameters_flat_13<0.05),axis=0)][0:nwalkers-1]))
+                                                 globalparameters_flat_13[np.all((globalparameters_flat_13>0.0,globalparameters_flat_13<0.03),axis=0)][0:nwalkers-1]))
         # det_vert
         globalparameters_flat_14=np.random.normal(globalparameters_flatten[14],globalparameters_flatten_err[14],nwalkers*20)
         globalparameters_flat_14=np.concatenate(([globalparameters_flatten[14]],
-                                                 globalparameters_flat_14[np.all((globalparameters_flat_14>0.5,globalparameters_flat_14<1.5),axis=0)][0:nwalkers-1]))
+                                                 globalparameters_flat_14[np.all((globalparameters_flat_14>0.85,globalparameters_flat_14<1.15),axis=0)][0:nwalkers-1]))
         
         #slitHolder_frac_dx
         globalparameters_flat_15=np.random.normal(globalparameters_flatten[15],globalparameters_flatten_err[15],nwalkers*20)
         globalparameters_flat_15=np.concatenate(([globalparameters_flatten[15]],
-                                                 globalparameters_flat_15[np.all((globalparameters_flat_15>-0.8,globalparameters_flat_15<0.8),axis=0)][0:nwalkers-1]))
+                                                 globalparameters_flat_15[np.all((globalparameters_flat_15>-0.4,globalparameters_flat_15<0.4),axis=0)][0:nwalkers-1]))
 
         # grating lines
         globalparameters_flat_16=np.random.normal(globalparameters_flatten[16],globalparameters_flatten_err[16],nwalkers*20)
@@ -2346,29 +2410,29 @@ def create_parInit(allparameters_proposal,multi=None,pupil_parameters=None,allpa
         # scattering_radius
         globalparameters_flat_17=np.random.normal(globalparameters_flatten[17],globalparameters_flatten_err[17],nwalkers*20)
         globalparameters_flat_17=np.concatenate(([globalparameters_flatten[17]],
-                                                 globalparameters_flat_17[np.all((globalparameters_flat_17>1,globalparameters_flat_17<50),axis=0)][0:nwalkers-1]))
+                                                 globalparameters_flat_17[np.all((globalparameters_flat_17>1,globalparameters_flat_17<30),axis=0)][0:nwalkers-1]))
         # scattering_slope
         globalparameters_flat_18=np.random.normal(globalparameters_flatten[18],globalparameters_flatten_err[18],nwalkers*20)
         globalparameters_flat_18=np.concatenate(([globalparameters_flatten[18]],
-                                                 globalparameters_flat_18[np.all((globalparameters_flat_18>0.5,globalparameters_flat_18<3.5),axis=0)][0:nwalkers-1]))
+                                                 globalparameters_flat_18[np.all((globalparameters_flat_18>1.5,globalparameters_flat_18<3.0),axis=0)][0:nwalkers-1]))
         # scattering_amplitude
         globalparameters_flat_19=np.random.normal(globalparameters_flatten[19],globalparameters_flatten_err[19],nwalkers*20)
         globalparameters_flat_19=np.concatenate(([globalparameters_flatten[19]],
-                                                 globalparameters_flat_19[np.all((globalparameters_flat_19>0.0,globalparameters_flat_19<0.5),axis=0)][0:nwalkers-1]))
+                                                 globalparameters_flat_19[np.all((globalparameters_flat_19>0.0,globalparameters_flat_19<0.1),axis=0)][0:nwalkers-1]))
         # pixel_effect
         globalparameters_flat_20=np.random.normal(globalparameters_flatten[20],globalparameters_flatten_err[20],nwalkers*20)
         globalparameters_flat_20=np.concatenate(([globalparameters_flatten[20]],
-                                                 globalparameters_flat_20[np.all((globalparameters_flat_20>0.2,globalparameters_flat_20<1.1),axis=0)][0:nwalkers-1]))
+                                                 globalparameters_flat_20[np.all((globalparameters_flat_20>0.35,globalparameters_flat_20<0.8),axis=0)][0:nwalkers-1]))
         
         # fiber_r
         globalparameters_flat_21=np.random.normal(globalparameters_flatten[21],globalparameters_flatten_err[21],nwalkers*20)
         globalparameters_flat_21=np.concatenate(([globalparameters_flatten[21]],
-                                                 globalparameters_flat_21[np.all((globalparameters_flat_21>1.65,globalparameters_flat_21<1.95),axis=0)][0:nwalkers-1]))
+                                                 globalparameters_flat_21[np.all((globalparameters_flat_21>1.7,globalparameters_flat_21<1.90),axis=0)][0:nwalkers-1]))
         
         # flux
         globalparameters_flat_22=np.random.normal(globalparameters_flatten[22],globalparameters_flatten_err[22],nwalkers*20)
         globalparameters_flat_22=np.concatenate(([globalparameters_flatten[22]],
-                                                 globalparameters_flat_22[np.all((globalparameters_flat_22>0.95,globalparameters_flat_22<1.05),axis=0)][0:nwalkers-1]))
+                                                 globalparameters_flat_22[np.all((globalparameters_flat_22>0.98,globalparameters_flat_22<1.02),axis=0)][0:nwalkers-1]))
 
         if pupil_parameters is None:
             globalparameters_flat=np.column_stack((globalparameters_flat_0,globalparameters_flat_1,globalparameters_flat_2,globalparameters_flat_3
@@ -2532,3 +2596,115 @@ def remove_pupil_parameters_from_all_parameters(parameters):
 def add_pupil_parameters_to_all_parameters(parameters,pupil_parameters):
     lenpar=len(parameters)
     return np.concatenate((parameters[:lenpar-11],pupil_parameters[:6],parameters[lenpar-11:lenpar-7],pupil_parameters[6:],parameters[lenpar-7:]),axis=0)
+
+# taken https://gist.github.com/shoyer/c0f1ddf409667650a076c058f9a17276
+# also here https://github.com/scikit-image/scikit-image/issues/2827
+
+# Copyright 2018 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+import numpy as np
+from typing import Tuple, Iterable
+
+
+def _reflect_breaks(size: int) -> np.ndarray:
+  """Calculate cell boundaries with reflecting boundary conditions."""
+  result = np.concatenate([[0], 0.5 + np.arange(size - 1), [size - 1]])
+  assert len(result) == size + 1
+  return result
+
+def _interval_overlap(first_breaks: np.ndarray,
+                      second_breaks: np.ndarray) -> np.ndarray:
+  """Return the overlap distance between all pairs of intervals.
+
+  Args:
+    first_breaks: breaks between entries in the first set of intervals, with
+      shape (N+1,). Must be a non-decreasing sequence.
+    second_breaks: breaks between entries in the second set of intervals, with
+      shape (M+1,). Must be a non-decreasing sequence.
+
+  Returns:
+    Array with shape (N, M) giving the size of the overlapping region between
+    each pair of intervals.
+  """
+  first_upper = first_breaks[1:]
+  second_upper = second_breaks[1:]
+  upper = np.minimum(first_upper[:, np.newaxis], second_upper[np.newaxis, :])
+
+  first_lower = first_breaks[:-1]
+  second_lower = second_breaks[:-1]
+  lower = np.maximum(first_lower[:, np.newaxis], second_lower[np.newaxis, :])
+
+  return np.maximum(upper - lower, 0)
+
+def _resize_weights(
+    old_size: int, new_size: int, reflect: bool = False) -> np.ndarray:
+  """Create a weight matrix for resizing with the local mean along an axis.
+
+  Args:
+    old_size: old size.
+    new_size: new size.
+    reflect: whether or not there are reflecting boundary conditions.
+
+  Returns:
+    NumPy array with shape (new_size, old_size). Rows sum to 1.
+  """
+  if not reflect:
+    old_breaks = np.linspace(0, old_size, num=old_size + 1)
+    new_breaks = np.linspace(0, old_size, num=new_size + 1)
+  else:
+    old_breaks = _reflect_breaks(old_size)
+    new_breaks = (old_size - 1) / (new_size - 1) * _reflect_breaks(new_size)
+
+  weights = _interval_overlap(new_breaks, old_breaks)
+  weights /= np.sum(weights, axis=1, keepdims=True)
+  assert weights.shape == (new_size, old_size)
+  return weights
+
+def resize(array: np.ndarray,
+           shape: Tuple[int, ...],
+           reflect_axes: Iterable[int] = ()) -> np.ndarray:
+  """Resize an array with the local mean / bilinear scaling.
+
+  Works for both upsampling and downsampling in a fashion equivalent to
+  block_mean and zoom, but allows for resizing by non-integer multiples. Prefer
+  block_mean and zoom when possible, as this implementation is probably slower.
+
+  Args:
+    array: array to resize.
+    shape: shape of the resized array.
+    reflect_axes: iterable of axis numbers with reflecting boundary conditions,
+      mirrored over the center of the first and last cell.
+
+  Returns:
+    Array resized to shape.
+
+  Raises:
+    ValueError: if any values in reflect_axes fall outside the interval
+      [-array.ndim, array.ndim).
+  """
+  reflect_axes_set = set()
+  for axis in reflect_axes:
+    if not -array.ndim <= axis < array.ndim:
+      raise ValueError('invalid axis: {}'.format(axis))
+    reflect_axes_set.add(axis % array.ndim)
+
+  output = array
+  for axis, (old_size, new_size) in enumerate(zip(array.shape, shape)):
+    reflect = axis in reflect_axes_set
+    weights = _resize_weights(old_size, new_size, reflect=reflect)
+    product = np.tensordot(output, weights, [[axis], [-1]])
+    output = np.moveaxis(product, -1, axis)
+  return output
+
