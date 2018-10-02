@@ -451,7 +451,7 @@ class ZernikeFitter_PFS(object):
     def __init__(self, image=None,image_var=None,pixelScale=None,wavelength=None,
                  jacobian=None,diam_sic=None,npix=None,pupilExplicit=None,
                  wf_full_Image=None,radiometricEffectArray_Image=None,ilum_Image=None,dithering=None,save=None,
-                 pupil_parameters=None,use_pupil_parameters=None,*args):
+                 pupil_parameters=None,use_pupil_parameters=None,use_optPSF=None,*args):
         """
         @param image        image to analyze
         @param image_var    variance image
@@ -561,6 +561,12 @@ class ZernikeFitter_PFS(object):
             self.use_pupil_parameters=use_pupil_parameters
             #print(self.use_pupil_parameters)
             self.args = args
+            
+        if use_optPSF is None:
+            self.use_optPSF=use_optPSF
+        else:
+            self.use_optPSF=use_optPSF
+            
     
     def initParams(self, zmax=11, z4Init=None, dxInit=None,dyInit=None,hscFracInit=None,strutFracInit=None,
                    focalPlanePositionInit=None,fiber_rInit=None,
@@ -779,10 +785,10 @@ class ZernikeFitter_PFS(object):
         #print('self.nyquistscale: '+str(self.nyquistscale))
         #print(params)
         self.params = params
-    
+        self.optPsf=None
 
 
-    def constructModelImage_PFS_naturalResolution(self,params=None,shape=None,pixelScale=None,jacobian=None):
+    def constructModelImage_PFS_naturalResolution(self,params=None,shape=None,pixelScale=None,jacobian=None,use_optPSF=None):
         """Construct model image from parameters
         @param params      lmfit.Parameters object or python dictionary with
                            param values to use, or None to use self.params
@@ -796,7 +802,8 @@ class ZernikeFitter_PFS(object):
         if params is None:
             params = self.params
         if shape is None:
-            shape = self.image.shape
+            shape = self.image.shape 
+
         if pixelScale is None:
             pixelScale = self.pixelScale
         if jacobian is None:
@@ -807,11 +814,43 @@ class ZernikeFitter_PFS(object):
             v = params.valuesdict()
         except AttributeError:
             v = params
-
+        use_optPSF=self.use_optPSF
+            
+        #print(self.optPsf)
+        #print(use_optPSF)
         # This give image in nyquist resolution
-        optPsf=self._getOptPsf_naturalResolution(v)
+        # if not explicitly stated to the full procedure
+        if use_optPSF is None:
+            optPsf=self._getOptPsf_naturalResolution(v)
+        else:
+            #if first iteration still generate image
+            if self.optPsf is None:
+                optPsf=self._getOptPsf_naturalResolution(v)
+                self.optPsf=optPsf
+            else:
+                optPsf=self.optPsf
+                
+        #print(self.optPsf)
+        optPsf_cut_fiber_convolved_downsampled=self.optPsf_postprocessing(optPsf)
+        #print(self.save)
+        if self.save==1:
+            np.save(TESTING_FINAL_IMAGES_FOLDER+'optPsf',optPsf)
+            np.save(TESTING_FINAL_IMAGES_FOLDER+'optPsf_cut_fiber_convolved_downsampled',optPsf_cut_fiber_convolved_downsampled) 
+            #print('size of image generated in microns: '+str(optPsf.shape[0]*15/oversampling_original))
+            #print('sci_image size in microns: '+str(self.image.shape[0]*15/self.dithering))
+            #print('oversampling of optPSF is: '+str(oversampling_original))
+            #print('oversampling of optPsf_downsampled is: '+str(oversampling))
+
+        return optPsf_cut_fiber_convolved_downsampled
+    
+    def optPsf_postprocessing(self,optPsf):
+        params = self.params
+        shape = self.image.shape 
         
-        # how much is my generated image oversampled compared to final image
+        
+        v = params.valuesdict()
+        
+       # how much is my generated image oversampled compared to final image
         oversampling_original=(self.pixelScale)/self.scale_ModelImage_PFS_naturalResolution
         #print('optPsf.shape'+str(optPsf.shape))
         #print('oversampling_original:' +str(oversampling_original))
@@ -954,9 +993,7 @@ class ZernikeFitter_PFS(object):
                                                                                int(round(oversampling)),shape[0],self.image,self.image_var,
                                                                                v['flux'])
         
-        #print(self.save)
         if self.save==1:
-            np.save(TESTING_FINAL_IMAGES_FOLDER+'optPsf',optPsf)
             np.save(TESTING_FINAL_IMAGES_FOLDER+'optPsf_cut',optPsf_cut)
             np.save(TESTING_FINAL_IMAGES_FOLDER+'optPsf_cut_downsampled',optPsf_cut_downsampled)
             np.save(TESTING_FINAL_IMAGES_FOLDER+'scattered_light',scattered_light)                        
@@ -968,15 +1005,11 @@ class ZernikeFitter_PFS(object):
             np.save(TESTING_FINAL_IMAGES_FOLDER+'optPsf_cut_fiber_convolved',optPsf_cut_fiber_convolved) 
             np.save(TESTING_FINAL_IMAGES_FOLDER+'optPsf_cut_pixel_response_convolved',optPsf_cut_pixel_response_convolved) 
             np.save(TESTING_FINAL_IMAGES_FOLDER+'optPsf_cut_grating_convolved',optPsf_cut_grating_convolved) 
-            np.save(TESTING_FINAL_IMAGES_FOLDER+'optPsf_cut_fiber_convolved_downsampled',optPsf_cut_fiber_convolved_downsampled) 
-            #print('size of image generated in microns: '+str(optPsf.shape[0]*15/oversampling_original))
-            #print('sci_image size in microns: '+str(self.image.shape[0]*15/self.dithering))
-            #print('oversampling of optPSF is: '+str(oversampling_original))
-            #print('oversampling of optPsf_downsampled is: '+str(oversampling))
         
-
-
         return optPsf_cut_fiber_convolved_downsampled
+    
+    
+    
     
     #@lru_cache(maxsize=300)
     def _get_Pupil(self,params):
@@ -1098,14 +1131,7 @@ class ZernikeFitter_PFS(object):
         #print('r_ilum.shape: '+str(r_ilum.shape))
         # manual creation of aper.u and aper.v (mimicking steps which were automatically done in galsim)
         # this gives position informaition about each point in the exit pupil so we can apply wavefront to it
-        
-        
-        #################################
-        #Possibly off by a factor 'size_of_ilum_in_units_of_radius' 
-        #Possibly off by a factor 'size_of_ilum_in_units_of_radius' 
-        #Possibly off by a factor 'size_of_ilum_in_units_of_radius' 
-        #Possibly off by a factor 'size_of_ilum_in_units_of_radius' 
-        #################################       
+             
         aperu_manual=[]
         for i in range(len(r_ilum)):
             aperu_manual.append(np.linspace(-diam_sic*(size_of_ilum_in_units_of_radius/2),diam_sic*(size_of_ilum_in_units_of_radius/2),len(r_ilum), endpoint=True))
@@ -1233,7 +1259,7 @@ class ZernikeFitter_PFS(object):
 
 class LN_PFS_single(object):
         
-    def __init__(self,sci_image,var_image,dithering=None,save=None,pupil_parameters=None,use_pupil_parameters=None):    
+    def __init__(self,sci_image,var_image,dithering=None,save=None,pupil_parameters=None,use_pupil_parameters=None,use_optPSF=None):    
         """
         @param image        image to analyze
         @param image_var    variance image
@@ -1254,6 +1280,7 @@ class LN_PFS_single(object):
         self.dithering=dithering
         self.pupil_parameters=pupil_parameters
         self.use_pupil_parameters=use_pupil_parameters
+        self.use_optPSF=use_optPSF
         #print(pupil_parameters)
         
         
@@ -1268,7 +1295,7 @@ class LN_PFS_single(object):
      
         
         if pupil_parameters is None:
-            single_image_analysis=ZernikeFitter_PFS(sci_image,var_image,npix=npix_value,dithering=dithering,save=save,pupil_parameters=pupil_parameters,use_pupil_parameters=use_pupil_parameters)     
+            single_image_analysis=ZernikeFitter_PFS(sci_image,var_image,npix=npix_value,dithering=dithering,save=save,pupil_parameters=pupil_parameters,use_pupil_parameters=use_pupil_parameters,use_optPSF=use_optPSF)     
             single_image_analysis.initParams(zmax) 
             self.single_image_analysis=single_image_analysis
         else:
@@ -1471,9 +1498,9 @@ class LN_PFS_single(object):
             return -np.inf  
         
          # fiber_r
-        if globalparameters[21]<1.7:
+        if globalparameters[21]<1.78:
             return -np.inf
-        if globalparameters[21]>+1.90:
+        if globalparameters[21]>+1.98:
             return -np.inf  
         
         # flux
@@ -1690,6 +1717,7 @@ class Zernike_Analysis(object):
         #print(minchain)
         self.minchain=minchain
         like_min_Emcee3=[]
+        
         #for i in range(likechain0_Emcee1.shape[1]):
         #    like_min.append(np.min(np.abs(likechain0_Emcee1[:,i])))
         
@@ -1698,9 +1726,13 @@ class Zernike_Analysis(object):
         
         for i in range(likechain0_Emcee3.shape[1]):
             like_min_Emcee3.append(np.min(np.abs(likechain0_Emcee3[:,i]))  )  
-           
+        
+        #print(len(like_min_swarm1))
+        #print(len(like_min_Emcee2))
+        #print(len(like_min_swarm2))
+        #print(len(like_min_Emcee3))        
         like_min=like_min_swarm1+like_min_Emcee2+like_min_swarm2+like_min_Emcee3
-            
+        #print(len(like_min))                
         print('minimal likelihood is: '+str(np.min(like_min)))   
         chi2=(np.array(like_min)*(2)-np.log(2*np.pi*np.sum(self.var_image)))/(self.sci_image.shape[0])**2
         print('minimal chi2 reduced is: '+str(np.min(chi2)))
@@ -1772,8 +1804,8 @@ class Zernike_Analysis(object):
         likechain_Emcee3=np.load(self.RESULT_FOLDER+'likechain'+str(self.date)+'_Single_'+str(self.method)+'_'+str(self.obs)+str(self.single_number)+str(self.eps)+'Emcee3.npy')
         
         # get chain number 0, which is has lowest temperature
-        likechain0_Emcee3=likechain_Emcee3[0]
-        chain0_Emcee3=chain_Emcee3[0]     
+        likechain0_Emcee3=likechain_Emcee3
+        chain0_Emcee3=chain_Emcee3     
         
         self.chain0_Emcee3=chain0_Emcee3
         self.likechain0_Emcee3=likechain0_Emcee3
@@ -2259,7 +2291,7 @@ def estimate_trace_and_serial(sci_image,model_image):
         
     return [proposed_trace,proposed_serial]
 
-def create_parInit(allparameters_proposal,multi=None,pupil_parameters=None,allparameters_proposal_err=None):
+def create_parInit(allparameters_proposal,multi=None,pupil_parameters=None,allparameters_proposal_err=None,stronger=None,use_optPSF=None):
     """
     given the suggested parametrs create array with randomized starting values to supply to fitting code
     
@@ -2271,12 +2303,14 @@ def create_parInit(allparameters_proposal,multi=None,pupil_parameters=None,allpa
     if allparameters_proposal_err is None:
         if multi is None:
             allparameters_proposal_err=[1,0.25,0.25,0.25,0.25,0.25,0.25,0.25,
-                                    0.1,0.02,0.1,0.1,0.0,0.1,
+                                    0.1,0.02,0.1,0.1,0.1,0.1,
                                     0.2, 0.4,0.1,0.1,
                                     0.1,0.2,0.1,
                                     0.01,0.05,0.1,
                                     30000,10,0.5,0.01,
                                     0.1,0.05,0.01]
+            if stronger is not None:
+                allparameters_proposal_err=stronger*allparameters_proposal_err
         else:
             allparameters_proposal_err=[1,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,
                                     0.1,0.1,0.1,0.1,0.05,0.1,
@@ -2298,6 +2332,7 @@ def create_parInit(allparameters_proposal,multi=None,pupil_parameters=None,allpa
         zparameters_flatten_err=allparameters_proposal_err[0:8]
         globalparameters_flatten=allparameters_proposal[8:]
         globalparameters_flatten_err=allparameters_proposal_err[8:]
+        #print(globalparameters_flatten_err)
     else:
         zparameters_flatten=allparameters_proposal[0:8*2]
         zparameters_flatten_err=allparameters_proposal_err[0:8*2]
@@ -2354,6 +2389,7 @@ def create_parInit(allparameters_proposal,multi=None,pupil_parameters=None,allpa
                                                 globalparameters_flat_3[np.all((globalparameters_flat_3>-0.4,globalparameters_flat_3<0.4),axis=0)][0:nwalkers-1]))
         # slitFrac
         globalparameters_flat_4=np.abs(np.random.normal(globalparameters_flatten[4],globalparameters_flatten_err[4],nwalkers*20))
+        #print(globalparameters_flatten_err[4])
         globalparameters_flat_4=np.concatenate(([globalparameters_flatten[4]],
                                                 globalparameters_flat_4[np.all((globalparameters_flat_4>0.05,globalparameters_flat_4<0.09),axis=0)][0:nwalkers-1]))
         # slitFrac_dy
@@ -2425,23 +2461,29 @@ def create_parInit(allparameters_proposal,multi=None,pupil_parameters=None,allpa
                                                  globalparameters_flat_20[np.all((globalparameters_flat_20>0.35,globalparameters_flat_20<0.8),axis=0)][0:nwalkers-1]))
         
         # fiber_r
+        if globalparameters_flatten[21]<1.78:
+            globalparameters_flatten[21]=1.8
+        
         globalparameters_flat_21=np.random.normal(globalparameters_flatten[21],globalparameters_flatten_err[21],nwalkers*20)
         globalparameters_flat_21=np.concatenate(([globalparameters_flatten[21]],
-                                                 globalparameters_flat_21[np.all((globalparameters_flat_21>1.7,globalparameters_flat_21<1.90),axis=0)][0:nwalkers-1]))
+                                                 globalparameters_flat_21[np.all((globalparameters_flat_21>1.78,globalparameters_flat_21<1.98),axis=0)][0:nwalkers-1]))
         
         # flux
         globalparameters_flat_22=np.random.normal(globalparameters_flatten[22],globalparameters_flatten_err[22],nwalkers*20)
         globalparameters_flat_22=np.concatenate(([globalparameters_flatten[22]],
                                                  globalparameters_flat_22[np.all((globalparameters_flat_22>0.98,globalparameters_flat_22<1.02),axis=0)][0:nwalkers-1]))
 
+
+        
         if pupil_parameters is None:
-            globalparameters_flat=np.column_stack((globalparameters_flat_0,globalparameters_flat_1,globalparameters_flat_2,globalparameters_flat_3
-                                                   ,globalparameters_flat_4,globalparameters_flat_5,globalparameters_flat_6,globalparameters_flat_7,
+            globalparameters_flat=np.column_stack((globalparameters_flat_0,globalparameters_flat_1,globalparameters_flat_2,globalparameters_flat_3,
+                                                   globalparameters_flat_4,globalparameters_flat_5,globalparameters_flat_6,globalparameters_flat_7,
                                                   globalparameters_flat_8,globalparameters_flat_9,globalparameters_flat_10,
                                                    globalparameters_flat_11,globalparameters_flat_12,globalparameters_flat_13,
                                                    globalparameters_flat_14,globalparameters_flat_15,globalparameters_flat_16,
                                                    globalparameters_flat_17,globalparameters_flat_18,globalparameters_flat_19,
                                                    globalparameters_flat_20,globalparameters_flat_21,globalparameters_flat_22))
+            
         else:
                         globalparameters_flat=np.column_stack((globalparameters_flat_6,globalparameters_flat_7,
                                                   globalparameters_flat_8,globalparameters_flat_9,globalparameters_flat_16,
@@ -2457,6 +2499,13 @@ def create_parInit(allparameters_proposal,multi=None,pupil_parameters=None,allpa
     allparameters=np.column_stack((zparameters_flat,globalparameters_flat))
     
     parInit=allparameters.reshape(nwalkers,number_of_par) 
+    
+    
+    if use_optPSF is not None:
+        for i in range(1,24):
+            parInit[:,i]=np.full(len(parInit[:,i]),allparameters_proposal[i])
+    else:
+        pass
     
     return parInit
 
