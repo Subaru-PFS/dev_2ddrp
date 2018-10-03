@@ -36,3 +36,7 @@
 .ipynb_checkpoints
 ehthumbs.db
 Thumbs.db
+
+# custom #
+######################
+.gitignore
