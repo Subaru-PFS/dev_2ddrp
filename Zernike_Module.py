@@ -95,7 +95,7 @@ class PupilFactory(object):
     """!Pupil obscuration function factory for use with Fourier optics.
     """
 
-    def __init__(self, pupilSize, npix,input_angle,hscFrac,strutFrac,slitFrac,slitFrac_dy,minorAxis,pupilAngle,effective_ilum_radius,frd_sigma,det_vert):
+    def __init__(self, pupilSize, npix,input_angle,hscFrac,strutFrac,slitFrac,slitFrac_dy,x_fiber,y_fiber,effective_ilum_radius,frd_sigma,det_vert):
         """!Construct a PupilFactory.
 
         @params others
@@ -328,7 +328,7 @@ class PupilFactory(object):
 class PFSPupilFactory(PupilFactory):
     """!Pupil obscuration function factory for PFS 
     """
-    def __init__(self, pupilSize, npix,input_angle,hscFrac,strutFrac,slitFrac,slitFrac_dy,minorAxis,pupilAngle,effective_ilum_radius,frd_sigma,det_vert,slitHolder_frac_dx):
+    def __init__(self, pupilSize, npix,input_angle,hscFrac,strutFrac,slitFrac,slitFrac_dy,x_fiber,y_fiber,effective_ilum_radius,frd_sigma,det_vert,slitHolder_frac_dx):
         """!Construct a PupilFactory.
 
         @param[in] visitInfo  VisitInfo object for a particular exposure.
@@ -336,10 +336,10 @@ class PFSPupilFactory(PupilFactory):
         @param[in] npix       Constructed Pupils will be npix x npix.
         """
         #print('init')
-        PupilFactory.__init__(self, pupilSize,npix,input_angle,hscFrac,strutFrac,slitFrac,slitFrac_dy,minorAxis,pupilAngle,effective_ilum_radius,frd_sigma,det_vert)
+        PupilFactory.__init__(self, pupilSize,npix,input_angle,hscFrac,strutFrac,slitFrac,slitFrac_dy,x_fiber,y_fiber,effective_ilum_radius,frd_sigma,det_vert)
         #print('init2')
-        self.minorAxis=minorAxis
-        self.pupilAngle=pupilAngle      
+        self.x_fiber=x_fiber
+        self.y_fiber=y_fiber      
         self.slitHolder_frac_dx=slitHolder_frac_dx
         self._spiderStartPos=[np.array([ 0.,  0.]), np.array([ 0.,  0.]), np.array([ 0.,  0.])]
         self._spiderAngles=[1.57-1.57,3.66519-1.57,5.75959-1.57]
@@ -367,18 +367,15 @@ class PFSPupilFactory(PupilFactory):
         @param point  Point2D indicating focal plane coordinates.
         @returns      Pupil
         """
-        #subaruRadius = self.telescopeDiameter/2
-        # subaruRadius = (self.pupilSize/2)*self.illumminatedFrac
+
+        # called subaruRadius as it was taken from the code fitting pupil for HSC on Subaru
         subaruRadius = (self.pupilSize/2)*1
 
         hscFrac = self.hscFrac  # linear fraction
         # radius of PSF camera shadow in meters - deduced from Figure 9 in Smee et al. (2014)
         hscRadius = hscFrac * subaruRadius
-
         slitFrac = self.slitFrac 
         subaruSlit = slitFrac*subaruRadius
-        # meters - current value is basically random. As I am not 
-        #sure what is the size that I should be using (sic!) I am using fraction 
         strutFrac = self.strutFrac 
         subaruStrutThick = strutFrac*subaruRadius
         
@@ -406,28 +403,51 @@ class PFSPupilFactory(PupilFactory):
         camY = thetaY * hscRate
         #self._cutCircleInterior(pupil, (camX, camY), hscRadius)
 
-        
+        #print(self.effective_ilum_radius)
         # Cut out primary mirror exterior
-        #self._cutCircleExterior(pupil, (0.0, 0.0), subaruRadius)
-        self._cutEllipseExterior(pupil, (0.0, 0.0), subaruRadius*self.effective_ilum_radius,self.effective_ilum_radius*subaruRadius*self.minorAxis,self.pupilAngle)
-        # Cut out camera shadow
+        self._cutCircleExterior(pupil, (0.0, 0.0), subaruRadius*self.effective_ilum_radius)
+        
+        #np.save(TESTING_PUPIL_IMAGES_FOLDER+'pupil_pre1',pupil.illuminated)        
+        #pupil_first_cut=pupil.illuminated
+        
+        #self._cutEllipseExterior(pupil, (0.0, 0.0), subaruRadius*self.effective_ilum_radius,self.effective_ilum_radius*subaruRadius*self.minorAxis,self.pupilAngle)
+        
+        # apply frd effect
         frd_sigma=self.frd_sigma
         self._frd_effect(pupil,frd_sigma)
-        # Cut outer edge where L1 is too small
-        #lensX = thetaX * lensRate
-        #lensY = thetaY * lensRate
-        self._cutSquare(pupil, (camX, camY), hscRadius,self.input_angle,self.det_vert)        
+        
+        pupil_frd=pupil.illuminated 
+        #np.save(TESTING_PUPIL_IMAGES_FOLDER+'pupil_pre2',pupil.illuminated)
+                    
+        self._cutCircleExterior(pupil, (self.x_fiber*hscRate*hscPlateScale, self.y_fiber*hscRate*hscPlateScale), subaruRadius)
+        
+        
+        #changed added on evening October 8
+        pupil.illuminated =pupil_frd  *pupil.illuminated 
+        
+        
+        
+        #np.save(TESTING_PUPIL_IMAGES_FOLDER+'pupil_pre3',pupil.illuminated)
+        
+
+        
+        # Cut out camera shadow
+        self._cutSquare(pupil, (camX, camY), hscRadius,self.input_angle,self.det_vert)       
+        
         #No vignetting for the spectroscope 
         #self._cutCircleExterior(pupil, (lensX, lensY), lensRadius)
+        
         # Cut out spider shadow
         for pos, angle in zip(self._spiderStartPos, self._spiderAngles):
             x = pos[0] + camX
             y = pos[1] + camY
             self._cutRay(pupil, (x, y), angle, subaruStrutThick,'rad')
             
-        #self._cutRay(pupil, (2,slitFrac_dy/18), Angle(-np.pi),subaruSlit) 
-        
+
+        # cut out slit shadow
         self._cutRay(pupil, (2,slitFrac_dy/18),-np.pi,subaruSlit,'rad') 
+        
+        # cut out slit holder shadow
         #slitHolder_frac_dx - parameter?
         #slitHolder_frac_dx=0
         #also subaruSlit/3 not fitted, just put roughly correct number
@@ -573,7 +593,7 @@ class ZernikeFitter_PFS(object):
                   slitFracInit=None,slitFrac_dy_Init=None,apodizationInit=None,radiometricEffectInit=None,
                    trace_valueInit=None,serial_trace_valueInit=None,pixel_effectInit=None,backgroundInit=None,
                    x_ilumInit=None,y_ilumInit=None,radiometricExponentInit=None,
-                   minorAxisInit=None,pupilAngleInit=None,effective_ilum_radiusInit=None,
+                   x_fiberInit=None,y_fiberInit=None,effective_ilum_radiusInit=None,
                    grating_linesInit=None,scattering_radiusInit=None,scattering_slopeInit=None,scattering_amplitudeInit=None,fluxInit=None,frd_sigmaInit=None,
                    det_vertInit=None,slitHolder_frac_dxInit=None):
         """Initialize lmfit Parameters object.
@@ -595,8 +615,8 @@ class ZernikeFitter_PFS(object):
         @param y_ilumInit                y-position of the center of illumination of the exit pupil
         
         # further pupil parameters
-        @param minorAxisInit             which fraction of major axis is the minor axis the ellipsoid describing the illumination of the exit pupil
-        @param pupilAngleInit            angle of the ellipsoid describing the illumination of the exit pupil
+        @param x_fiberInit             
+        @param y_fiberInit            
         @param effective_ilum_radiusInit fraction of the maximal radius of the illumination of the exit pupil   
         @param frd_sigma                 sigma of Gaussian convolving only outer edge, mimicking FRD
         @param det_vert                  multiplicative factor determining vertical size of the detector obscuration
@@ -731,20 +751,20 @@ class ZernikeFitter_PFS(object):
         else:
             params.add('radiometricExponent', radiometricExponentInit)  
             
-        if minorAxisInit is None:
-            params.add('minorAxis', 1)
+        if x_ilumInit is None:
+            params.add('x_fiber', 1)
         else:
-            params.add('minorAxis', minorAxisInit)   
+            params.add('x_fiber', x_ilumInit)   
 
         if effective_ilum_radiusInit is None:
             params.add('effective_ilum_radius', 1)
         else:
             params.add('effective_ilum_radius', effective_ilum_radiusInit)   
 
-        if pupilAngleInit is None:
-            params.add('pupilAngle', 0)
+        if y_fiberInit is None:
+            params.add('y_fiber', 0)
         else:
-            params.add('pupilAngle', pupilAngleInit)          
+            params.add('y_fiber', y_fiberInit)          
             
         if grating_linesInit is None:
             params.add('grating_lines', 50000)
@@ -932,7 +952,10 @@ class ZernikeFitter_PFS(object):
         #r0[r0<v['scattering_radius']]=0
         scattered_light_kernel=(r0**(-v['scattering_slope']))
         #print(scattered_light_kernel.shape)
-        scattered_light_kernel[r0<v['scattering_radius']]=v['scattering_radius']**(-v['scattering_slope'])
+        
+        # the line below from previous code where I terminated scattering radius dependece below certain radius (changed on Oct 04, 2018)
+        #scattered_light_kernel[r0<v['scattering_radius']]=v['scattering_radius']**(-v['scattering_slope'])
+        scattered_light_kernel[r0<7.5]=7.5**(-v['scattering_slope'])
         #print(scattered_light_kernel.shape)
         scattered_light_kernel=scattered_light_kernel/np.sum(scattered_light_kernel)
         
@@ -1049,7 +1072,7 @@ class ZernikeFitter_PFS(object):
             pupil_parameters=np.array([params['hscFrac'.format(i)],params['strutFrac'.format(i)],
                                     params['dxFocal'.format(i)],params['dyFocal'.format(i)],
                                   params['slitFrac'.format(i)],params['slitFrac_dy'.format(i)],
-                                    params['minorAxis'.format(i)],params['pupilAngle'.format(i)],params['effective_ilum_radius'.format(i)],
+                                    params['x_fiber'.format(i)],params['y_fiber'.format(i)],params['effective_ilum_radius'.format(i)],
                                     params['frd_sigma'.format(i)],params['det_vert'.format(i)],params['slitHolder_frac_dx'.format(i)]])
             self.pupil_parameters=pupil_parameters
         else:
@@ -1102,6 +1125,11 @@ class ZernikeFitter_PFS(object):
         # create array with pixels=1 if the area is illuminated and 0 if it is obscured
         ilum=np.array(aper.illuminated, dtype=np.float64)
         assert np.sum(ilum)>0, str(self.pupil_parameters)
+        
+        #changed late October 8
+        lower_limit_of_ilum=int(ilum.shape[0]/2-pupil.illuminated.shape[0]/2)
+        higher_limit_of_ilum=int(ilum.shape[0]/2+pupil.illuminated.shape[0]/2)
+        ilum=ilum[lower_limit_of_ilum:higher_limit_of_ilum,lower_limit_of_ilum:higher_limit_of_ilum]*pupil.illuminated
         #print('Size after padding zeros to 2x size and extra padding to get size suitable for FFT'+str(ilum.shape))
        
         
@@ -1271,7 +1299,7 @@ class LN_PFS_single(object):
         self.columns=['z4','z5','z6','z7','z8','z9','z10','z11',
                       'hscFrac','strutFrac','dxFocal','dyFocal','slitFrac','slitFrac_dy',
                       'radiometricEffect','radiometricExponent','x_ilum','y_ilum',
-                      'minorAxis','pupilAngle','effective_ilum_radius','frd_sigma','det_vert','slitHolder_frac_dx',
+                      'x_fiber','y_fiber','effective_ilum_radius','frd_sigma','det_vert','slitHolder_frac_dx',
                       'grating_lines','scattering_radius','scattering_slope','scattering_amplitude',
                       'pixel_effect','fiber_r','flux']         
 
@@ -1302,7 +1330,7 @@ class LN_PFS_single(object):
             single_image_analysis=ZernikeFitter_PFS(sci_image,var_image,npix=npix_value,dithering=dithering,save=save,pupil_parameters=pupil_parameters,use_pupil_parameters=use_pupil_parameters)  
             single_image_analysis.initParams(zmax,hscFracInit=pupil_parameters[0],strutFracInit=pupil_parameters[1],
                    focalPlanePositionInit=(pupil_parameters[2],pupil_parameters[3]),slitFracInit=pupil_parameters[4],
-                  slitFrac_dy_Init=pupil_parameters[5],minorAxisInit=pupil_parameters[6],pupilAngleInit=pupil_parameters[7],
+                  slitFrac_dy_Init=pupil_parameters[5],x_fiberInit=pupil_parameters[6],y_fiberInit=pupil_parameters[7],
                   effective_ilum_radiusInit=pupil_parameters[8],frd_sigmaInit=pupil_parameters[9],
                   det_vertInit=pupil_parameters[10],slitHolder_frac_dxInit=pupil_parameters[11]) 
             self.single_image_analysis=single_image_analysis
@@ -1360,7 +1388,7 @@ class LN_PFS_single(object):
 
             
         #When running big fits these are limits which ensure that the code does not wander off in tottaly nonphyical region
-
+        
          # hsc frac
         if globalparameters[0]<=0.6 or globalparameters[0]>0.8:
             #print('globalparameters[0] outside limits')
@@ -1430,16 +1458,16 @@ class LN_PFS_single(object):
         if globalparameters[9]>0.4:
             return -np.inf   
         
-        # minorAxis
-        if globalparameters[10]<0.8:
+        # x_fiber
+        if globalparameters[10]<-0.4:
             return -np.inf
-        if globalparameters[10]>1.0:
+        if globalparameters[10]>0.4:
             return -np.inf      
       
-        # pupilAngle
-        if globalparameters[11]<-np.pi/2:
+        # y_fiber
+        if globalparameters[11]<-0.4:
             return -np.inf
-        if globalparameters[11]>np.pi/2:
+        if globalparameters[11]>0.4:
             return -np.inf        
   
         # effective_radius_illumination
@@ -1452,7 +1480,7 @@ class LN_PFS_single(object):
 
         if globalparameters[13]<0:
             return -np.inf
-        if globalparameters[13]>.03:
+        if globalparameters[13]>.06:
             return -np.inf  
 
         # det_vert
@@ -1462,9 +1490,9 @@ class LN_PFS_single(object):
             return -np.inf  
 
         # slitHolder_frac_dx
-        if globalparameters[15]<-0.4:
+        if globalparameters[15]<-0.8:
             return -np.inf
-        if globalparameters[15]>0.4:
+        if globalparameters[15]>0.8:
             return -np.inf  
      
         # grating_lines
@@ -1488,7 +1516,7 @@ class LN_PFS_single(object):
         # scattering_amplitude
         if globalparameters[19]<0:
             return -np.inf
-        if globalparameters[19]>+0.1:
+        if globalparameters[19]>+0.4:
             return -np.inf             
         
         # pixel_effect
@@ -1508,7 +1536,7 @@ class LN_PFS_single(object):
             return -np.inf
         if globalparameters[22]>1.02:
             return -np.inf      
-
+        
         x=self.create_x(zparameters,globalparameters)
         for i in range(len(self.columns)):
             self.single_image_analysis.params[self.columns[i]].set(x[i])
@@ -1525,8 +1553,8 @@ class LN_PFS_single(object):
         #np.save(self.RESULT_FOLDER+'modelImg',modelImg)
         
         #test that fwmh is the same to up 2.5% 
-        mid_point_of_sci_image=int(self.sci_image.shape[0]/2)
-        dif_FWHM=(np.max(self.sci_image[mid_point_of_sci_image]*(1/2))-np.max(modelImg[mid_point_of_sci_image]*(1/2)))/np.max(self.sci_image[mid_point_of_sci_image]*(1/2))
+        #mid_point_of_sci_image=int(self.sci_image.shape[0]/2)
+        #dif_FWHM=(np.max(self.sci_image[mid_point_of_sci_image]*(1/2))-np.max(modelImg[mid_point_of_sci_image]*(1/2)))/np.max(self.sci_image[mid_point_of_sci_image]*(1/2))
         #print(dif_FWHM)
         #if np.abs(dif_FWHM)>.03:
         #    return -np.inf
@@ -1542,7 +1570,7 @@ class LN_PFS_single(object):
         #print(chi_2_almost)
         #print(chi_2_almost_reduced)
         #print(chi_2_Q)
-        res=-(1/2)*(chi_2_almost+np.log(2*np.pi*np.sum(self.var_image)))*(1+np.abs(dif_FWHM))
+        res=-(1/2)*(chi_2_almost+np.log(2*np.pi*np.sum(self.var_image)))
         #res=-(1/2)*(chi_2_almost+np.log(2*np.pi*np.sum(self.var_image)))
         #res=-np.abs(np.sum(globalparameters))+np.log(2*np.pi*np.sum(self.var_image))
         #print('res'+str(res),flush=True)
@@ -1646,7 +1674,7 @@ class Zernike_Analysis(object):
                       'hscFrac','strutFrac','dxFocal','dyFocal','slitFrac','slitFrac_dy',
                       'radiometricEffect','radiometricExponent',
                       'x_ilum','y_ilum',
-                      'minorAxis','pupilAngle','effective_ilum_radius','frd_sigma','det_vert','slitHolder_frac_dx',
+                      'x_fiber','y_fiber','effective_ilum_radius','frd_sigma','det_vert','slitHolder_frac_dx',
                       'grating_lines','scattering_radius','scattering_slope','scattering_amplitude',
                       'pixel_effect','fiber_r','flux']    
         
@@ -2304,9 +2332,9 @@ def create_parInit(allparameters_proposal,multi=None,pupil_parameters=None,allpa
         if multi is None:
             allparameters_proposal_err=[1,0.25,0.25,0.25,0.25,0.25,0.25,0.25,
                                     0.1,0.02,0.1,0.1,0.1,0.1,
-                                    0.2, 0.4,0.1,0.1,
-                                    0.1,0.2,0.1,
-                                    0.01,0.05,0.1,
+                                    0.3, 2,0.1,0.1,
+                                    0.1,0.1,0.1,
+                                    0.01,0.05,0.4,
                                     30000,10,0.5,0.01,
                                     0.1,0.05,0.01]
             if stronger is not None:
@@ -2315,7 +2343,7 @@ def create_parInit(allparameters_proposal,multi=None,pupil_parameters=None,allpa
             allparameters_proposal_err=[1,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,
                                     0.1,0.1,0.1,0.1,0.05,0.1,
                                     0.2, 0.4,0.1,0.1,
-                                    0.1,0.2,0.02,0.02,0.2,0.1,
+                                    0.1,0.1,0.02,0.02,0.2,0.1,
                                     30000,10,0.5,0.01,
                                     0.1,0.05,0.01]        
     
@@ -2412,14 +2440,14 @@ def create_parInit(allparameters_proposal,multi=None,pupil_parameters=None,allpa
         globalparameters_flat_9=np.abs(np.random.normal(globalparameters_flatten[9],globalparameters_flatten_err[9],nwalkers*20))
         globalparameters_flat_9=np.concatenate(([globalparameters_flatten[9]],
                                                 globalparameters_flat_9[np.all((globalparameters_flat_9>-0.4,globalparameters_flat_9<0.4),axis=0)][0:nwalkers-1]))
-        # minorAxis
+        # x_fiber
         globalparameters_flat_10=np.random.normal(globalparameters_flatten[10],globalparameters_flatten_err[10],nwalkers*20)
         globalparameters_flat_10=np.concatenate(([globalparameters_flatten[10]],
-                                                 globalparameters_flat_10[np.all((globalparameters_flat_10>0.8,globalparameters_flat_10<1.0),axis=0)][0:nwalkers-1]))
-        # pupilAngle
+                                                 globalparameters_flat_10[np.all((globalparameters_flat_10>-0.4,globalparameters_flat_10<0.4),axis=0)][0:nwalkers-1]))
+        # y_fiber
         globalparameters_flat_11=np.random.normal(globalparameters_flatten[11],globalparameters_flatten_err[11],nwalkers*20)
         globalparameters_flat_11=np.concatenate(([globalparameters_flatten[11]],
-                                                 globalparameters_flat_11[np.all((globalparameters_flat_11>-np.pi/2,globalparameters_flat_11<np.pi/2),axis=0)][0:nwalkers-1]))
+                                                 globalparameters_flat_11[np.all((globalparameters_flat_11>-0.4,globalparameters_flat_11<0.4),axis=0)][0:nwalkers-1]))
         
         #effective_radius_illumination
         globalparameters_flat_12=np.random.normal(globalparameters_flatten[12],globalparameters_flatten_err[12],nwalkers*20)
@@ -2428,7 +2456,7 @@ def create_parInit(allparameters_proposal,multi=None,pupil_parameters=None,allpa
         # frd_sigma
         globalparameters_flat_13=np.random.normal(globalparameters_flatten[13],globalparameters_flatten_err[13],nwalkers*20)
         globalparameters_flat_13=np.concatenate(([globalparameters_flatten[13]],
-                                                 globalparameters_flat_13[np.all((globalparameters_flat_13>0.0,globalparameters_flat_13<0.03),axis=0)][0:nwalkers-1]))
+                                                 globalparameters_flat_13[np.all((globalparameters_flat_13>0.0,globalparameters_flat_13<0.04),axis=0)][0:nwalkers-1]))
         # det_vert
         globalparameters_flat_14=np.random.normal(globalparameters_flatten[14],globalparameters_flatten_err[14],nwalkers*20)
         globalparameters_flat_14=np.concatenate(([globalparameters_flatten[14]],
@@ -2437,14 +2465,14 @@ def create_parInit(allparameters_proposal,multi=None,pupil_parameters=None,allpa
         #slitHolder_frac_dx
         globalparameters_flat_15=np.random.normal(globalparameters_flatten[15],globalparameters_flatten_err[15],nwalkers*20)
         globalparameters_flat_15=np.concatenate(([globalparameters_flatten[15]],
-                                                 globalparameters_flat_15[np.all((globalparameters_flat_15>-0.4,globalparameters_flat_15<0.4),axis=0)][0:nwalkers-1]))
+                                                 globalparameters_flat_15[np.all((globalparameters_flat_15>-0.8,globalparameters_flat_15<0.8),axis=0)][0:nwalkers-1]))
 
         # grating lines
         globalparameters_flat_16=np.random.normal(globalparameters_flatten[16],globalparameters_flatten_err[16],nwalkers*20)
         globalparameters_flat_16=np.concatenate(([globalparameters_flatten[16]],
                                                  globalparameters_flat_16[np.all((globalparameters_flat_16>1200,globalparameters_flat_16<120000),axis=0)][0:nwalkers-1]))
-        # scattering_radius
-        globalparameters_flat_17=np.random.normal(globalparameters_flatten[17],globalparameters_flatten_err[17],nwalkers*20)
+        # scattering_radius - putting err at 0 and effectivly killing it
+        globalparameters_flat_17=np.random.normal(globalparameters_flatten[17],0,nwalkers*20)
         globalparameters_flat_17=np.concatenate(([globalparameters_flatten[17]],
                                                  globalparameters_flat_17[np.all((globalparameters_flat_17>1,globalparameters_flat_17<30),axis=0)][0:nwalkers-1]))
         # scattering_slope
@@ -2454,7 +2482,7 @@ def create_parInit(allparameters_proposal,multi=None,pupil_parameters=None,allpa
         # scattering_amplitude
         globalparameters_flat_19=np.random.normal(globalparameters_flatten[19],globalparameters_flatten_err[19],nwalkers*20)
         globalparameters_flat_19=np.concatenate(([globalparameters_flatten[19]],
-                                                 globalparameters_flat_19[np.all((globalparameters_flat_19>0.0,globalparameters_flat_19<0.1),axis=0)][0:nwalkers-1]))
+                                                 globalparameters_flat_19[np.all((globalparameters_flat_19>0.0,globalparameters_flat_19<0.4),axis=0)][0:nwalkers-1]))
         # pixel_effect
         globalparameters_flat_20=np.random.normal(globalparameters_flatten[20],globalparameters_flatten_err[20],nwalkers*20)
         globalparameters_flat_20=np.concatenate(([globalparameters_flatten[20]],
@@ -2474,7 +2502,16 @@ def create_parInit(allparameters_proposal,multi=None,pupil_parameters=None,allpa
                                                  globalparameters_flat_22[np.all((globalparameters_flat_22>0.98,globalparameters_flat_22<1.02),axis=0)][0:nwalkers-1]))
 
 
-        
+        """
+        for i in [globalparameters_flat_0,globalparameters_flat_1,globalparameters_flat_2,globalparameters_flat_3,
+                                                   globalparameters_flat_4,globalparameters_flat_5,globalparameters_flat_6,globalparameters_flat_7,
+                                                  globalparameters_flat_8,globalparameters_flat_9,globalparameters_flat_10,
+                                                   globalparameters_flat_11,globalparameters_flat_12,globalparameters_flat_13,
+                                                   globalparameters_flat_14,globalparameters_flat_15,globalparameters_flat_16,
+                                                   globalparameters_flat_17,globalparameters_flat_18,globalparameters_flat_19,
+                                                   globalparameters_flat_20,globalparameters_flat_21,globalparameters_flat_22]:
+            print(len(i))
+        """
         if pupil_parameters is None:
             globalparameters_flat=np.column_stack((globalparameters_flat_0,globalparameters_flat_1,globalparameters_flat_2,globalparameters_flat_3,
                                                    globalparameters_flat_4,globalparameters_flat_5,globalparameters_flat_6,globalparameters_flat_7,
