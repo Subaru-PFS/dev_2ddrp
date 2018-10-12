@@ -287,6 +287,10 @@ class PupilFactory(object):
         """     
         #print('FRD')
         #print(frd_sigma)
+        
+        # frd_sigma of 0.0165 equals 6.8 mrad frd from Belland paper
+        # so the factor is roughly 4
+        
         sigma=pupil.illuminated.shape[0]*frd_sigma
         #print(sigma)
         
@@ -405,20 +409,30 @@ class PFSPupilFactory(PupilFactory):
 
         #print(self.effective_ilum_radius)
         # Cut out primary mirror exterior
+        """
         self._cutCircleExterior(pupil, (0.0, 0.0), subaruRadius*self.effective_ilum_radius)
-        
-        #np.save(TESTING_PUPIL_IMAGES_FOLDER+'pupil_pre1',pupil.illuminated)        
+        np.save(TESTING_PUPIL_IMAGES_FOLDER+'pupil_pre1',pupil.illuminated)        
         #pupil_first_cut=pupil.illuminated
         
         #self._cutEllipseExterior(pupil, (0.0, 0.0), subaruRadius*self.effective_ilum_radius,self.effective_ilum_radius*subaruRadius*self.minorAxis,self.pupilAngle)
         
         # apply frd effect
         frd_sigma=self.frd_sigma
-        self._frd_effect(pupil,frd_sigma)
-        
+        self._frd_effect(pupil,frd_sigma)        
         pupil_frd=pupil.illuminated 
+        """
         #np.save(TESTING_PUPIL_IMAGES_FOLDER+'pupil_pre2',pupil.illuminated)
-                    
+          
+        single_element=np.linspace(-1,1,len(pupil.illuminated), endpoint=True)
+        u_manual=np.tile(single_element,(len(single_element),1))
+        v_manual=np.transpose(u_manual)  
+        center_distance=np.sqrt(u_manual**2+v_manual**2)
+        frd_sigma=self.frd_sigma
+        sigma=2*frd_sigma
+        pupil_frd=(1/2*(scipy.special.erf((-center_distance+self.effective_ilum_radius)/sigma)+scipy.special.erf((center_distance+self.effective_ilum_radius)/sigma)))
+        pupil.illuminated= pupil_frd
+
+          
         self._cutCircleExterior(pupil, (self.x_fiber*hscRate*hscPlateScale, self.y_fiber*hscRate*hscPlateScale), subaruRadius)
         
         
@@ -426,7 +440,7 @@ class PFSPupilFactory(PupilFactory):
         pupil.illuminated =pupil_frd  *pupil.illuminated 
         
         
-        
+        self._cutCircleExterior(pupil, (0.0, 0.0), subaruRadius)        
         #np.save(TESTING_PUPIL_IMAGES_FOLDER+'pupil_pre3',pupil.illuminated)
         
 
@@ -1034,7 +1048,7 @@ class ZernikeFitter_PFS(object):
     
     
     
-    #@lru_cache(maxsize=300)
+    @lru_cache(maxsize=3)
     def _get_Pupil(self,params):
         
         diam_sic=self.diam_sic
@@ -1129,7 +1143,8 @@ class ZernikeFitter_PFS(object):
         #changed late October 8
         lower_limit_of_ilum=int(ilum.shape[0]/2-pupil.illuminated.shape[0]/2)
         higher_limit_of_ilum=int(ilum.shape[0]/2+pupil.illuminated.shape[0]/2)
-        ilum=ilum[lower_limit_of_ilum:higher_limit_of_ilum,lower_limit_of_ilum:higher_limit_of_ilum]*pupil.illuminated
+
+        ilum[lower_limit_of_ilum:higher_limit_of_ilum,lower_limit_of_ilum:higher_limit_of_ilum]=ilum[lower_limit_of_ilum:higher_limit_of_ilum,lower_limit_of_ilum:higher_limit_of_ilum]*pupil.illuminated
         #print('Size after padding zeros to 2x size and extra padding to get size suitable for FFT'+str(ilum.shape))
        
         
@@ -1388,7 +1403,7 @@ class LN_PFS_single(object):
 
             
         #When running big fits these are limits which ensure that the code does not wander off in tottaly nonphyical region
-        
+
          # hsc frac
         if globalparameters[0]<=0.6 or globalparameters[0]>0.8:
             #print('globalparameters[0] outside limits')
@@ -1473,14 +1488,14 @@ class LN_PFS_single(object):
         # effective_radius_illumination
         if globalparameters[12]<0.7:
             return -np.inf
-        if globalparameters[12]>1.01:
+        if globalparameters[12]>1.0:
             return -np.inf  
  
         # frd_sigma
 
-        if globalparameters[13]<0:
+        if globalparameters[13]<0.01:
             return -np.inf
-        if globalparameters[13]>.06:
+        if globalparameters[13]>.2:
             return -np.inf  
 
         # det_vert
@@ -1536,7 +1551,7 @@ class LN_PFS_single(object):
             return -np.inf
         if globalparameters[22]>1.02:
             return -np.inf      
-        
+
         x=self.create_x(zparameters,globalparameters)
         for i in range(len(self.columns)):
             self.single_image_analysis.params[self.columns[i]].set(x[i])
@@ -2330,17 +2345,17 @@ def create_parInit(allparameters_proposal,multi=None,pupil_parameters=None,allpa
     
     if allparameters_proposal_err is None:
         if multi is None:
-            allparameters_proposal_err=[1,0.25,0.25,0.25,0.25,0.25,0.25,0.25,
+            allparameters_proposal_err=[2,0.25,0.25,0.25,0.25,0.25,0.25,0.25,
                                     0.1,0.02,0.1,0.1,0.1,0.1,
                                     0.3, 2,0.1,0.1,
-                                    0.1,0.1,0.1,
-                                    0.01,0.05,0.4,
+                                    0.15,0.15,0.1,
+                                    0.07,0.05,0.4,
                                     30000,10,0.5,0.01,
                                     0.1,0.05,0.01]
             if stronger is not None:
                 allparameters_proposal_err=stronger*allparameters_proposal_err
         else:
-            allparameters_proposal_err=[1,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,
+            allparameters_proposal_err=[2,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,
                                     0.1,0.1,0.1,0.1,0.05,0.1,
                                     0.2, 0.4,0.1,0.1,
                                     0.1,0.1,0.02,0.02,0.2,0.1,
@@ -2452,11 +2467,14 @@ def create_parInit(allparameters_proposal,multi=None,pupil_parameters=None,allpa
         #effective_radius_illumination
         globalparameters_flat_12=np.random.normal(globalparameters_flatten[12],globalparameters_flatten_err[12],nwalkers*20)
         globalparameters_flat_12=np.concatenate(([globalparameters_flatten[12]],
-                                                 globalparameters_flat_12[np.all((globalparameters_flat_12>0.7,globalparameters_flat_12<1.01),axis=0)][0:nwalkers-1]))
+                                                 globalparameters_flat_12[np.all((globalparameters_flat_12>0.7,globalparameters_flat_12<1.0),axis=0)][0:nwalkers-1]))
+        
+        if globalparameters_flatten[13]<0.01:
+            globalparameters_flatten[21]=0.01
         # frd_sigma
         globalparameters_flat_13=np.random.normal(globalparameters_flatten[13],globalparameters_flatten_err[13],nwalkers*20)
         globalparameters_flat_13=np.concatenate(([globalparameters_flatten[13]],
-                                                 globalparameters_flat_13[np.all((globalparameters_flat_13>0.0,globalparameters_flat_13<0.04),axis=0)][0:nwalkers-1]))
+                                                 globalparameters_flat_13[np.all((globalparameters_flat_13>0.01,globalparameters_flat_13<0.2),axis=0)][0:nwalkers-1]))
         # det_vert
         globalparameters_flat_14=np.random.normal(globalparameters_flatten[14],globalparameters_flatten_err[14],nwalkers*20)
         globalparameters_flat_14=np.concatenate(([globalparameters_flatten[14]],
