@@ -1,6 +1,7 @@
 """
 Created on Mon Aug 13 10:01:03 2018
 
+version:0.1
 @author: Neven Caplar
 @contact: ncaplar@princeton.edu
 """
@@ -943,26 +944,7 @@ class ZernikeFitter_PFS(object):
         
         """
         #legacy code
-        r0[r0<v['scattering_radius']]=0
         
-        scattered_light=(r0**(-v['scattering_slope']))
-        scattered_light=np.zeros((optPsf_downsampled.shape[0],optPsf_downsampled.shape[0]))+scattered_light
-        scattered_light[scattered_light == np.inf] = 0
-        #print(shape)
-        # we use this only for normalization
-        # cuts the central part of the scattered light array to match the size of the final image
-        # not too happy about this solution - assumes that center of scaterring is in the center of the image
-        scattered_light_center_Guess=optPsf_downsampled[mid_point_of_optPsf_downsampled-oversampling*int(shape[0]/2):mid_point_of_optPsf_downsampled+oversampling*int(shape[0]/2),mid_point_of_optPsf_downsampled-oversampling*int(shape[0]/2):mid_point_of_optPsf_downsampled+oversampling*int(shape[0]/2)]
-        print(optPsf_downsampled.shape)
-        print(scattered_light_center_Guess.shape)
-        #previous solution
-        #scattered_light=((v['scattering_amplitude'])*np.sum(optPsf_downsampled)/np.sum(scattered_light))*scattered_light
-        if np.sum(scattered_light)>0:
-            scattered_light=((v['scattering_amplitude'])*np.sum(scattered_light_center_Guess)/np.sum(scattered_light))*scattered_light
-        else:
-            scattered_light=np.zeros((optPsf_downsampled.shape[0],optPsf_downsampled.shape[0]))
-        optPsf_downsampled_scattered=optPsf_downsampled+scattered_light
-        """
         #r0[r0<v['scattering_radius']]=0
         scattered_light_kernel=(r0**(-v['scattering_slope']))
         #print(scattered_light_kernel.shape)
@@ -984,6 +966,33 @@ class ZernikeFitter_PFS(object):
             scattered_light=((v['scattering_amplitude'])*np.sum(optPsf_cut_downsampled)/np.sum(scattered_light))*scattered_light
         else:
             scattered_light=np.zeros((optPsf_cut_downsampled.shape[0],optPsf_cut_downsampled.shape[0]))
+            
+        optPsf_cut_downsampled_scattered=optPsf_cut_downsampled+scattered_light        
+        
+
+        """
+        #r0[r0<v['scattering_radius']]=0
+        scattered_light_kernel=(r0**(-v['scattering_slope']))
+        #print(scattered_light_kernel.shape)
+        
+        # the line below from previous code where I terminated scattering radius dependece below certain radius (changed on Oct 04, 2018)
+        #scattered_light_kernel[r0<v['scattering_radius']]=v['scattering_radius']**(-v['scattering_slope'])
+        scattered_light_kernel[r0<7.5]=7.5**(-v['scattering_slope'])
+        scattered_light_kernel[scattered_light_kernel == np.inf] = 0
+        #print(scattered_light_kernel.shape)
+        scattered_light_kernel=scattered_light_kernel*(v['scattering_amplitude'])/(10*np.max(scattered_light_kernel))
+        
+        #scattered_light_kernel=np.zeros((optPsf_downsampled.shape[0],optPsf_downsampled.shape[0]))+scattered_light_kernel
+        #scattered_light_kernel[scattered_light_kernel == np.inf] = 0
+        #print(scattered_light_kernel.shape)
+        #scattered_light=scipy.signal.fftconvolve(optPsf_downsampled,scattered_light_kernel,mode='same')
+        scattered_light= custom_fftconvolve(optPsf_cut_downsampled,scattered_light_kernel)
+        #print(scattered_light.shape)
+
+        #if np.sum(scattered_light)>0:
+        #    scattered_light=((v['scattering_amplitude'])*np.sum(optPsf_cut_downsampled)/np.sum(scattered_light))*scattered_light
+        #else:
+        #    scattered_light=np.zeros((optPsf_cut_downsampled.shape[0],optPsf_cut_downsampled.shape[0]))
             
         optPsf_cut_downsampled_scattered=optPsf_cut_downsampled+scattered_light        
         
@@ -1018,17 +1027,26 @@ class ZernikeFitter_PFS(object):
         kernel=kernel/np.sum(kernel)
         
         # I should impllement custom_fft function
+        #print(oversampling)
         optPsf_cut_grating_convolved=scipy.signal.fftconvolve(optPsf_cut_pixel_response_convolved, kernel, mode='same')
         
-
+        
+        simulation=1
+        if simulation is not None:
+            optPsf_cut_grating_convolved_simulation=resize(optPsf_cut_grating_convolved,(int(len(optPsf_cut_grating_convolved)*5/oversampling),int(len(optPsf_cut_grating_convolved)*5/oversampling)))
+            optPsf_cut_grating_convolved_simulation_cut=cut_Centroid_of_natural_resolution_image(optPsf_cut_grating_convolved_simulation,100,1,0,0)
+            optPsf_cut_grating_convolved_simulation_cut=optPsf_cut_grating_convolved_simulation_cut/np.sum(optPsf_cut_grating_convolved_simulation_cut)
+            np.save(TESTING_FINAL_IMAGES_FOLDER+'optPsf_cut_grating_convolved_simulation_cut',optPsf_cut_grating_convolved_simulation_cut)
+        else:
+            pass
         #finds the best downsampling combination automatically 
         # only accepts integer values for downsampling!
-        #print('optPsf_cut_grating_convolved.shape:'+str(optPsf_cut_grating_convolved.shape))
-        #print('int(round(oversampling))'+str(int(round(oversampling))))
-        
         optPsf_cut_fiber_convolved_downsampled=find_single_realization_min_cut(optPsf_cut_grating_convolved,
                                                                                int(round(oversampling)),shape[0],self.image,self.image_var,
                                                                                v['flux'])
+        
+        
+        
         
         if self.save==1:
             np.save(TESTING_FINAL_IMAGES_FOLDER+'optPsf_cut',optPsf_cut)
@@ -2470,7 +2488,7 @@ def create_parInit(allparameters_proposal,multi=None,pupil_parameters=None,allpa
                                                  globalparameters_flat_12[np.all((globalparameters_flat_12>0.7,globalparameters_flat_12<1.0),axis=0)][0:nwalkers-1]))
         
         if globalparameters_flatten[13]<0.01:
-            globalparameters_flatten[21]=0.01
+            globalparameters_flatten[13]=0.01
         # frd_sigma
         globalparameters_flat_13=np.random.normal(globalparameters_flatten[13],globalparameters_flatten_err[13],nwalkers*20)
         globalparameters_flat_13=np.concatenate(([globalparameters_flatten[13]],
