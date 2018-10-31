@@ -1,7 +1,10 @@
 """
 Created on Mon Aug 13 10:01:03 2018
 
-version:0.1
+version:0.11
+
+0.1 -> 0.11 fixed FRD effect
+
 @author: Neven Caplar
 @contact: ncaplar@princeton.edu
 """
@@ -433,19 +436,17 @@ class PFSPupilFactory(PupilFactory):
         pupil_frd=(1/2*(scipy.special.erf((-center_distance+self.effective_ilum_radius)/sigma)+scipy.special.erf((center_distance+self.effective_ilum_radius)/sigma)))
         pupil.illuminated= pupil_frd
 
-          
+        #np.save(TESTING_PUPIL_IMAGES_FOLDER+'pupil_pre3',pupil.illuminated)          
         self._cutCircleExterior(pupil, (self.x_fiber*hscRate*hscPlateScale, self.y_fiber*hscRate*hscPlateScale), subaruRadius)
         
-        
+        #np.save(TESTING_PUPIL_IMAGES_FOLDER+'pupil_pre4',pupil.illuminated)    
         #changed added on evening October 8
-        pupil.illuminated =pupil_frd  *pupil.illuminated 
-        
+        #pupil.illuminated =pupil_frd  *pupil.illuminated 
+        #np.save(TESTING_PUPIL_IMAGES_FOLDER+'pupil_pre5',pupil.illuminated)          
         
         self._cutCircleExterior(pupil, (0.0, 0.0), subaruRadius)        
         #np.save(TESTING_PUPIL_IMAGES_FOLDER+'pupil_pre3',pupil.illuminated)
-        
-
-        
+         
         # Cut out camera shadow
         self._cutSquare(pupil, (camX, camY), hscRadius,self.input_angle,self.det_vert)       
         
@@ -466,11 +467,7 @@ class PFSPupilFactory(PupilFactory):
         #slitHolder_frac_dx - parameter?
         #slitHolder_frac_dx=0
         #also subaruSlit/3 not fitted, just put roughly correct number
-        self._cutRay(pupil, (self.slitHolder_frac_dx/18,1),-np.pi/2,subaruSlit/3,'rad') 
-        
-        
-
-        
+        self._cutRay(pupil, (self.slitHolder_frac_dx/18,1),-np.pi/2,subaruSlit/3,'rad')   
         
         return pupil
 
@@ -1020,7 +1017,7 @@ class ZernikeFitter_PFS(object):
 
            
         
-        #  assuming that 15 microns covers wavelength range of 0.07907 nm (assuming that 4300 pixels in real detector unfiromly cover 340 nm)
+        #  assuming that 15 microns covers wavelength range of 0.07907 nm (assuming that 4300 pixels in real detector uniformly covers 340 nm)
         kernel=np.ones((optPsf_cut_pixel_response_convolved.shape[0],1))
         for i in range(len(kernel)):
             kernel[i]=Ifun16Ne((i-int(optPsf_cut_pixel_response_convolved.shape[0]/2))*0.07907*10**-9/(self.dithering*oversampling)+self.wavelength*10**-9,self.wavelength*10**-9,v['grating_lines'])
@@ -1031,7 +1028,7 @@ class ZernikeFitter_PFS(object):
         optPsf_cut_grating_convolved=scipy.signal.fftconvolve(optPsf_cut_pixel_response_convolved, kernel, mode='same')
         
         
-        simulation=1
+        simulation=None
         if simulation is not None:
             optPsf_cut_grating_convolved_simulation=resize(optPsf_cut_grating_convolved,(int(len(optPsf_cut_grating_convolved)*5/oversampling),int(len(optPsf_cut_grating_convolved)*5/oversampling)))
             optPsf_cut_grating_convolved_simulation_cut=cut_Centroid_of_natural_resolution_image(optPsf_cut_grating_convolved_simulation,100,1,0,0)
@@ -1051,7 +1048,8 @@ class ZernikeFitter_PFS(object):
         if self.save==1:
             np.save(TESTING_FINAL_IMAGES_FOLDER+'optPsf_cut',optPsf_cut)
             np.save(TESTING_FINAL_IMAGES_FOLDER+'optPsf_cut_downsampled',optPsf_cut_downsampled)
-            np.save(TESTING_FINAL_IMAGES_FOLDER+'scattered_light',scattered_light)                        
+            np.save(TESTING_FINAL_IMAGES_FOLDER+'scattered_light',scattered_light)         
+            np.save(TESTING_FINAL_IMAGES_FOLDER+'r0',r0)               
             #np.save(TESTING_FINAL_IMAGES_FOLDER+'scattered_light_center_Guess',scattered_light_center_Guess)
             np.save(TESTING_FINAL_IMAGES_FOLDER+'scattered_light',scattered_light)
             np.save(TESTING_FINAL_IMAGES_FOLDER+'scattered_light_kernel',scattered_light_kernel)
@@ -1242,7 +1240,7 @@ class ZernikeFitter_PFS(object):
  
         if self.save==1:
             #print('saving'+str(TESTING_PUPIL_IMAGES_FOLDER+'pupil.illuminated'))
-            np.save(TESTING_PUPIL_IMAGES_FOLDER+'pupil.illuminated',pupil.illuminated.astype(np.float32))
+            #np.save(TESTING_PUPIL_IMAGES_FOLDER+'pupil.illuminated',pupil.illuminated.astype(np.float32))
             np.save(TESTING_PUPIL_IMAGES_FOLDER+'aperilluminated',aper.illuminated)  
             np.save(TESTING_PUPIL_IMAGES_FOLDER+'radiometricEffectArray',radiometricEffectArray)     
             np.save(TESTING_PUPIL_IMAGES_FOLDER+'ilum',ilum)   
@@ -1421,7 +1419,7 @@ class LN_PFS_single(object):
 
             
         #When running big fits these are limits which ensure that the code does not wander off in tottaly nonphyical region
-
+        """
          # hsc frac
         if globalparameters[0]<=0.6 or globalparameters[0]>0.8:
             #print('globalparameters[0] outside limits')
@@ -1569,7 +1567,7 @@ class LN_PFS_single(object):
             return -np.inf
         if globalparameters[22]>1.02:
             return -np.inf      
-
+        """
         x=self.create_x(zparameters,globalparameters)
         for i in range(len(self.columns)):
             self.single_image_analysis.params[self.columns[i]].set(x[i])
@@ -2277,10 +2275,19 @@ def find_single_realization_min_cut(optPsf_cut_pixel_response_convolved_pixelize
 
     # values which minimize chi**2 1. deltax, 2. deltay, 3. deltax in single_realization, 4. deltay in single_realization, 5. min chi**2
     min_chi_arr=res[res[:,4]==np.min(res[:,4])][0]
-
+    print(min_chi_arr)
     # create single realization which deltax and delta y from line above
     single_realization_min=create_single_realization(optPsf_cut_pixel_response_convolved_pixelized_convolved,min_chi_arr[0],
                                                      min_chi_arr[1],oversampling,sci_image_0)
+ 
+    # DIRTY HACK HERE, JUST TO CREATE COMPARABLE RESULTS WHEN SIMULATING DIFFERENT FRD FOR SPOT AT CETNER OF DETECTOR
+    #single_realization_min=create_single_realization(optPsf_cut_pixel_response_convolved_pixelized_convolved,1,
+    #                                                 7,oversampling,sci_image_0)
+    
+    # DIRTY HACK HERE, JUST TO CREATE COMPARABLE RESULTS WHEN SIMULATING DIFFERENT FRD FOR SPOT AT EDGE OF DETECTOR
+    #single_realization_min=create_single_realization(optPsf_cut_pixel_response_convolved_pixelized_convolved,1,
+    #                                                 min_chi_arr[1],oversampling,sci_image_0)
+    
     
     # find best cut from the single realization 
     single_realization_min_min=find_min_chi_single_realization(single_realization_min,size_natural_resolution,sci_image_0,var_image_0,v_flux)[1]
