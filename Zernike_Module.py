@@ -1,13 +1,16 @@
 """
 Created on Mon Aug 13 10:01:03 2018
 
-version:0.11
 
-0.1 -> 0.11 fixed FRD effect
+Versions
+Oct 31, 2018; 0.1 -> 0.11 fixed FRD effect
+Nov 1, 2018; 0.11 -> 0.12 added correct edges to the detector; fixed wrong behavior for misaligment 
+Nov 2, 2018; 0.12 -> 0.13 added lorentzian wings to the illumination of the pupil
 
 @author: Neven Caplar
 @contact: ncaplar@princeton.edu
 """
+
 
 
 #standard library imports
@@ -59,7 +62,7 @@ from matplotlib.colors import LogNorm
 
 __all__ = ['PupilFactory', 'Pupil','ZernikeFitter_PFS','LN_PFS_single','LNP_PFS']
 
-
+__version__ = "0.13"
 
 ############################################################
 # name your directory where you want to have files!
@@ -99,7 +102,7 @@ class PupilFactory(object):
     """!Pupil obscuration function factory for use with Fourier optics.
     """
 
-    def __init__(self, pupilSize, npix,input_angle,hscFrac,strutFrac,slitFrac,slitFrac_dy,x_fiber,y_fiber,effective_ilum_radius,frd_sigma,det_vert):
+    def __init__(self, pupilSize, npix,input_angle,hscFrac,strutFrac,slitFrac,slitFrac_dy,x_fiber,y_fiber,effective_ilum_radius,frd_sigma,frd_lorentz_factor,det_vert):
         """!Construct a PupilFactory.
 
         @params others
@@ -118,6 +121,7 @@ class PupilFactory(object):
         self.slitFrac_dy=slitFrac_dy
         self.effective_ilum_radius=effective_ilum_radius
         self.frd_sigma=frd_sigma
+        self.frd_lorentz_factor=frd_lorentz_factor
         self.det_vert=det_vert
         u = (np.arange(npix, dtype=np.float64) - (npix - 1)/2) * self.pupilScale
         self.u, self.v = np.meshgrid(u, u)
@@ -241,24 +245,118 @@ class PupilFactory(object):
         @param[in] r          half lenght of the length of square side
         @param[in] angle      angle that the camera is rotated
         """
+        pupil_illuminated_only1=np.ones_like(pupil.illuminated)
+        ###########################################################
+        # Central square
         if det_vert is None:
             det_vert=1
         
         
-        x21 = -r/2*det_vert
-        x22 = +r/2*det_vert
-        y21 = -r/2
-        y22 = +r/2
-        
+        x21 = -r/2*det_vert*1
+        x22 = +r/2*det_vert*1
+        y21 = -r/2*1
+        y22 = +r/2*1
 
-        #print("We are using HSC parameters for movement on focal plane!!!")
-        #pupil.illuminated[np.logical_and((self.u<x22) & (self.u>x21),(self.v<y22) & (self.v>y21))] = False
         angleRad = angle
-        pupil.illuminated[np.logical_and(((self.u-p0[0])*np.cos(-angle)+(self.v-p0[1])*np.sin(-angleRad)<x22) & \
+        pupil_illuminated_only1[np.logical_and(((self.u-p0[0])*np.cos(-angle)+(self.v-p0[1])*np.sin(-angleRad)<x22) & \
                           ((self.u-p0[0])*np.cos(-angleRad)+(self.v-p0[1])*np.sin(-angleRad)>x21),\
                           ((self.v-p0[1])*np.cos(-angleRad)-(self.u-p0[0])*np.sin(-angleRad)<y22) & \
                           ((self.v-p0[1])*np.cos(-angleRad)-(self.u-p0[0])*np.sin(-angleRad)>y21))] = False    
         
+        
+        time_start_single=time.time()
+        #pupil.illuminated=scipy.signal.fftconvolve(pupil.illuminated, Gaussian2DKernel(sigma).array, mode = 'same')
+
+    
+        f=0.1
+        ###########################################################
+        # Down right corner
+        x21 = -r/2*det_vert
+        x22 = +r/2*det_vert
+        y21 = -r/2
+        y22 = +r/2        
+        
+        
+        angleRad21=-np.pi/4   
+        triangle21=[[p0[0]+x22,p0[1]+y21],[p0[0]+x22,p0[1]+y21-y21*f],[p0[0]+x22-x22*f,p0[1]+y21]]
+
+        p21=triangle21[0]
+        y22=(triangle21[1][1]-triangle21[0][1])/np.sqrt(2)
+        y21=0
+        x21=(triangle21[2][0]-triangle21[0][0])/np.sqrt(2)
+        x22=-(triangle21[2][0]-triangle21[0][0])/np.sqrt(2)
+        #print([x21,x22,y21,y22])
+        pupil_illuminated_only1[np.logical_and(((self.u-p21[0])*np.cos(-angleRad21)+(self.v-p21[1])*np.sin(-angleRad21)<x22) & \
+                  ((self.u-p21[0])*np.cos(-angleRad21)+(self.v-p21[1])*np.sin(-angleRad21)>x21),\
+                  ((self.v-p21[1])*np.cos(-angleRad21)-(self.u-p21[0])*np.sin(-angleRad21)<y22) & \
+                  ((self.v-p21[1])*np.cos(-angleRad21)-(self.u-p21[0])*np.sin(-angleRad21)>y21))  ] = True
+    
+        ###########################################################
+        # Upper left corner
+        x21 = -r/2*det_vert
+        x22 = +r/2*det_vert
+        y21 = -r/2
+        y22 = +r/2
+        angleRad12=-np.pi/4   
+        triangle12=[[p0[0]+x21,p0[1]+y22],[p0[0]+x21,p0[1]+y22-y22*f],[p0[0]+x21-x21*f,p0[1]+y22]]
+ 
+        p21=triangle12[0]
+        y22=0
+        y21=(triangle12[1][1]-triangle12[0][1])/np.sqrt(2)
+        x21=-(triangle12[2][0]-triangle12[0][0])/np.sqrt(2)
+        x22=+(triangle12[2][0]-triangle12[0][0])/np.sqrt(2)
+        #print([x21,x22,y21,y22])
+        pupil_illuminated_only1[np.logical_and(((self.u-p21[0])*np.cos(-angleRad12)+(self.v-p21[1])*np.sin(-angleRad12)<x22) & \
+                  ((self.u-p21[0])*np.cos(-angleRad12)+(self.v-p21[1])*np.sin(-angleRad12)>x21),\
+                  ((self.v-p21[1])*np.cos(-angleRad12)-(self.u-p21[0])*np.sin(-angleRad12)<y22) & \
+                  ((self.v-p21[1])*np.cos(-angleRad12)-(self.u-p21[0])*np.sin(-angleRad12)>y21))  ] = True   
+        ###########################################################
+        # Upper right corner
+        x21 = -r/2*det_vert
+        x22 = +r/2*det_vert
+        y21 = -r/2
+        y22 = +r/2
+        angleRad12=np.pi/4   
+        triangle22=[[p0[0]+x22,p0[1]+y22],[p0[0]+x22,p0[1]+y22-y22*f],[p0[0]+x22-x22*f,p0[1]+y22]]
+ 
+        p21=triangle22[0]
+        y22=-0
+        y21=+(triangle22[1][1]-triangle22[0][1])/np.sqrt(2)
+        x21=+(triangle22[2][0]-triangle22[0][0])/np.sqrt(2)
+        x22=-(triangle22[2][0]-triangle22[0][0])/np.sqrt(2)
+        #print(p21)
+        #print([x21,x22,y21,y22])
+        pupil_illuminated_only1[np.logical_and(((self.u-p21[0])*np.cos(-angleRad12)+(self.v-p21[1])*np.sin(-angleRad12)<x22) & \
+                  ((self.u-p21[0])*np.cos(-angleRad12)+(self.v-p21[1])*np.sin(-angleRad12)>x21),\
+                  ((self.v-p21[1])*np.cos(-angleRad12)-(self.u-p21[0])*np.sin(-angleRad12)<y22) & \
+                  ((self.v-p21[1])*np.cos(-angleRad12)-(self.u-p21[0])*np.sin(-angleRad12)>y21))  ] = True  
+
+        ###########################################################
+        # Lower down corner
+        x21 = -r/2*det_vert
+        x22 = +r/2*det_vert
+        y21 = -r/2
+        y22 = +r/2
+        angleRad12=np.pi/4   
+        triangle11=[[p0[0]+x21,p0[1]+y21],[p0[0]+x21,p0[1]+y21-y21*f],[p0[0]+x21-x21*f,p0[1]+y21]]
+ 
+        p21=triangle11[0]
+        y22=-(triangle22[1][1]-triangle22[0][1])/np.sqrt(2)
+        y21=0
+        x21=+(triangle22[2][0]-triangle22[0][0])/np.sqrt(2)
+        x22=-(triangle22[2][0]-triangle22[0][0])/np.sqrt(2)
+        #print(p21)
+        #print([x21,x22,y21,y22])
+        pupil_illuminated_only1[np.logical_and(((self.u-p21[0])*np.cos(-angleRad12)+(self.v-p21[1])*np.sin(-angleRad12)<x22) & \
+                  ((self.u-p21[0])*np.cos(-angleRad12)+(self.v-p21[1])*np.sin(-angleRad12)>x21),\
+                  ((self.v-p21[1])*np.cos(-angleRad12)-(self.u-p21[0])*np.sin(-angleRad12)<y22) & \
+                  ((self.v-p21[1])*np.cos(-angleRad12)-(self.u-p21[0])*np.sin(-angleRad12)>y21))  ] = True  
+        
+        
+        pupil.illuminated=pupil.illuminated*pupil_illuminated_only1
+        time_end_single=time.time()
+        #print('Time for single calculation is '+str(time_end_single-time_start_single))    
+    
         # code to add edges to the squre, as in the real detector
         #self._addRay(pupil, ((x21+p0[0])*1.07,y21+np.abs(y21/8)),-np.pi/4,r/12,'rad') 
         #self._addRay(pupil, ((x21+p0[0])*1.07,y22-np.abs(y21/8)),+np.pi/4,r/12,'rad')
@@ -286,9 +384,10 @@ class PupilFactory(object):
                           ((self.u - p0[0])*np.cos(angleRad) +
                            (self.v - p0[1])*np.sin(angleRad) >= 0)] = False   
 
+    """
     def _frd_effect(self,pupil,frd_sigma):
-        """
-        """     
+
+     
         #print('FRD')
         #print(frd_sigma)
         
@@ -308,7 +407,7 @@ class PupilFactory(object):
         pupil.illuminated=gaussian_filter(pupil.illuminated, sigma=sigma)
         #time_end_single=time.time()
         #print('Time for single calculation is '+str(time_end_single-time_start_single))
-
+    """
 
     def _addRay(self, pupil, p0, angle, thickness,angleunit=None):
         """Add a ray from a Pupil.
@@ -336,7 +435,7 @@ class PupilFactory(object):
 class PFSPupilFactory(PupilFactory):
     """!Pupil obscuration function factory for PFS 
     """
-    def __init__(self, pupilSize, npix,input_angle,hscFrac,strutFrac,slitFrac,slitFrac_dy,x_fiber,y_fiber,effective_ilum_radius,frd_sigma,det_vert,slitHolder_frac_dx):
+    def __init__(self, pupilSize, npix,input_angle,hscFrac,strutFrac,slitFrac,slitFrac_dy,x_fiber,y_fiber,effective_ilum_radius,frd_sigma,frd_lorentz_factor,det_vert,slitHolder_frac_dx):
         """!Construct a PupilFactory.
 
         @param[in] visitInfo  VisitInfo object for a particular exposure.
@@ -344,7 +443,7 @@ class PFSPupilFactory(PupilFactory):
         @param[in] npix       Constructed Pupils will be npix x npix.
         """
         #print('init')
-        PupilFactory.__init__(self, pupilSize,npix,input_angle,hscFrac,strutFrac,slitFrac,slitFrac_dy,x_fiber,y_fiber,effective_ilum_radius,frd_sigma,det_vert)
+        PupilFactory.__init__(self, pupilSize,npix,input_angle,hscFrac,strutFrac,slitFrac,slitFrac_dy,x_fiber,y_fiber,effective_ilum_radius,frd_sigma,frd_lorentz_factor,det_vert)
         #print('init2')
         self.x_fiber=x_fiber
         self.y_fiber=y_fiber      
@@ -430,14 +529,17 @@ class PFSPupilFactory(PupilFactory):
         single_element=np.linspace(-1,1,len(pupil.illuminated), endpoint=True)
         u_manual=np.tile(single_element,(len(single_element),1))
         v_manual=np.transpose(u_manual)  
-        center_distance=np.sqrt(u_manual**2+v_manual**2)
+        center_distance=np.sqrt((u_manual-self.x_fiber*hscRate*hscPlateScale*12)**2+(v_manual-self.y_fiber*hscRate*hscPlateScale*12)**2)
         frd_sigma=self.frd_sigma
         sigma=2*frd_sigma
         pupil_frd=(1/2*(scipy.special.erf((-center_distance+self.effective_ilum_radius)/sigma)+scipy.special.erf((center_distance+self.effective_ilum_radius)/sigma)))
-        pupil.illuminated= pupil_frd
+        pupil_lorentz=(np.arctan(2*(self.effective_ilum_radius-center_distance)/(4*sigma))+np.arctan(2*(self.effective_ilum_radius+center_distance)/(4*sigma)))/(2*np.arctan((2*self.effective_ilum_radius)/(4*sigma)))
 
-        #np.save(TESTING_PUPIL_IMAGES_FOLDER+'pupil_pre3',pupil.illuminated)          
-        self._cutCircleExterior(pupil, (self.x_fiber*hscRate*hscPlateScale, self.y_fiber*hscRate*hscPlateScale), subaruRadius)
+        pupil.illuminated= (pupil_frd+self.frd_lorentz_factor*pupil_lorentz)/(1+self.frd_lorentz_factor)
+        #np.save(TESTING_PUPIL_IMAGES_FOLDER+'center_distance',center_distance)
+        #np.save(TESTING_PUPIL_IMAGES_FOLDER+'pupil_pre3',pupil.illuminated)       
+        # THIS IS WRONG!!!!
+        #self._cutCircleExterior(pupil, (self.x_fiber*hscRate*hscPlateScale, self.y_fiber*hscRate*hscPlateScale), subaruRadius)
         
         #np.save(TESTING_PUPIL_IMAGES_FOLDER+'pupil_pre4',pupil.illuminated)    
         #changed added on evening October 8
@@ -606,7 +708,7 @@ class ZernikeFitter_PFS(object):
                    trace_valueInit=None,serial_trace_valueInit=None,pixel_effectInit=None,backgroundInit=None,
                    x_ilumInit=None,y_ilumInit=None,radiometricExponentInit=None,
                    x_fiberInit=None,y_fiberInit=None,effective_ilum_radiusInit=None,
-                   grating_linesInit=None,scattering_radiusInit=None,scattering_slopeInit=None,scattering_amplitudeInit=None,fluxInit=None,frd_sigmaInit=None,
+                   grating_linesInit=None,scattering_radiusInit=None,scattering_slopeInit=None,scattering_amplitudeInit=None,fluxInit=None,frd_sigmaInit=None,frd_lorentz_factorInit=None,
                    det_vertInit=None,slitHolder_frac_dxInit=None):
         """Initialize lmfit Parameters object.
         
@@ -627,23 +729,22 @@ class ZernikeFitter_PFS(object):
         @param y_ilumInit                y-position of the center of illumination of the exit pupil
         
         # further pupil parameters
-        @param x_fiberInit             
-        @param y_fiberInit            
+        @param x_fiberInit               position of the fiber misaligment in the x direction
+        @param y_fiberInit               position of the fiber misaligment in the y direction
         @param effective_ilum_radiusInit fraction of the maximal radius of the illumination of the exit pupil   
         @param frd_sigma                 sigma of Gaussian convolving only outer edge, mimicking FRD
+        @param frd_lorentz_factor        strength of the lorentzian factor describing far away wings of the pupil illumination
         @param det_vert                  multiplicative factor determining vertical size of the detector obscuration
         @param slitHolder_frac_dx        dx position of slit holder
 
         # convolving parameters
         @param grating_lines             number of effective lines in the grating
-        @param scattering_radiusInit     minimal radius to which extended the scattering [in units of microns] 
         @param scattering_slopeInit      slope of scattering
         @param scattering_amplitudeInit  amplitude of scattering compared to optical PSF
         @param pixel_effectInit          sigma describing charge diffusion effect [in units of 15 microns]
         @param fiber_rInit               radius of perfect tophat fiber, as seen on the detector [in units of 15 microns]         
         @param fluxInit                  total flux in generated image compared to input image (probably 1 or close to 1)
 
-        
         #not used anymore
         @param dxInit                    (not used in this version of the code - parameter determing position of PSF on detector)
         @param dyInit                    (not used in this version of the code - parameter determing position of PSF on detector )
@@ -782,11 +883,6 @@ class ZernikeFitter_PFS(object):
             params.add('grating_lines', 50000)
         else:
             params.add('grating_lines', grating_linesInit)   
-
-        if scattering_radiusInit is None:
-            params.add('scattering_radius', 50)
-        else:
-            params.add('scattering_radius', radiometricExponentInit)  
             
         if scattering_slopeInit is None:
             params.add('scattering_slope', 2)
@@ -802,6 +898,12 @@ class ZernikeFitter_PFS(object):
             params.add('frd_sigma', 0.02)
         else:
             params.add('frd_sigma', frd_sigmaInit)  
+            
+        if frd_lorentz_factorInit is None:
+            params.add('frd_lorentz_factor', 0.5)
+        else:
+            params.add('frd_lorentz_factor', frd_lorentz_factorInit) 
+            
             
         if det_vertInit is None:
             params.add('det_vert', 1)
@@ -1077,7 +1179,7 @@ class ZernikeFitter_PFS(object):
                               self.pupil_parameters[0],self.pupil_parameters[1],
                               self.pupil_parameters[4],self.pupil_parameters[5],
                               self.pupil_parameters[6],self.pupil_parameters[7],self.pupil_parameters[8],
-                                self.pupil_parameters[9],self.pupil_parameters[10],self.pupil_parameters[11])
+                                self.pupil_parameters[9],self.pupil_parameters[10],self.pupil_parameters[11],self.pupil_parameters[12])
         point=[self.pupil_parameters[2],self.pupil_parameters[3]]
         pupil=Pupil_Image.getPupil(point)
         #print(np.sum(pupil.illuminated.astype(np.float32)))
@@ -1103,7 +1205,7 @@ class ZernikeFitter_PFS(object):
                                     params['dxFocal'.format(i)],params['dyFocal'.format(i)],
                                   params['slitFrac'.format(i)],params['slitFrac_dy'.format(i)],
                                     params['x_fiber'.format(i)],params['y_fiber'.format(i)],params['effective_ilum_radius'.format(i)],
-                                    params['frd_sigma'.format(i)],params['det_vert'.format(i)],params['slitHolder_frac_dx'.format(i)]])
+                                    params['frd_sigma'.format(i)],params['frd_lorentz_factor'.format(i)],params['det_vert'.format(i)],params['slitHolder_frac_dx'.format(i)]])
             self.pupil_parameters=pupil_parameters
         else:
             pupil_parameters=np.array(self.pupil_parameters)
@@ -1330,8 +1432,8 @@ class LN_PFS_single(object):
         self.columns=['z4','z5','z6','z7','z8','z9','z10','z11',
                       'hscFrac','strutFrac','dxFocal','dyFocal','slitFrac','slitFrac_dy',
                       'radiometricEffect','radiometricExponent','x_ilum','y_ilum',
-                      'x_fiber','y_fiber','effective_ilum_radius','frd_sigma','det_vert','slitHolder_frac_dx',
-                      'grating_lines','scattering_radius','scattering_slope','scattering_amplitude',
+                      'x_fiber','y_fiber','effective_ilum_radius','frd_sigma','frd_lorentz_factor','det_vert','slitHolder_frac_dx',
+                      'grating_lines','scattering_slope','scattering_amplitude',
                       'pixel_effect','fiber_r','flux']         
 
         self.sci_image=sci_image
@@ -1419,7 +1521,7 @@ class LN_PFS_single(object):
 
             
         #When running big fits these are limits which ensure that the code does not wander off in tottaly nonphyical region
-        """
+
          # hsc frac
         if globalparameters[0]<=0.6 or globalparameters[0]>0.8:
             #print('globalparameters[0] outside limits')
@@ -1461,82 +1563,97 @@ class LN_PFS_single(object):
        
         # slitFrac_dy
         if globalparameters[5]<-0.5:
+            #print('globalparameters[5] outside limits')
             return -np.inf
         if globalparameters[5]>0.5:
+            #print('globalparameters[5] outside limits')
             return -np.inf
         
         # radiometricEffect
         if globalparameters[6]<0:
+            #print('globalparameters[6] outside limits')
             return -np.inf
         if globalparameters[6]>3:
+            #print('globalparameters[6] outside limits')
             return -np.inf  
         
         # radiometricExponent
         if globalparameters[7]<-0.5:
+            #print('globalparameters[7] outside limits')
             return -np.inf
         if globalparameters[7]>20:
+            #print('globalparameters[7] outside limits')
             return -np.inf 
         
         # x_ilum
         if globalparameters[8]<-0.4:
+            #print('globalparameters[8] outside limits')
             return -np.inf
         if globalparameters[8]>0.4:
+            #print('globalparameters[8] outside limits')
             return -np.inf
         
         # y_ilum
         if globalparameters[9]<-0.4:
+            #print('globalparameters[9] outside limits')
             return -np.inf
         if globalparameters[9]>0.4:
+            #print('globalparameters[9] outside limits')
             return -np.inf   
         
         # x_fiber
         if globalparameters[10]<-0.4:
+            #print('globalparameters[10] outside limits')
             return -np.inf
         if globalparameters[10]>0.4:
+            #print('globalparameters[10] outside limits')
             return -np.inf      
       
         # y_fiber
         if globalparameters[11]<-0.4:
+            #print('globalparameters[11] outside limits')
             return -np.inf
         if globalparameters[11]>0.4:
+            #print('globalparameters[11] outside limits')
             return -np.inf        
   
         # effective_radius_illumination
         if globalparameters[12]<0.7:
+            #print('globalparameters[12] outside limits')
             return -np.inf
         if globalparameters[12]>1.0:
+            #print('globalparameters[12] outside limits')
             return -np.inf  
  
         # frd_sigma
-
         if globalparameters[13]<0.01:
             return -np.inf
         if globalparameters[13]>.2:
             return -np.inf  
+        
+        #frd_lorentz_factor
+        if globalparameters[14]<0.01:
+            return -np.inf
+        if globalparameters[14]>1:
+            return -np.inf  
 
         # det_vert
-        if globalparameters[14]<0.85:
+        if globalparameters[15]<0.85:
             return -np.inf
-        if globalparameters[14]>1.15:
+        if globalparameters[15]>1.15:
             return -np.inf  
 
         # slitHolder_frac_dx
-        if globalparameters[15]<-0.8:
+        if globalparameters[16]<-0.8:
             return -np.inf
-        if globalparameters[15]>0.8:
+        if globalparameters[16]>0.8:
             return -np.inf  
      
         # grating_lines
-        if globalparameters[16]<1200:
+        if globalparameters[17]<1200:
             return -np.inf
-        if globalparameters[16]>120000:
+        if globalparameters[17]>120000:
             return -np.inf  
-
-        # scattering_radius
-        if globalparameters[17]<1:
-            return -np.inf
-        if globalparameters[17]>+30:
-            return -np.inf 
             
         # scattering_slope
         if globalparameters[18]<1.5:
@@ -1567,7 +1684,7 @@ class LN_PFS_single(object):
             return -np.inf
         if globalparameters[22]>1.02:
             return -np.inf      
-        """
+
         x=self.create_x(zparameters,globalparameters)
         for i in range(len(self.columns)):
             self.single_image_analysis.params[self.columns[i]].set(x[i])
@@ -2275,7 +2392,7 @@ def find_single_realization_min_cut(optPsf_cut_pixel_response_convolved_pixelize
 
     # values which minimize chi**2 1. deltax, 2. deltay, 3. deltax in single_realization, 4. deltay in single_realization, 5. min chi**2
     min_chi_arr=res[res[:,4]==np.min(res[:,4])][0]
-    print(min_chi_arr)
+    #print(min_chi_arr)
     # create single realization which deltax and delta y from line above
     single_realization_min=create_single_realization(optPsf_cut_pixel_response_convolved_pixelized_convolved,min_chi_arr[0],
                                                      min_chi_arr[1],oversampling,sci_image_0)
@@ -2374,8 +2491,8 @@ def create_parInit(allparameters_proposal,multi=None,pupil_parameters=None,allpa
                                     0.1,0.02,0.1,0.1,0.1,0.1,
                                     0.3, 2,0.1,0.1,
                                     0.15,0.15,0.1,
-                                    0.07,0.05,0.4,
-                                    30000,10,0.5,0.01,
+                                    0.07,0.2,0.05,0.4,
+                                    30000,0.5,0.01,
                                     0.1,0.05,0.01]
             if stronger is not None:
                 allparameters_proposal_err=stronger*allparameters_proposal_err
@@ -2383,8 +2500,8 @@ def create_parInit(allparameters_proposal,multi=None,pupil_parameters=None,allpa
             allparameters_proposal_err=[2,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,
                                     0.1,0.1,0.1,0.1,0.05,0.1,
                                     0.2, 0.4,0.1,0.1,
-                                    0.1,0.1,0.02,0.02,0.2,0.1,
-                                    30000,10,0.5,0.01,
+                                    0.1,0.1,0.02,0.02,0.5,0.2,0.1,
+                                    30000,0.5,0.01,
                                     0.1,0.05,0.01]        
     
     if pupil_parameters is None:
@@ -2500,24 +2617,27 @@ def create_parInit(allparameters_proposal,multi=None,pupil_parameters=None,allpa
         globalparameters_flat_13=np.random.normal(globalparameters_flatten[13],globalparameters_flatten_err[13],nwalkers*20)
         globalparameters_flat_13=np.concatenate(([globalparameters_flatten[13]],
                                                  globalparameters_flat_13[np.all((globalparameters_flat_13>0.01,globalparameters_flat_13<0.2),axis=0)][0:nwalkers-1]))
-        # det_vert
+        
+        # frd_lorentz_factor
         globalparameters_flat_14=np.random.normal(globalparameters_flatten[14],globalparameters_flatten_err[14],nwalkers*20)
         globalparameters_flat_14=np.concatenate(([globalparameters_flatten[14]],
-                                                 globalparameters_flat_14[np.all((globalparameters_flat_14>0.85,globalparameters_flat_14<1.15),axis=0)][0:nwalkers-1]))
+                                                 globalparameters_flat_14[np.all((globalparameters_flat_14>0.01,globalparameters_flat_14<1),axis=0)][0:nwalkers-1]))       
         
-        #slitHolder_frac_dx
+        # det_vert
         globalparameters_flat_15=np.random.normal(globalparameters_flatten[15],globalparameters_flatten_err[15],nwalkers*20)
         globalparameters_flat_15=np.concatenate(([globalparameters_flatten[15]],
-                                                 globalparameters_flat_15[np.all((globalparameters_flat_15>-0.8,globalparameters_flat_15<0.8),axis=0)][0:nwalkers-1]))
-
-        # grating lines
+                                                 globalparameters_flat_15[np.all((globalparameters_flat_15>0.85,globalparameters_flat_15<1.15),axis=0)][0:nwalkers-1]))
+        
+        #slitHolder_frac_dx
         globalparameters_flat_16=np.random.normal(globalparameters_flatten[16],globalparameters_flatten_err[16],nwalkers*20)
         globalparameters_flat_16=np.concatenate(([globalparameters_flatten[16]],
-                                                 globalparameters_flat_16[np.all((globalparameters_flat_16>1200,globalparameters_flat_16<120000),axis=0)][0:nwalkers-1]))
-        # scattering_radius - putting err at 0 and effectivly killing it
-        globalparameters_flat_17=np.random.normal(globalparameters_flatten[17],0,nwalkers*20)
+                                                 globalparameters_flat_16[np.all((globalparameters_flat_16>-0.8,globalparameters_flat_16<0.8),axis=0)][0:nwalkers-1]))
+
+        # grating lines
+        globalparameters_flat_17=np.random.normal(globalparameters_flatten[17],globalparameters_flatten_err[17],nwalkers*20)
         globalparameters_flat_17=np.concatenate(([globalparameters_flatten[17]],
-                                                 globalparameters_flat_17[np.all((globalparameters_flat_17>1,globalparameters_flat_17<30),axis=0)][0:nwalkers-1]))
+                                                 globalparameters_flat_17[np.all((globalparameters_flat_17>1200,globalparameters_flat_17<120000),axis=0)][0:nwalkers-1]))
+
         # scattering_slope
         globalparameters_flat_18=np.random.normal(globalparameters_flatten[18],globalparameters_flatten_err[18],nwalkers*20)
         globalparameters_flat_18=np.concatenate(([globalparameters_flatten[18]],
