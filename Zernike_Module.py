@@ -6,7 +6,7 @@ Versions
 Oct 31, 2018; 0.1 -> 0.11 fixed FRD effect
 Nov 1, 2018; 0.11 -> 0.12 added correct edges to the detector; fixed wrong behavior for misaligment 
 Nov 2, 2018; 0.12 -> 0.13 added lorentzian wings to the illumination of the pupil
-
+Nov 3, 2018; 0.13 -> 0.13b fixed edges of detector when det_vert is not 1
 @author: Neven Caplar
 @contact: ncaplar@princeton.edu
 """
@@ -62,7 +62,7 @@ from matplotlib.colors import LogNorm
 
 __all__ = ['PupilFactory', 'Pupil','ZernikeFitter_PFS','LN_PFS_single','LNP_PFS']
 
-__version__ = "0.13"
+__version__ = "0.13b"
 
 ############################################################
 # name your directory where you want to have files!
@@ -271,13 +271,13 @@ class PupilFactory(object):
         f=0.1
         ###########################################################
         # Down right corner
-        x21 = -r/2*det_vert
-        x22 = +r/2*det_vert
-        y21 = -r/2
-        y22 = +r/2        
+        x21 = -r/2
+        x22 = +r/2
+        y21 = -r/2*det_vert
+        y22 = +r/2*det_vert
         
         
-        angleRad21=-np.pi/4   
+        angleRad21=-np.pi/4 
         triangle21=[[p0[0]+x22,p0[1]+y21],[p0[0]+x22,p0[1]+y21-y21*f],[p0[0]+x22-x22*f,p0[1]+y21]]
 
         p21=triangle21[0]
@@ -293,10 +293,10 @@ class PupilFactory(object):
     
         ###########################################################
         # Upper left corner
-        x21 = -r/2*det_vert
-        x22 = +r/2*det_vert
-        y21 = -r/2
-        y22 = +r/2
+        x21 = -r/2*1
+        x22 = +r/2*1
+        y21 = -r/2*det_vert
+        y22 = +r/2*det_vert
         angleRad12=-np.pi/4   
         triangle12=[[p0[0]+x21,p0[1]+y22],[p0[0]+x21,p0[1]+y22-y22*f],[p0[0]+x21-x21*f,p0[1]+y22]]
  
@@ -312,10 +312,10 @@ class PupilFactory(object):
                   ((self.v-p21[1])*np.cos(-angleRad12)-(self.u-p21[0])*np.sin(-angleRad12)>y21))  ] = True   
         ###########################################################
         # Upper right corner
-        x21 = -r/2*det_vert
-        x22 = +r/2*det_vert
-        y21 = -r/2
-        y22 = +r/2
+        x21 = -r/2*1
+        x22 = +r/2*1
+        y21 = -r/2*det_vert
+        y22 = +r/2*det_vert
         angleRad12=np.pi/4   
         triangle22=[[p0[0]+x22,p0[1]+y22],[p0[0]+x22,p0[1]+y22-y22*f],[p0[0]+x22-x22*f,p0[1]+y22]]
  
@@ -333,10 +333,10 @@ class PupilFactory(object):
 
         ###########################################################
         # Lower down corner
-        x21 = -r/2*det_vert
-        x22 = +r/2*det_vert
-        y21 = -r/2
-        y22 = +r/2
+        x21 = -r/2*1
+        x22 = +r/2*1
+        y21 = -r/2*det_vert
+        y22 = +r/2*det_vert
         angleRad12=np.pi/4   
         triangle11=[[p0[0]+x21,p0[1]+y21],[p0[0]+x21,p0[1]+y21-y21*f],[p0[0]+x21-x21*f,p0[1]+y21]]
  
@@ -1628,7 +1628,7 @@ class LN_PFS_single(object):
         # frd_sigma
         if globalparameters[13]<0.01:
             return -np.inf
-        if globalparameters[13]>.2:
+        if globalparameters[13]>.4:
             return -np.inf  
         
         #frd_lorentz_factor
@@ -2616,7 +2616,7 @@ def create_parInit(allparameters_proposal,multi=None,pupil_parameters=None,allpa
         # frd_sigma
         globalparameters_flat_13=np.random.normal(globalparameters_flatten[13],globalparameters_flatten_err[13],nwalkers*20)
         globalparameters_flat_13=np.concatenate(([globalparameters_flatten[13]],
-                                                 globalparameters_flat_13[np.all((globalparameters_flat_13>0.01,globalparameters_flat_13<0.2),axis=0)][0:nwalkers-1]))
+                                                 globalparameters_flat_13[np.all((globalparameters_flat_13>0.01,globalparameters_flat_13<0.4),axis=0)][0:nwalkers-1]))
         
         # frd_lorentz_factor
         globalparameters_flat_14=np.random.normal(globalparameters_flatten[14],globalparameters_flatten_err[14],nwalkers*20)
@@ -2702,7 +2702,7 @@ def create_parInit(allparameters_proposal,multi=None,pupil_parameters=None,allpa
     
     
     if use_optPSF is not None:
-        for i in range(1,24):
+        for i in range(1,25):
             parInit[:,i]=np.full(len(parInit[:,i]),allparameters_proposal[i])
     else:
         pass
