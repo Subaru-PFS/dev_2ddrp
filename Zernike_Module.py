@@ -7,6 +7,7 @@ Oct 31, 2018; 0.1 -> 0.11 fixed FRD effect
 Nov 1, 2018; 0.11 -> 0.12 added correct edges to the detector; fixed wrong behavior for misaligment 
 Nov 2, 2018; 0.12 -> 0.13 added lorentzian wings to the illumination of the pupil
 Nov 3, 2018; 0.13 -> 0.13b fixed edges of detector when det_vert is not 1
+Nov 12, 2018; 0.13b -> 0.13c changed parameter describing hexagonal effect "f" from 0.1 to 0.2
 @author: Neven Caplar
 @contact: ncaplar@princeton.edu
 """
@@ -62,7 +63,7 @@ from matplotlib.colors import LogNorm
 
 __all__ = ['PupilFactory', 'Pupil','ZernikeFitter_PFS','LN_PFS_single','LNP_PFS']
 
-__version__ = "0.13b"
+__version__ = "0.13c"
 
 ############################################################
 # name your directory where you want to have files!
@@ -268,7 +269,7 @@ class PupilFactory(object):
         #pupil.illuminated=scipy.signal.fftconvolve(pupil.illuminated, Gaussian2DKernel(sigma).array, mode = 'same')
 
     
-        f=0.1
+        f=0.2
         ###########################################################
         # Down right corner
         x21 = -r/2
