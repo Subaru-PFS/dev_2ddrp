@@ -8,6 +8,8 @@ Nov 1, 2018; 0.11 -> 0.12 added correct edges to the detector; fixed wrong behav
 Nov 2, 2018; 0.12 -> 0.13 added lorentzian wings to the illumination of the pupil
 Nov 3, 2018; 0.13 -> 0.13b fixed edges of detector when det_vert is not 1
 Nov 12, 2018; 0.13b -> 0.13c changed parameter describing hexagonal effect "f" from 0.1 to 0.2
+Nov 12, 2018; 0.13c -> 0.14 changed illumination description modifying entrance -> exit pupil illumination
+Nov 29, 2018; 0.14 -> 0.14b added fixed scattering slope, deduced from large image in focus
 @author: Neven Caplar
 @contact: ncaplar@princeton.edu
 """
@@ -61,9 +63,9 @@ import matplotlib.pyplot as plt
 from matplotlib.colors import LogNorm
 
 
-__all__ = ['PupilFactory', 'Pupil','ZernikeFitter_PFS','LN_PFS_single','LNP_PFS']
+__all__ = ['PupilFactory', 'Pupil','ZernikeFitter_PFS','LN_PFS_single','LNP_PFS','find_centroid_of_flux','create_res_data','create_parInit','downsample_manual_function','Zernike_Analysis','PFSPupilFactory','custom_fftconvolve','stepK','maxK','sky_scale','sky_size','create_x','remove_pupil_parameters_from_all_parameters']
 
-__version__ = "0.13c"
+__version__ = "0.14"
 
 ############################################################
 # name your directory where you want to have files!
@@ -1248,7 +1250,8 @@ class ZernikeFitter_PFS(object):
                 diam =  pupil.size,
                 pupil_plane_im = self.pupilExplicit.astype(np.float32),
                 pupil_plane_scale = pupil.scale,
-                pupil_plane_size = None)           
+                pupil_plane_size = None)         
+            
         # create wavefront across the exit pupil      
         #print('aberrations: '+str(aberrations))
         optics_screen = galsim.phase_screens.OpticalScreen(diam=diam_sic,aberrations=aberrations,lam_0=self.wavelength)
@@ -1260,6 +1263,7 @@ class ZernikeFitter_PFS(object):
         assert np.sum(ilum)>0, str(self.pupil_parameters)
         
         #changed late October 8
+        # gives size of the illuminated image
         lower_limit_of_ilum=int(ilum.shape[0]/2-pupil.illuminated.shape[0]/2)
         higher_limit_of_ilum=int(ilum.shape[0]/2+pupil.illuminated.shape[0]/2)
 
@@ -1270,19 +1274,25 @@ class ZernikeFitter_PFS(object):
         
         # maximum extent of pupil image in units of radius of the pupil, needed for next step
         size_of_ilum_in_units_of_radius=ilum.shape[0]/pupil.illuminated.astype(np.int16).shape[0]
-        #print('size_of_ilum_in_units_of_radius: '+str(size_of_ilum_in_units_of_radius))
         
-        # add non-uniform illumination around custom center
+        #print('size_of_ilum_in_units_of_radius: '+str(size_of_ilum_in_units_of_radius))
+        #print('ilum.shape[0]'+str(ilum.shape[0]))
+        # add the change of flux between the entrance and exit pupil
+        # end product is radiometricEffectArray
         points = np.linspace(-size_of_ilum_in_units_of_radius, size_of_ilum_in_units_of_radius,num=ilum.shape[0])
         xs, ys = np.meshgrid(points, points)
         r = np.sqrt((xs-params['x_ilum'])** 2 + (ys-params['y_ilum'])** 2)
-        radiometricEffectArray=(1-params['radiometricEffect']**2*r**2)**(params['radiometricExponent'])
+        
+        # change in v_0.14
+        radiometricEffectArray=(1+params['radiometricEffect']*r**2)**(-params['radiometricExponent'])
+        
+        
         ilum_radiometric=np.nan_to_num(radiometricEffectArray*ilum,0) 
      
-
-        
         # this is where you can introduce some apodization in the pupil image by using the line below
+        # this is deprecated and you probably should not use this!
         #r = gaussian_filter(ilum_radiometric, sigma=params['apodization'.format(i)])
+        
         r=ilum_radiometric
         
         # put pixels for which amplitude is less than 0.01 to 0
@@ -1310,8 +1320,17 @@ class ZernikeFitter_PFS(object):
         #print(np.max(u))
         #print(screens.wavefront(np.max(u),np.max(v), None, 0))
         wf_grid = np.zeros_like(r_ilum, dtype=np.float64)
+
         wf_grid[r_ilum] = (wf/self.wavelength)
-    
+        """
+        wf_grid_pure=np.zeros_like(r_ilum, dtype=np.float64)
+        r_ilum_fake=r_ilum[np.where(np.sum(r_ilum,axis=0))[0][0]:np.where(np.sum(r_ilum,axis=0))[0][-1],np.where(np.sum(r_ilum,axis=0))[0][0]:np.where(np.sum(r_ilum,axis=0))[0][-1]]
+        r_ilum_fake=1
+        r_ilum_extended=r_ilum
+        r_ilum_extended[768:2303,768:2303]=r_ilum_fake
+        wf_grid_pure[r_ilum_extended] = (wf/self.wavelength)
+        """
+
         wf_grid_rot=wf_grid
         
         # exponential of the wavefront
@@ -1349,7 +1368,8 @@ class ZernikeFitter_PFS(object):
             np.save(TESTING_PUPIL_IMAGES_FOLDER+'ilum',ilum)   
             np.save(TESTING_PUPIL_IMAGES_FOLDER+'r_ilum',r_ilum)
             np.save(TESTING_PUPIL_IMAGES_FOLDER+'ilum_radiometric',ilum_radiometric) 
-            np.save(TESTING_PUPIL_IMAGES_FOLDER+'r_resize',r)  
+            np.save(TESTING_PUPIL_IMAGES_FOLDER+'r_resize',r) 
+            #np.save(TESTING_WAVEFRONT_IMAGES_FOLDER+'wf_grid_pure',wf_grid_pure)  
             np.save(TESTING_WAVEFRONT_IMAGES_FOLDER+'wf_grid',wf_grid)  
             np.save(TESTING_WAVEFRONT_IMAGES_FOLDER+'expwf_grid',expwf_grid)   
 
@@ -1574,15 +1594,15 @@ class LN_PFS_single(object):
         if globalparameters[6]<0:
             #print('globalparameters[6] outside limits')
             return -np.inf
-        if globalparameters[6]>3:
+        if globalparameters[6]>1:
             #print('globalparameters[6] outside limits')
             return -np.inf  
         
         # radiometricExponent
-        if globalparameters[7]<-0.5:
+        if globalparameters[7]<0.01:
             #print('globalparameters[7] outside limits')
             return -np.inf
-        if globalparameters[7]>20:
+        if globalparameters[7]>2:
             #print('globalparameters[7] outside limits')
             return -np.inf 
         
@@ -1802,19 +1822,35 @@ class Zernike_Analysis(object):
     """!Pupil obscuration function.
     """
 
-    def __init__(self, date,obs,single_number,eps):
+    def __init__(self, date,obs,single_number,eps,arc=None):
         """!
 
         @param[in]
         """
+        if arc is None:
+            arc=''
+        STAMPS_FOLDER='/Users/nevencaplar/Documents/PFS/Data_Nov_14/Stamps_Cleaned/'
         
+   
+                
+
         
-        if obs=='8600':
-            sci_image=np.load("/Users/nevencaplar/Documents/PFS/TigerAnalysis/CutsForTigerAug15/sci"+str(obs)+str(single_number)+'Stacked_Cleaned_Dithered.npy')
-            var_image=np.load("/Users/nevencaplar/Documents/PFS/TigerAnalysis/CutsForTigerAug15/var"+str(obs)+str(single_number)+'Stacked_Dithered.npy')
-        else:       
-            sci_image=np.load("/Users/nevencaplar/Documents/PFS/TigerAnalysis/CutsForTigerAug15/sci"+str(obs)+str(single_number)+'Stacked_Cleaned.npy')
-            var_image=np.load("/Users/nevencaplar/Documents/PFS/TigerAnalysis/CutsForTigerAug15/var"+str(obs)+str(single_number)+'Stacked.npy')
+        if arc is not None:
+            if arc=='HgAr':
+                single_number_focus=8603
+            elif arc=='Ne':
+                single_number_focus=8693
+            
+            STAMPS_FOLDER="/Users/nevencaplar/Documents/PFS/Data_Nov_14/Stamps_cleaned/"
+            # import data
+            if obs==8600:
+                print("Not implemented for December 2018 data")
+            else:
+                sci_image =np.load(STAMPS_FOLDER+'sci'+str(obs)+str(single_number)+str(arc)+'_Stacked.npy')
+                var_image =np.load(STAMPS_FOLDER+'var'+str(obs)+str(single_number)+str(arc)+'_Stacked.npy')
+                sci_image_focus_large =np.load(STAMPS_FOLDER+'sci'+str(single_number_focus)+str(single_number)+str(arc)+'_Stacked_large.npy')
+                var_image_focus_large =np.load(STAMPS_FOLDER+'var'+str(single_number_focus)+str(single_number)+str(arc)+'_Stacked_large.npy')   
+        
         
         self.sci_image=sci_image
         self.var_image=var_image
@@ -1841,6 +1877,7 @@ class Zernike_Analysis(object):
         self.obs=obs
         self.single_number=single_number
         self.eps=eps
+        self.arc=arc
         
         method='P'
         self.method=method
@@ -1854,14 +1891,14 @@ class Zernike_Analysis(object):
         #chain0_Emcee1=chain_Emcee1[0]
 
         #chain_Emcee2=np.load(self.RESULT_FOLDER+'chain'+str(self.date)+'_Single_'+str(self.method)+'_'+str(self.obs)+str(self.single_number)+str(self.eps)+'Emcee2.npy')
-        likechain_Emcee2=np.load(self.RESULT_FOLDER+'likechain'+str(self.date)+'_Single_'+str(self.method)+'_'+str(self.obs)+str(self.single_number)+str(self.eps)+'Emcee2.npy')
+        likechain_Emcee2=np.load(self.RESULT_FOLDER+'likechain'+str(self.date)+'_Single_'+str(self.method)+'_'+str(self.obs)+str(self.single_number)+str(self.eps)+str(self.arc)+'Emcee2.npy')
        
         like_min_Emcee2=[]
         for i in range(likechain_Emcee2.shape[1]):
             like_min_Emcee2.append(np.min(np.abs(likechain_Emcee2[:,i]))  )     
             
         #chain_Swarm1=np.load(self.RESULT_FOLDER+'chain'+str(self.date)+'_Single_'+str(self.method)+'_'+str(self.obs)+str(self.single_number)+str(self.eps)+'Swarm1.npy')
-        likechain_Swarm1=np.load(self.RESULT_FOLDER+'likechain'+str(self.date)+'_Single_'+str(self.method)+'_'+str(self.obs)+str(self.single_number)+str(self.eps)+'Swarm1.npy')
+        likechain_Swarm1=np.load(self.RESULT_FOLDER+'likechain'+str(self.date)+'_Single_'+str(self.method)+'_'+str(self.obs)+str(self.single_number)+str(self.eps)+str(self.arc)+'Swarm1.npy')
         
         like_min_swarm1=[]
         for i in range(likechain_Swarm1.shape[0]):
@@ -1870,14 +1907,14 @@ class Zernike_Analysis(object):
         #chain0_Emcee2=chain_Emcee2[0]        
         
         #chain_Swarm2=np.load(self.RESULT_FOLDER+'chain'+str(self.date)+'_Single_'+str(self.method)+'_'+str(self.obs)+str(self.single_number)+str(self.eps)+'Swarm2.npy')
-        likechain_Swarm2=np.load(self.RESULT_FOLDER+'likechain'+str(self.date)+'_Single_'+str(self.method)+'_'+str(self.obs)+str(self.single_number)+str(self.eps)+'Swarm2.npy')        
+        likechain_Swarm2=np.load(self.RESULT_FOLDER+'likechain'+str(self.date)+'_Single_'+str(self.method)+'_'+str(self.obs)+str(self.single_number)+str(self.eps)+str(self.arc)+'Swarm2.npy')        
 
         like_min_swarm2=[]
         for i in range(likechain_Swarm2.shape[0]):
             like_min_swarm2.append(np.min(np.abs(likechain_Swarm2[i]))  )  
         
-        chain_Emcee3=np.load(self.RESULT_FOLDER+'chain'+str(self.date)+'_Single_'+str(self.method)+'_'+str(self.obs)+str(self.single_number)+str(self.eps)+'Emcee3.npy')
-        likechain_Emcee3=np.load(self.RESULT_FOLDER+'likechain'+str(self.date)+'_Single_'+str(self.method)+'_'+str(self.obs)+str(self.single_number)+str(self.eps)+'Emcee3.npy')
+        chain_Emcee3=np.load(self.RESULT_FOLDER+'chain'+str(self.date)+'_Single_'+str(self.method)+'_'+str(self.obs)+str(self.single_number)+str(self.eps)+str(self.arc)+'Emcee3.npy')
+        likechain_Emcee3=np.load(self.RESULT_FOLDER+'likechain'+str(self.date)+'_Single_'+str(self.method)+'_'+str(self.obs)+str(self.single_number)+str(self.eps)+str(self.arc)+'Emcee3.npy')
         
         # get chain number 0, which is has lowest temperature
         if len(likechain_Emcee3)<=4:
@@ -1977,8 +2014,8 @@ class Zernike_Analysis(object):
         #likechain0_Emcee2=likechain_Emcee2[0]
         #chain0_Emcee2=chain_Emcee2[0]        
         
-        chain_Emcee3=np.load(self.RESULT_FOLDER+'chain'+str(self.date)+'_Single_'+str(self.method)+'_'+str(self.obs)+str(self.single_number)+str(self.eps)+'Emcee3.npy')
-        likechain_Emcee3=np.load(self.RESULT_FOLDER+'likechain'+str(self.date)+'_Single_'+str(self.method)+'_'+str(self.obs)+str(self.single_number)+str(self.eps)+'Emcee3.npy')
+        chain_Emcee3=np.load(self.RESULT_FOLDER+'chain'+str(self.date)+'_Single_'+str(self.method)+'_'+str(self.obs)+str(self.single_number)+str(self.eps)+str(self.arc)+'Emcee3.npy')
+        likechain_Emcee3=np.load(self.RESULT_FOLDER+'likechain'+str(self.date)+'_Single_'+str(self.method)+'_'+str(self.obs)+str(self.single_number)+str(self.eps)+str(self.arc)+'Emcee3.npy')
         
         # get chain number 0, which is has lowest temperature
         likechain0_Emcee3=likechain_Emcee3
@@ -2051,28 +2088,32 @@ class Zernike_Analysis(object):
         plt.imshow(res_iapetus,origin='lower',vmin=1,vmax=np.max(np.abs(sci_image)),norm=LogNorm())
         plt.plot(np.ones(len(sci_image))*(size/2-3.5),np.array(range(len(sci_image))),'--',color='white')
         plt.plot(np.ones(len(sci_image))*((size/2-dithering*3.5)+7*dithering),np.array(range(len(sci_image))),'--',color='white')
-        plt.colorbar()
+        cbar=plt.colorbar()
+        cbar.set_ticks([10,10**2,10**3,10**4,10**5])
         plt.title('Model')
         plt.grid(False)
         plt.subplot(222)
         plt.imshow(sci_image,origin='lower',vmin=1,vmax=np.max(np.abs(sci_image)),norm=LogNorm())
         plt.plot(np.ones(len(sci_image))*(size/2-3.5),np.array(range(len(sci_image))),'--',color='white')
         plt.plot(np.ones(len(sci_image))*((size/2-dithering*3.5)+7*dithering),np.array(range(len(sci_image))),'--',color='white')
-        plt.colorbar()
+        cbar=plt.colorbar()
+        cbar.set_ticks([10,10**2,10**3,10**4,10**5])
         plt.title('Data')
         plt.grid(False)
         plt.subplot(223)
         plt.imshow(np.abs(res_iapetus-sci_image),origin='lower',vmax=np.max(np.abs(sci_image))/20,norm=LogNorm())
         plt.plot(np.ones(len(sci_image))*(size/2-3.5),np.array(range(len(sci_image))),'--',color='white')
         plt.plot(np.ones(len(sci_image))*((size/2-dithering*3.5)+7*dithering),np.array(range(len(sci_image))),'--',color='white')
-        plt.colorbar()
+        cbar=plt.colorbar()
+        cbar.set_ticks([10,10**2,10**3,10**4,10**5])
         plt.title('abs(Residual (model - data))')
         plt.grid(False)
         plt.subplot(224)
         plt.imshow((res_iapetus-sci_image)**2/((1)*var_image),origin='lower',vmin=1,norm=LogNorm())
         plt.plot(np.ones(len(sci_image))*(size/2-3.5),np.array(range(len(sci_image))),'--',color='white')
         plt.plot(np.ones(len(sci_image))*((size/2-dithering*3.5)+7*dithering),np.array(range(len(sci_image))),'--',color='white')
-        plt.colorbar()
+        cbar=plt.colorbar()
+        cbar.set_ticks([10,10**2,10**3,10**4,10**5])
         plt.title('chi**2 map')
         print(np.sum((res_iapetus-sci_image)**2/((var_image.shape[0]*var_image.shape[1])*var_image)))
         np.sum(np.abs((res_iapetus-sci_image)))/np.sum((res_iapetus))
@@ -2199,7 +2240,7 @@ def find_centroid_of_flux(image):
     """
     function giving the position of weighted average of the flux in a square image
     
-    @param allparameters_proposal    array contaning suggested starting values for a model 
+    @param iamge    input image 
     """
     
     
@@ -2477,14 +2518,24 @@ def estimate_trace_and_serial(sci_image,model_image):
         
     return [proposed_trace,proposed_serial]
 
-def create_parInit(allparameters_proposal,multi=None,pupil_parameters=None,allparameters_proposal_err=None,stronger=None,use_optPSF=None):
-    """
-    given the suggested parametrs create array with randomized starting values to supply to fitting code
+def create_parInit(allparameters_proposal,multi=None,pupil_parameters=None,allparameters_proposal_err=None,stronger=None,use_optPSF=None,deduced_scattering_slope=None):
+    
+    """!given the suggested parametrs create array with randomized starting values to supply to fitting code
     
     @param allparameters_proposal    array contaning suggested starting values for a model 
+    @param multi                     (not working) when you want to analyze more images at once
+    @param pupil_parameters          fixed parameters describign the pupil
+    @param allparameters_proposal_err error on proposed parameters
+    @param stronger                 factors which increases all errors
+    @param use_optPFS               fix all parameters that give pure optical PSF
     """ 
     if allparameters_proposal_err is not None:
         assert len(allparameters_proposal)==len(allparameters_proposal_err)
+    
+     # fixed scattering slope at number deduced from larger defocused image
+    if deduced_scattering_slope is not None:
+        allparameters_proposal[26]=np.abs(deduced_scattering_slope)
+    
     
     if allparameters_proposal_err is None:
         if multi is None:
@@ -2497,6 +2548,9 @@ def create_parInit(allparameters_proposal,multi=None,pupil_parameters=None,allpa
                                     0.1,0.05,0.01]
             if stronger is not None:
                 allparameters_proposal_err=stronger*allparameters_proposal_err
+            # fixed scattering slope at number deduced from larger defocused image
+            if deduced_scattering_slope is not None:
+                allparameters_proposal_err[26]=0
         else:
             allparameters_proposal_err=[2,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,
                                     0.1,0.1,0.1,0.1,0.05,0.1,
@@ -2531,7 +2585,6 @@ def create_parInit(allparameters_proposal,multi=None,pupil_parameters=None,allpa
         try: 
             for i in range(8):
                 if i==0:
-                    # larger search for defocus
                     zparameters_flat_single_par=np.concatenate(([zparameters_flatten[i]],np.random.normal(zparameters_flatten[i],zparameters_flatten_err[i],nwalkers-1)))
                 else:
                     zparameters_flat_single_par=np.concatenate(([zparameters_flatten[i]],np.random.normal(zparameters_flatten[i],zparameters_flatten_err[i],nwalkers-1)))
@@ -2585,11 +2638,11 @@ def create_parInit(allparameters_proposal,multi=None,pupil_parameters=None,allpa
         # radiometricEffect
         globalparameters_flat_6=np.abs(np.random.normal(globalparameters_flatten[6],globalparameters_flatten_err[6],nwalkers*20))
         globalparameters_flat_6=np.concatenate(([globalparameters_flatten[6]],
-                                                globalparameters_flat_6[np.all((globalparameters_flat_6>0,globalparameters_flat_6<3),axis=0)][0:nwalkers-1]))
+                                                globalparameters_flat_6[np.all((globalparameters_flat_6>0,globalparameters_flat_6<1),axis=0)][0:nwalkers-1]))
         # radiometricExponent
         globalparameters_flat_7=np.random.normal(globalparameters_flatten[7],globalparameters_flatten_err[7],nwalkers*20)
         globalparameters_flat_7=np.concatenate(([globalparameters_flatten[7]],
-                                                globalparameters_flat_7[np.all((globalparameters_flat_7>-0.5,globalparameters_flat_7<20),axis=0)][0:nwalkers-1]))
+                                                globalparameters_flat_7[np.all((globalparameters_flat_7>0.0,globalparameters_flat_7<2),axis=0)][0:nwalkers-1]))
         # x_ilum 
         globalparameters_flat_8=np.abs(np.random.normal(globalparameters_flatten[8],globalparameters_flatten_err[8],nwalkers*20))
         globalparameters_flat_8=np.concatenate(([globalparameters_flatten[8]],
@@ -2667,6 +2720,7 @@ def create_parInit(allparameters_proposal,multi=None,pupil_parameters=None,allpa
 
 
         """
+        # uncomment in order to troubleshoot and show many parameters generated for each parameter
         for i in [globalparameters_flat_0,globalparameters_flat_1,globalparameters_flat_2,globalparameters_flat_3,
                                                    globalparameters_flat_4,globalparameters_flat_5,globalparameters_flat_6,globalparameters_flat_7,
                                                   globalparameters_flat_8,globalparameters_flat_9,globalparameters_flat_10,
@@ -2712,6 +2766,68 @@ def create_parInit(allparameters_proposal,multi=None,pupil_parameters=None,allpa
 
 def Ifun16Ne (lambdaV,lambda0,Ne):
     return (lambda0/(Ne*np.pi*np.sqrt(2)))**2/((lambdaV-lambda0)**2+(lambda0/(Ne*np.pi*np.sqrt(2)))**2)
+
+
+def create_mask(FFTTest_fiber_and_pixel_convolved_downsampled_40,semi=None):
+    central_position=np.array(find_centroid_of_flux(FFTTest_fiber_and_pixel_convolved_downsampled_40))
+    central_position_int=np.round(central_position)
+    central_position_int_x=int(central_position_int[0])
+    central_position_int_y=int(central_position_int[1])
+
+    center_square=np.zeros((40,40))
+    center_square[central_position_int_y-6:+central_position_int_y+6,central_position_int_x-6:central_position_int_x+6]=np.ones((12,12))
+
+    horizontal_cross=np.zeros((40,40))
+    horizontal_cross[central_position_int_y-6:central_position_int_y+6,0:40,]=np.ones((12,40))
+    horizontal_cross_full=horizontal_cross
+    horizontal_cross=horizontal_cross-center_square
+
+    vertical_cross=np.zeros((40,40))
+    if semi is None:
+        vertical_cross[0:40,central_position_int_x-6:central_position_int_x+6]=np.ones((40,12))
+        vertical_cross=vertical_cross-center_square
+    if semi=='+':
+        vertical_cross[central_position_int_y+6:40,central_position_int_x-6:central_position_int_x+6]=np.ones((40-central_position_int_y-6,12))
+    if semi=='-':
+        vertical_cross[0:central_position_int_y-6,central_position_int_x-6:central_position_int_x+6]=np.ones((central_position_int_y-6,12))
+    vertical_cross_full=vertical_cross
+
+
+    diagonal_cross=np.zeros((40,40))
+    if semi is None:
+        #print(central_position_int_y)
+        #print(central_position_int_x)
+        diagonal_cross[0:central_position_int_y-4,0:central_position_int_x-4]=np.ones((central_position_int_y-4,central_position_int_x-4))
+        diagonal_cross[(central_position_int_y+4):40,0:(central_position_int_x-4)]=np.ones((40-(central_position_int_y+4),(central_position_int_x-4)))
+        diagonal_cross[0:(central_position_int_y-4),(central_position_int_x+4):40]=np.ones(((central_position_int_y-4),40-(central_position_int_x+4)))
+        diagonal_cross[(central_position_int_y+4):40,(central_position_int_x+4):40]=np.ones((40-(central_position_int_y+4),40-(central_position_int_x+4)))
+    if semi=='+':
+        diagonal_cross[(central_position_int_y+4):40,0:(central_position_int_x-4)]=np.ones((40-(central_position_int_y+4),(central_position_int_x-4)))
+        diagonal_cross[(central_position_int_y+4):40,(central_position_int_x+4):40]=np.ones((40-(central_position_int_y+4),40-(central_position_int_x+4)))
+    if semi=='-':
+        diagonal_cross[0:central_position_int_y-4,0:central_position_int_x-4]=np.ones((central_position_int_y-4,central_position_int_x-4))
+        diagonal_cross[0:(central_position_int_y-4),(central_position_int_x+4):40]=np.ones(((central_position_int_y-4),40-(central_position_int_x+4)))
+    if semi=='r':
+        diagonal_cross[(central_position_int_y+4):40,(central_position_int_x+4):40]=np.ones((40-(central_position_int_y+4),40-(central_position_int_x+4)))
+        diagonal_cross[0:(central_position_int_y-4),(central_position_int_x+4):40]=np.ones(((central_position_int_y-4),40-(central_position_int_x+4)))
+    if semi=='l':
+        diagonal_cross[0:central_position_int_y-4,0:central_position_int_x-4]=np.ones((central_position_int_y-4,central_position_int_x-4))
+        diagonal_cross[(central_position_int_y+4):40,0:(central_position_int_x-4)]=np.ones((40-(central_position_int_y+4),(central_position_int_x-4)))
+
+    total_mask=np.zeros((40,40))
+    if semi is None:
+        total_mask=np.ones((40,40))
+    if semi=='+':
+        total_mask[(central_position_int_y):40,0:40]=np.ones((40-(central_position_int_y),40))
+    if semi=='-':
+        total_mask[:(central_position_int_y),0:40]=np.ones(((central_position_int_y),40))
+    if semi=='r':
+        total_mask[:(central_position_int_y),0:40]=np.ones(((central_position_int_y),40))  
+    if semi=='l':
+        total_mask[:(central_position_int_y),0:40]=np.ones(((central_position_int_y),40))   
+        
+    return [center_square,horizontal_cross,vertical_cross,diagonal_cross,total_mask]
+
 
 def create_res_data(FFTTest_fiber_and_pixel_convolved_downsampled_40,mask=None,custom_cent=None,size_pixel=None):
     
@@ -2846,6 +2962,10 @@ def remove_pupil_parameters_from_all_parameters(parameters):
 def add_pupil_parameters_to_all_parameters(parameters,pupil_parameters):
     lenpar=len(parameters)
     return np.concatenate((parameters[:lenpar-11],pupil_parameters[:6],parameters[lenpar-11:lenpar-7],pupil_parameters[6:],parameters[lenpar-7:]),axis=0)
+
+
+
+
 
 # taken https://gist.github.com/shoyer/c0f1ddf409667650a076c058f9a17276
 # also here https://github.com/scikit-image/scikit-image/issues/2827
