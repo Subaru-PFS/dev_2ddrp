@@ -14,7 +14,8 @@ Dec 16, 2018; 0.14b -> 0.14c allparameters_proposal_err from list to array
 Dec 18, 2018; 0.14c -> 0.14d strutFrac upper limit to 0.13 in create_parInit
 Dec 23, 2018; 0.14d -> 0.15 refactoring so that x_ilum and y_ilum is one
 Dec 26, 2018; 0.15 -> 0.15b when in focus, create exactly 10x oversampling
-Dec 31, 2018; 0.15b -> 0.16 major rewrite of downsamplign algorithm
+Dec 31, 2018; 0.15b -> 0.16 major rewrite of downsampling algorithm
+Jan 8, 2019; 0.16 -> 0.17 added support for zmax=22
 @author: Neven Caplar
 @contact: ncaplar@princeton.edu
 """
@@ -68,9 +69,9 @@ import matplotlib.pyplot as plt
 from matplotlib.colors import LogNorm
 
 
-__all__ = ['PupilFactory', 'Pupil','ZernikeFitter_PFS','LN_PFS_single','LNP_PFS','find_centroid_of_flux','create_res_data','create_parInit','downsample_manual_function','Zernike_Analysis','PFSPupilFactory','custom_fftconvolve','stepK','maxK','sky_scale','sky_size','create_x','remove_pupil_parameters_from_all_parameters']
+__all__ = ['PupilFactory', 'Pupil','ZernikeFitter_PFS','LN_PFS_single','LNP_PFS','find_centroid_of_flux','create_res_data','create_parInit','downsample_manual_function','Zernike_Analysis','PFSPupilFactory','custom_fftconvolve','stepK','maxK','sky_scale','sky_size','create_x','remove_pupil_parameters_from_all_parameters','create_mask']
 
-__version__ = "0.16"
+__version__ = "0.17"
 
 ############################################################
 # name your directory where you want to have files!
@@ -590,10 +591,11 @@ class ZernikeFitter_PFS(object):
     
     This code uses lmfit to initalize the parameters.
     """
-    def __init__(self, image=None,image_var=None,pixelScale=None,wavelength=None,
+
+    def __init__(self,image=None,image_var=None,pixelScale=None,wavelength=None,
                  jacobian=None,diam_sic=None,npix=None,pupilExplicit=None,
                  wf_full_Image=None,radiometricEffectArray_Image=None,ilum_Image=None,dithering=None,save=None,
-                 pupil_parameters=None,use_pupil_parameters=None,use_optPSF=None,*args):
+                 pupil_parameters=None,use_pupil_parameters=None,use_optPSF=None,zmaxInit=None,*args):
         """
         @param image        image to analyze
         @param image_var    variance image
@@ -709,8 +711,10 @@ class ZernikeFitter_PFS(object):
         else:
             self.use_optPSF=use_optPSF
             
+        self.zmax=zmaxInit
+            
     
-    def initParams(self, zmax=11, z4Init=None, dxInit=None,dyInit=None,hscFracInit=None,strutFracInit=None,
+    def initParams(self,z4Init=None, dxInit=None,dyInit=None,hscFracInit=None,strutFracInit=None,
                    focalPlanePositionInit=None,fiber_rInit=None,
                   slitFracInit=None,slitFrac_dy_Init=None,apodizationInit=None,radiometricEffectInit=None,
                    trace_valueInit=None,serial_trace_valueInit=None,pixel_effectInit=None,backgroundInit=None,
@@ -764,8 +768,9 @@ class ZernikeFitter_PFS(object):
         
         
         """
-        #print(hscFracInit)
-        self.zmax=zmax      
+
+ 
+        print('self.zmax'+str(self.zmax))
         params = lmfit.Parameters()
         
 
@@ -1471,21 +1476,37 @@ class ZernikeFitter_PFS(object):
 
 class LN_PFS_single(object):
         
-    def __init__(self,sci_image,var_image,dithering=None,save=None,pupil_parameters=None,use_pupil_parameters=None,use_optPSF=None):    
+    def __init__(self,sci_image,var_image,dithering=None,save=None,pupil_parameters=None,use_pupil_parameters=None,use_optPSF=None,zmax=None):    
         """
         @param image        image to analyze
         @param image_var    variance image
         """          
         if use_pupil_parameters is not None:
             assert pupil_parameters is not None
+            
+
+        if zmax is None:
+            #print('checkpoint before zmax')
+            zmax=11
+        else:
+            zmax=22
+            print(zmax)
         
-        
-        self.columns=['z4','z5','z6','z7','z8','z9','z10','z11',
-                      'hscFrac','strutFrac','dxFocal','dyFocal','slitFrac','slitFrac_dy',
-                      'radiometricEffect','radiometricExponent','x_ilum','y_ilum',
-                      'x_fiber','y_fiber','effective_ilum_radius','frd_sigma','frd_lorentz_factor','det_vert','slitHolder_frac_dx',
-                      'grating_lines','scattering_slope','scattering_amplitude',
-                      'pixel_effect','fiber_r','flux']         
+        if zmax==11:
+            self.columns=['z4','z5','z6','z7','z8','z9','z10','z11',
+                          'hscFrac','strutFrac','dxFocal','dyFocal','slitFrac','slitFrac_dy',
+                          'radiometricEffect','radiometricExponent','x_ilum','y_ilum',
+                          'x_fiber','y_fiber','effective_ilum_radius','frd_sigma','frd_lorentz_factor','det_vert','slitHolder_frac_dx',
+                          'grating_lines','scattering_slope','scattering_amplitude',
+                          'pixel_effect','fiber_r','flux']         
+        if zmax==22:
+            self.columns=['z4','z5','z6','z7','z8','z9','z10','z11',
+                          'z12','z13','z14','z15','z16','z17','z18','z19','z20','z21','z22', 
+              'hscFrac','strutFrac','dxFocal','dyFocal','slitFrac','slitFrac_dy',
+              'radiometricEffect','radiometricExponent','x_ilum','y_ilum',
+              'x_fiber','y_fiber','effective_ilum_radius','frd_sigma','frd_lorentz_factor','det_vert','slitHolder_frac_dx',
+              'grating_lines','scattering_slope','scattering_amplitude',
+              'pixel_effect','fiber_r','flux']    
 
         self.sci_image=sci_image
         self.var_image=var_image
@@ -1496,9 +1517,8 @@ class LN_PFS_single(object):
         #print(pupil_parameters)
         
         
-        
-        
-        zmax=11
+        self.zmax=zmax
+        #print(zmax)
         if dithering is None:
             npix_value=int(math.ceil(int(1024*sci_image.shape[0]/(20*4)))*2)
         else:
@@ -1507,10 +1527,13 @@ class LN_PFS_single(object):
      
         
         if pupil_parameters is None:
-            single_image_analysis=ZernikeFitter_PFS(sci_image,var_image,npix=npix_value,dithering=dithering,save=save,pupil_parameters=pupil_parameters,use_pupil_parameters=use_pupil_parameters,use_optPSF=use_optPSF)     
-            single_image_analysis.initParams(zmax) 
+            #print('checkpoint before single_image_analysis')
+            #print(zmax)
+            single_image_analysis=ZernikeFitter_PFS(sci_image,var_image,npix=npix_value,dithering=dithering,save=save,pupil_parameters=pupil_parameters,use_pupil_parameters=use_pupil_parameters,use_optPSF=use_optPSF,zmaxInit=zmax)  
+            single_image_analysis.initParams(zmax)
             self.single_image_analysis=single_image_analysis
         else:
+
             single_image_analysis=ZernikeFitter_PFS(sci_image,var_image,npix=npix_value,dithering=dithering,save=save,pupil_parameters=pupil_parameters,use_pupil_parameters=use_pupil_parameters)  
             single_image_analysis.initParams(zmax,hscFracInit=pupil_parameters[0],strutFracInit=pupil_parameters[1],
                    focalPlanePositionInit=(pupil_parameters[2],pupil_parameters[3]),slitFracInit=pupil_parameters[4],
@@ -1564,11 +1587,12 @@ class LN_PFS_single(object):
             else:
                 allparameters=add_pupil_parameters_to_all_parameters(remove_pupil_parameters_from_all_parameters(allparameters),self.pupil_parameters)
                 
-
+        #print('likelihood zmax'+str(self.zmax))
         
-        zparameters=allparameters[0:8]
+        zparameters=allparameters[0:self.zmax-3]
         globalparameters=allparameters[len(zparameters):]
-        #print(allparameters)
+        #print(zparameters)
+        #print(globalparameters)
 
             
         #When running big fits these are limits which ensure that the code does not wander off in tottaly nonphyical region
@@ -2713,7 +2737,7 @@ def estimate_trace_and_serial(sci_image,model_image):
         
     return [proposed_trace,proposed_serial]
 
-def create_parInit(allparameters_proposal,multi=None,pupil_parameters=None,allparameters_proposal_err=None,stronger=None,use_optPSF=None,deduced_scattering_slope=None):
+def create_parInit(allparameters_proposal,multi=None,pupil_parameters=None,allparameters_proposal_err=None,stronger=None,use_optPSF=None,deduced_scattering_slope=None,zmax=None):
     
     """!given the suggested parametrs create array with randomized starting values to supply to fitting code
     
@@ -2728,82 +2752,157 @@ def create_parInit(allparameters_proposal,multi=None,pupil_parameters=None,allpa
         assert len(allparameters_proposal)==len(allparameters_proposal_err)
     
      # fixed scattering slope at number deduced from larger defocused image
-    if deduced_scattering_slope is not None:
-        allparameters_proposal[26]=np.abs(deduced_scattering_slope)
+    if zmax is None:
+        zmax=11
+    else:
+        zmax=22
     
     
-    if allparameters_proposal_err is None:
-        if multi is None:
-            allparameters_proposal_err=np.array([2,0.25,0.25,0.25,0.25,0.25,0.25,0.25,
-                                    0.1,0.02,0.1,0.1,0.1,0.1,
-                                    0.3,1,0.1,0.1,
-                                    0.15,0.15,0.1,
-                                    0.07,0.2,0.05,0.4,
-                                    30000,0.5,0.01,
-                                    0.1,0.05,0.01])
-            if stronger is not None:
-                allparameters_proposal_err=stronger*allparameters_proposal_err
-            # fixed scattering slope at number deduced from larger defocused image
-            if deduced_scattering_slope is not None:
-                allparameters_proposal_err[26]=0
-        else:
-            allparameters_proposal_err=[2,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,
-                                    0.1,0.1,0.1,0.1,0.05,0.1,
-                                    0.2, 0.4,0.1,0.1,
-                                    0.1,0.1,0.02,0.02,0.5,0.2,0.1,
-                                    30000,0.5,0.01,
-                                    0.1,0.05,0.01]        
+    if zmax==11:   
+        if deduced_scattering_slope is not None:
+            allparameters_proposal[26]=np.abs(deduced_scattering_slope)
+    else:
+        if deduced_scattering_slope is not None:
+            allparameters_proposal[26+11]=np.abs(deduced_scattering_slope)
+    
+    if zmax==11:
+        if allparameters_proposal_err is None:
+            if multi is None:
+                allparameters_proposal_err=np.array([2,0.25,0.25,0.25,0.25,0.25,0.25,0.25,
+                                        0.1,0.02,0.1,0.1,0.1,0.1,
+                                        0.3,1,0.1,0.1,
+                                        0.15,0.15,0.1,
+                                        0.07,0.2,0.05,0.4,
+                                        30000,0.5,0.01,
+                                        0.1,0.05,0.01])
+                if stronger is not None:
+                    allparameters_proposal_err=stronger*allparameters_proposal_err
+                # fixed scattering slope at number deduced from larger defocused image
+                if deduced_scattering_slope is not None:
+                    allparameters_proposal_err[26]=0
+            else:
+                allparameters_proposal_err=[2,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,
+                                        0.1,0.1,0.1,0.1,0.05,0.1,
+                                        0.2, 0.4,0.1,0.1,
+                                        0.1,0.1,0.02,0.02,0.5,0.2,0.1,
+                                        30000,0.5,0.01,
+                                        0.1,0.05,0.01]        
+    else:
+        if allparameters_proposal_err is None:
+            if multi is None:
+                allparameters_proposal_err=np.array([2,0.25,0.25,0.25,0.25,0.25,0.25,0.25,
+                                                     0.15,0.15,0.15,0.15,0.15,0.15,0.15,0.15,0.15,0.15,0.15,
+                                        0.1,0.02,0.1,0.1,0.1,0.1,
+                                        0.3,1,0.1,0.1,
+                                        0.15,0.15,0.1,
+                                        0.07,0.2,0.05,0.4,
+                                        30000,0.5,0.01,
+                                        0.1,0.05,0.01])
+                if stronger is not None:
+                    allparameters_proposal_err=stronger*allparameters_proposal_err
+                # fixed scattering slope at number deduced from larger defocused image
+                if deduced_scattering_slope is not None:
+                    allparameters_proposal_err[26+11]=0
+            else:
+                print('not implemented')
+                allparameters_proposal_err=[2,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,
+                                        0.1,0.1,0.1,0.1,0.05,0.1,
+                                        0.2, 0.4,0.1,0.1,
+                                        0.1,0.1,0.02,0.02,0.5,0.2,0.1,
+                                        30000,0.5,0.01,
+                                        0.1,0.05,0.01]         
+    
     
     if pupil_parameters is None:
         number_of_par=len(allparameters_proposal)
     else:
         number_of_par=len(allparameters_proposal)-len(pupil_parameters)
         
-    walkers_mult=8
+    walkers_mult=6
     nwalkers=number_of_par*walkers_mult
     
-    if multi is None:
-        zparameters_flatten=allparameters_proposal[0:8]
-        zparameters_flatten_err=allparameters_proposal_err[0:8]
-        globalparameters_flatten=allparameters_proposal[8:]
-        globalparameters_flatten_err=allparameters_proposal_err[8:]
-        #print(globalparameters_flatten_err)
+    if zmax==11:
+        if multi is None:
+            zparameters_flatten=allparameters_proposal[0:8]
+            zparameters_flatten_err=allparameters_proposal_err[0:8]
+            globalparameters_flatten=allparameters_proposal[8:]
+            globalparameters_flatten_err=allparameters_proposal_err[8:]
+            #print(globalparameters_flatten_err)
+        else:
+            zparameters_flatten=allparameters_proposal[0:8*2]
+            zparameters_flatten_err=allparameters_proposal_err[0:8*2]
+            globalparameters_flatten=allparameters_proposal[8*2:]
+            globalparameters_flatten_err=allparameters_proposal_err[8*2:]
     else:
-        zparameters_flatten=allparameters_proposal[0:8*2]
-        zparameters_flatten_err=allparameters_proposal_err[0:8*2]
-        globalparameters_flatten=allparameters_proposal[8*2:]
-        globalparameters_flatten_err=allparameters_proposal_err[8*2:]
-
-    #print(globalparameters_flatten)
-    #print(globalparameters_flatten[0])
-    if multi is None:
-        try: 
-            for i in range(8):
-                if i==0:
+        if multi is None:
+            zparameters_flatten=allparameters_proposal[0:8+11]
+            zparameters_flatten_err=allparameters_proposal_err[0:8+11]
+            globalparameters_flatten=allparameters_proposal[8+11:]
+            globalparameters_flatten_err=allparameters_proposal_err[8+11:]
+            #print(globalparameters_flatten_err)
+        else:
+            zparameters_flatten=allparameters_proposal[0:(8+11)*2]
+            zparameters_flatten_err=allparameters_proposal_err[0:(8+11)*2]
+            globalparameters_flatten=allparameters_proposal[(8+11)*2:]
+            globalparameters_flatten_err=allparameters_proposal_err[(8+11)*2:]        
+        
+        
+    print(globalparameters_flatten)
+    print(globalparameters_flatten_err)
+    if zmax==11:
+        if multi is None:
+            try: 
+                for i in range(8):
+                    if i==0:
+                        zparameters_flat_single_par=np.concatenate(([zparameters_flatten[i]],np.random.normal(zparameters_flatten[i],zparameters_flatten_err[i],nwalkers-1)))
+                    else:
+                        zparameters_flat_single_par=np.concatenate(([zparameters_flatten[i]],np.random.normal(zparameters_flatten[i],zparameters_flatten_err[i],nwalkers-1)))
+                    if i==0:
+                        zparameters_flat=zparameters_flat_single_par
+                    else:
+                        zparameters_flat=np.column_stack((zparameters_flat,zparameters_flat_single_par))
+            except NameError:
+                print('NameError!')
+        else:
+            try: 
+                for i in range(8*2):
                     zparameters_flat_single_par=np.concatenate(([zparameters_flatten[i]],np.random.normal(zparameters_flatten[i],zparameters_flatten_err[i],nwalkers-1)))
-                else:
-                    zparameters_flat_single_par=np.concatenate(([zparameters_flatten[i]],np.random.normal(zparameters_flatten[i],zparameters_flatten_err[i],nwalkers-1)))
-                if i==0:
-                    zparameters_flat=zparameters_flat_single_par
-                else:
-                    zparameters_flat=np.column_stack((zparameters_flat,zparameters_flat_single_par))
-        except NameError:
-            print('NameError!')
+                    if i==0:
+                        zparameters_flat=zparameters_flat_single_par
+                    else:
+                        zparameters_flat=np.column_stack((zparameters_flat,zparameters_flat_single_par))
+            except NameError:
+                print('NameError!')        
     else:
-        try: 
-            for i in range(8*2):
-                zparameters_flat_single_par=np.concatenate(([zparameters_flatten[i]],np.random.normal(zparameters_flatten[i],zparameters_flatten_err[i],nwalkers-1)))
-                if i==0:
-                    zparameters_flat=zparameters_flat_single_par
-                else:
-                    zparameters_flat=np.column_stack((zparameters_flat,zparameters_flat_single_par))
-        except NameError:
-            print('NameError!')        
+        if multi is None:
+            try: 
+                for i in range(8+11):
+                    if i==0:
+                        zparameters_flat_single_par=np.concatenate(([zparameters_flatten[i]],np.random.normal(zparameters_flatten[i],zparameters_flatten_err[i],nwalkers-1)))
+                    else:
+                        zparameters_flat_single_par=np.concatenate(([zparameters_flatten[i]],np.random.normal(zparameters_flatten[i],zparameters_flatten_err[i],nwalkers-1)))
+                    if i==0:
+                        zparameters_flat=zparameters_flat_single_par
+                    else:
+                        zparameters_flat=np.column_stack((zparameters_flat,zparameters_flat_single_par))
+            except NameError:
+                print('NameError!')
+        else:
+            try: 
+                for i in range((8+11)*2):
+                    zparameters_flat_single_par=np.concatenate(([zparameters_flatten[i]],np.random.normal(zparameters_flatten[i],zparameters_flatten_err[i],nwalkers-1)))
+                    if i==0:
+                        zparameters_flat=zparameters_flat_single_par
+                    else:
+                        zparameters_flat=np.column_stack((zparameters_flat,zparameters_flat_single_par))
+            except NameError:
+                print('NameError!')        
         
     #print(globalparameters_flatten[0])
     #print(globalparameters_flatten_err[0])       
     
     try:
+        #print(globalparameters_flatten)
         # hscFrac always positive
         globalparameters_flat_0=np.abs(np.random.normal(globalparameters_flatten[0],globalparameters_flatten_err[0],nwalkers*20))
         globalparameters_flat_0=np.concatenate(([globalparameters_flatten[0]],
@@ -2865,7 +2964,7 @@ def create_parInit(allparameters_proposal,multi=None,pupil_parameters=None,allpa
         # frd_sigma
         globalparameters_flat_13=np.random.normal(globalparameters_flatten[13],globalparameters_flatten_err[13],nwalkers*20)
         globalparameters_flat_13=np.concatenate(([globalparameters_flatten[13]],
-                                                 globalparameters_flat_13[np.all((globalparameters_flat_13>0.01,globalparameters_flat_13<0.4),axis=0)][0:nwalkers-1]))
+                                                 globalparameters_flat_13[np.all((globalparameters_flat_13>=0.01,globalparameters_flat_13<0.4),axis=0)][0:nwalkers-1]))
         
         # frd_lorentz_factor
         globalparameters_flat_14=np.random.normal(globalparameters_flatten[14],globalparameters_flatten_err[14],nwalkers*20)
@@ -2914,8 +3013,9 @@ def create_parInit(allparameters_proposal,multi=None,pupil_parameters=None,allpa
                                                  globalparameters_flat_22[np.all((globalparameters_flat_22>0.98,globalparameters_flat_22<1.02),axis=0)][0:nwalkers-1]))
 
 
-        """
+
         # uncomment in order to troubleshoot and show many parameters generated for each parameter
+        '''
         for i in [globalparameters_flat_0,globalparameters_flat_1,globalparameters_flat_2,globalparameters_flat_3,
                                                    globalparameters_flat_4,globalparameters_flat_5,globalparameters_flat_6,globalparameters_flat_7,
                                                   globalparameters_flat_8,globalparameters_flat_9,globalparameters_flat_10,
@@ -2923,8 +3023,8 @@ def create_parInit(allparameters_proposal,multi=None,pupil_parameters=None,allpa
                                                    globalparameters_flat_14,globalparameters_flat_15,globalparameters_flat_16,
                                                    globalparameters_flat_17,globalparameters_flat_18,globalparameters_flat_19,
                                                    globalparameters_flat_20,globalparameters_flat_21,globalparameters_flat_22]:
-            print(len(i))
-        """
+            print(str(i[0])+': '+str(len(i)))
+        '''
         if pupil_parameters is None:
             globalparameters_flat=np.column_stack((globalparameters_flat_0,globalparameters_flat_1,globalparameters_flat_2,globalparameters_flat_3,
                                                    globalparameters_flat_4,globalparameters_flat_5,globalparameters_flat_6,globalparameters_flat_7,
@@ -2952,10 +3052,16 @@ def create_parInit(allparameters_proposal,multi=None,pupil_parameters=None,allpa
     
     
     if use_optPSF is not None:
-        for i in range(1,25):
-        #for i in np.concatenate((range(1,7),range(8,25))):
-        #for i in range(8,25):
-            parInit[:,i]=np.full(len(parInit[:,i]),allparameters_proposal[i])
+        if zmax==11:
+            for i in range(1,25):
+            #for i in np.concatenate((range(1,7),range(8,25))):
+            #for i in range(8,25):
+                parInit[:,i]=np.full(len(parInit[:,i]),allparameters_proposal[i])
+        else:
+            for i in range(1,25+11):
+            #for i in np.concatenate((range(1,7),range(8,25))):
+            #for i in range(8,25):
+                parInit[:,i]=np.full(len(parInit[:,i]),allparameters_proposal[i])          
     else:
         pass
     
@@ -3275,3 +3381,62 @@ def resize(array: np.ndarray,
     output = np.moveaxis(product, -1, axis)
   return output
 
+def create_mask(FFTTest_fiber_and_pixel_convolved_downsampled_40,semi=None):
+    central_position=np.array(find_centroid_of_flux(FFTTest_fiber_and_pixel_convolved_downsampled_40))
+    central_position_int=np.round(central_position)
+    central_position_int_x=int(central_position_int[0])
+    central_position_int_y=int(central_position_int[1])
+
+    center_square=np.zeros((40,40))
+    center_square[central_position_int_y-6:+central_position_int_y+6,central_position_int_x-6:central_position_int_x+6]=np.ones((12,12))
+
+    horizontal_cross=np.zeros((40,40))
+    horizontal_cross[central_position_int_y-6:central_position_int_y+6,0:40,]=np.ones((12,40))
+    horizontal_cross_full=horizontal_cross
+    horizontal_cross=horizontal_cross-center_square
+
+    vertical_cross=np.zeros((40,40))
+    if semi is None:
+        vertical_cross[0:40,central_position_int_x-6:central_position_int_x+6]=np.ones((40,12))
+        vertical_cross=vertical_cross-center_square
+    if semi=='+':
+        vertical_cross[central_position_int_y+6:40,central_position_int_x-6:central_position_int_x+6]=np.ones((40-central_position_int_y-6,12))
+    if semi=='-':
+        vertical_cross[0:central_position_int_y-6,central_position_int_x-6:central_position_int_x+6]=np.ones((central_position_int_y-6,12))
+    vertical_cross_full=vertical_cross
+
+
+    diagonal_cross=np.zeros((40,40))
+    if semi is None:
+        #print(central_position_int_y)
+        #print(central_position_int_x)
+        diagonal_cross[0:central_position_int_y-4,0:central_position_int_x-4]=np.ones((central_position_int_y-4,central_position_int_x-4))
+        diagonal_cross[(central_position_int_y+4):40,0:(central_position_int_x-4)]=np.ones((40-(central_position_int_y+4),(central_position_int_x-4)))
+        diagonal_cross[0:(central_position_int_y-4),(central_position_int_x+4):40]=np.ones(((central_position_int_y-4),40-(central_position_int_x+4)))
+        diagonal_cross[(central_position_int_y+4):40,(central_position_int_x+4):40]=np.ones((40-(central_position_int_y+4),40-(central_position_int_x+4)))
+    if semi=='+':
+        diagonal_cross[(central_position_int_y+4):40,0:(central_position_int_x-4)]=np.ones((40-(central_position_int_y+4),(central_position_int_x-4)))
+        diagonal_cross[(central_position_int_y+4):40,(central_position_int_x+4):40]=np.ones((40-(central_position_int_y+4),40-(central_position_int_x+4)))
+    if semi=='-':
+        diagonal_cross[0:central_position_int_y-4,0:central_position_int_x-4]=np.ones((central_position_int_y-4,central_position_int_x-4))
+        diagonal_cross[0:(central_position_int_y-4),(central_position_int_x+4):40]=np.ones(((central_position_int_y-4),40-(central_position_int_x+4)))
+    if semi=='r':
+        diagonal_cross[(central_position_int_y+4):40,(central_position_int_x+4):40]=np.ones((40-(central_position_int_y+4),40-(central_position_int_x+4)))
+        diagonal_cross[0:(central_position_int_y-4),(central_position_int_x+4):40]=np.ones(((central_position_int_y-4),40-(central_position_int_x+4)))
+    if semi=='l':
+        diagonal_cross[0:central_position_int_y-4,0:central_position_int_x-4]=np.ones((central_position_int_y-4,central_position_int_x-4))
+        diagonal_cross[(central_position_int_y+4):40,0:(central_position_int_x-4)]=np.ones((40-(central_position_int_y+4),(central_position_int_x-4)))
+
+    total_mask=np.zeros((40,40))
+    if semi is None:
+        total_mask=np.ones((40,40))
+    if semi=='+':
+        total_mask[(central_position_int_y):40,0:40]=np.ones((40-(central_position_int_y),40))
+    if semi=='-':
+        total_mask[:(central_position_int_y),0:40]=np.ones(((central_position_int_y),40))
+    if semi=='r':
+        total_mask[:(central_position_int_y),0:40]=np.ones(((central_position_int_y),40))  
+    if semi=='l':
+        total_mask[:(central_position_int_y),0:40]=np.ones(((central_position_int_y),40))   
+        
+    return [center_square,horizontal_cross,vertical_cross,diagonal_cross,total_mask]
