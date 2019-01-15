@@ -16,6 +16,9 @@ Dec 23, 2018; 0.14d -> 0.15 refactoring so that x_ilum and y_ilum is one
 Dec 26, 2018; 0.15 -> 0.15b when in focus, create exactly 10x oversampling
 Dec 31, 2018; 0.15b -> 0.16 major rewrite of downsampling algorithm
 Jan 8, 2019; 0.16 -> 0.17 added support for zmax=22
+Jan 14, 2019; 0.17 -> 0.18 fixed bug with dowsamplign algorithm - I was just taking central values
+Jan 15, 2019; 0.18 -> 0.19 added simple algorithm to interpolate between 1/10 pixels in the best position
+
 @author: Neven Caplar
 @contact: ncaplar@princeton.edu
 """
@@ -69,9 +72,9 @@ import matplotlib.pyplot as plt
 from matplotlib.colors import LogNorm
 
 
-__all__ = ['PupilFactory', 'Pupil','ZernikeFitter_PFS','LN_PFS_single','LNP_PFS','find_centroid_of_flux','create_res_data','create_parInit','downsample_manual_function','Zernike_Analysis','PFSPupilFactory','custom_fftconvolve','stepK','maxK','sky_scale','sky_size','create_x','remove_pupil_parameters_from_all_parameters','create_mask']
+__all__ = ['PupilFactory', 'Pupil','ZernikeFitter_PFS','LN_PFS_single','LNP_PFS','find_centroid_of_flux','create_res_data','create_parInit','downsample_manual_function','Zernike_Analysis','PFSPupilFactory','custom_fftconvolve','stepK','maxK','sky_scale','sky_size','create_x','remove_pupil_parameters_from_all_parameters','create_mask','resize']
 
-__version__ = "0.17"
+__version__ = "0.18"
 
 ############################################################
 # name your directory where you want to have files!
@@ -770,7 +773,7 @@ class ZernikeFitter_PFS(object):
         """
 
  
-        print('self.zmax'+str(self.zmax))
+        print('zmax: '+str(self.zmax))
         params = lmfit.Parameters()
         
 
@@ -1490,7 +1493,7 @@ class LN_PFS_single(object):
             zmax=11
         else:
             zmax=22
-            print(zmax)
+            #print(zmax)
         
         if zmax==11:
             self.columns=['z4','z5','z6','z7','z8','z9','z10','z11',
@@ -2371,10 +2374,10 @@ def find_nearest(array,value):
 def find_single_realization_min_cut(input_img,oversampling,size_natural_resolution,sci_image,var_image,v_flux):
 
     """
-    (I.) function called by create_optPSF_natural
-    find what is the best starting point to downsample the oversampled image  - (seaches within one oversampled pixel?)
+    function called by create_optPSF_natural
+    find what is the best starting point to downsample the oversampled image
     
-    @param optPsf_cut_pixel_response_convolved_pixelized_convolved    image to be analyzed (in our case this will be image of the optical psf convolved with fiber)
+    @param input_img                                                  image to be analyzed (in our case this will be image of the optical psf convolved with fiber)
     @param oversampling                                               oversampling
     @param size_natural_resolution                                    size of final image
     @param sci_image_0                                                scientific image
@@ -2412,6 +2415,7 @@ def find_single_realization_min_cut(input_img,oversampling,size_natural_resoluti
             single_realization_finalImg=v_flux*multiplicative_factor*single_realization
             res_init.append([deltax,deltay,np.mean((single_realization_finalImg-sci_image)**2/var_image)])
             
+    np.save(TESTING_FINAL_IMAGES_FOLDER+'res_init',res_init)          
     res_init=np.array(res_init)
     resmin_init=res_init[res_init[:,2]==np.min(res_init[:,2])][0]
     resmin_init_x=int(resmin_init[0])
@@ -2420,25 +2424,118 @@ def find_single_realization_min_cut(input_img,oversampling,size_natural_resoluti
     res=[]
     for deltay in np.arange(int(resmin_init_y-1.5*oversampling),int(resmin_init_y+1.5*oversampling),1):
         for deltax in np.arange(int(resmin_init_x-1.5*oversampling),int(resmin_init_x+1.5*oversampling),1):
-            y_list=np.arange(deltay,deltay+oversampling*shape_of_sci_image,oversampling,dtype=np.intp)
-            x_list=np.arange(deltax,deltax+oversampling*shape_of_sci_image,oversampling,dtype=np.intp)
-            single_realization=input_img[y_list][:,x_list]
+            #y_list=np.arange(deltay,deltay+oversampling*shape_of_sci_image,oversampling,dtype=np.intp)
+            #x_list=np.arange(deltax,deltax+oversampling*shape_of_sci_image,oversampling,dtype=np.intp)
+
+            input_img_single_realization_before_downsampling=input_img[deltay:deltay+oversampling*shape_of_sci_image,deltax:deltax+oversampling*shape_of_sci_image]
+            single_realization=resize(input_img_single_realization_before_downsampling,(shape_of_sci_image,shape_of_sci_image))
+            
+            #single_realization=input_img[y_list][:,x_list]
             multiplicative_factor=np.sum(sci_image)/np.sum(single_realization)
             single_realization_finalImg=v_flux*multiplicative_factor*single_realization
             res.append([deltax,deltay,np.mean((single_realization_finalImg-sci_image)**2/var_image)])
             
     res=np.array(res)
+    np.save(TESTING_FINAL_IMAGES_FOLDER+'res',res)
+    #print(res)
     resmin=res[res[:,2]==np.min(res[:,2])][0]
     
     resmin_x=int(resmin[0])
     resmin_y=int(resmin[1])
     
     
-    y_list_final=np.arange(resmin_y,resmin_y+oversampling*shape_of_sci_image,oversampling,dtype=np.intp)
-    x_list_final=np.arange(resmin_x,resmin_x+oversampling*shape_of_sci_image,oversampling,dtype=np.intp)
-    single_realization=input_img[y_list_final][:,x_list_final]
-    multiplicative_factor=np.sum(sci_image)/np.sum(single_realization)
-    single_realization_finalImg=v_flux*multiplicative_factor*single_realization
+    #y_list_final=np.arange(resmin_y,resmin_y+oversampling*shape_of_sci_image,oversampling,dtype=np.intp)
+    #x_list_final=np.arange(resmin_x,resmin_x+oversampling*shape_of_sci_image,oversampling,dtype=np.intp)
+    #single_realization=input_img[y_list_final][:,x_list_final]
+    
+    #############################################
+    res_pp=[]
+    res_pm=[]
+    res_mp=[]
+    res_mm=[]
+    input_img_single_realization_before_downsampling=input_img[resmin_y:resmin_y+oversampling*shape_of_sci_image,resmin_x:resmin_x+oversampling*shape_of_sci_image]
+    input_img_single_realization_before_downsampling_0p1=input_img[resmin_y+1:resmin_y+1+oversampling*shape_of_sci_image,resmin_x:resmin_x+oversampling*shape_of_sci_image]
+    input_img_single_realization_before_downsampling_0m1=input_img[resmin_y-1:resmin_y-1+oversampling*shape_of_sci_image,resmin_x:resmin_x+oversampling*shape_of_sci_image]    
+    input_img_single_realization_before_downsampling_p10=input_img[resmin_y:resmin_y+oversampling*shape_of_sci_image,resmin_x+1:resmin_x+1+oversampling*shape_of_sci_image]      
+    input_img_single_realization_before_downsampling_m10=input_img[resmin_y:resmin_y+oversampling*shape_of_sci_image,resmin_x-1:resmin_x-1+oversampling*shape_of_sci_image]  
+    
+    input_img_single_realization_before_downsampling=v_flux*input_img_single_realization_before_downsampling*(oversampling**2*np.sum(sci_image)/np.sum(input_img_single_realization_before_downsampling))
+    input_img_single_realization_before_downsampling_0p1=v_flux*input_img_single_realization_before_downsampling_0p1*(oversampling**2*np.sum(sci_image)/np.sum(input_img_single_realization_before_downsampling_0p1))
+    input_img_single_realization_before_downsampling_0m1=v_flux*input_img_single_realization_before_downsampling_0m1*(oversampling**2*np.sum(sci_image)/np.sum(input_img_single_realization_before_downsampling_0m1))
+    input_img_single_realization_before_downsampling_p10=v_flux*input_img_single_realization_before_downsampling_p10*(oversampling**2*np.sum(sci_image)/np.sum(input_img_single_realization_before_downsampling_p10))
+    input_img_single_realization_before_downsampling_m10=v_flux*input_img_single_realization_before_downsampling_m10*(oversampling**2*np.sum(sci_image)/np.sum(input_img_single_realization_before_downsampling_m10))    
+   
+    single_realization=resize(input_img_single_realization_before_downsampling,(shape_of_sci_image,shape_of_sci_image))
+    single_realization_0p1=resize(input_img_single_realization_before_downsampling_0p1,(shape_of_sci_image,shape_of_sci_image))
+    single_realization_0m1=resize(input_img_single_realization_before_downsampling_0m1,(shape_of_sci_image,shape_of_sci_image))
+    single_realization_p10=resize(input_img_single_realization_before_downsampling_p10,(shape_of_sci_image,shape_of_sci_image))
+    single_realization_m10=resize(input_img_single_realization_before_downsampling_m10,(shape_of_sci_image,shape_of_sci_image))
+    
+    for dx in np.linspace(0.00,0.45,10):
+        for dy in np.linspace(0.0,0.45,10):
+            focus_res_combination=dx*single_realization_p10+dy*single_realization_0p1+(1-dx-dy)*single_realization
+            res_pp.append([dx,dy,np.mean((focus_res_combination-sci_image)**2/(var_image))])
+   
+    for dx in np.linspace(0.00,0.45,10):
+        for dy in np.linspace(0.0,0.45,10):
+            focus_res_combination=dx*single_realization_p10+dy*single_realization_0m1+(1-dx-dy)*single_realization
+            res_pm.append([dx,dy,np.mean((focus_res_combination-sci_image)**2/(var_image))])
+            
+    for dx in np.linspace(0.00,0.45,10):
+        for dy in np.linspace(0.0,0.45,10):
+            focus_res_combination=dx*single_realization_m10+dy*single_realization_0p1+(1-dx-dy)*single_realization
+            res_mp.append([dx,dy,np.mean((focus_res_combination-sci_image)**2/(var_image))])
+
+    for dx in np.linspace(0.00,0.45,10):
+        for dy in np.linspace(0.0,0.45,10):
+            focus_res_combination=dx*single_realization_m10+dy*single_realization_0m1+(1-dx-dy)*single_realization
+            res_mm.append([dx,dy,np.mean((focus_res_combination-sci_image)**2/(var_image))])            
+
+    res_pp=np.array(res_pp)
+    res_mp=np.array(res_mp)    
+    res_pm=np.array(res_pm)
+    res_mm=np.array(res_mm)
+    #print(res_pp)
+    #print(res_mp)
+    #print(res_pm)
+    #print(res_mm)
+
+    
+    array_of_min=np.array([res_pp[res_pp[:,2]==np.min(res_pp[:,2])][0],res_pm[res_pm[:,2]==np.min(res_pm[:,2])][0],res_mp[res_mp[:,2]==np.min(res_mp[:,2])][0],res_mm[res_mm[:,2]==np.min(res_mm[:,2])][0]])
+    #print(array_of_min)
+    
+    itemindex = np.where(array_of_min[:,2]==np.min(array_of_min[:,2]))[0][0]
+    #print(itemindex)
+    if itemindex==0:
+        array_of_min_selected=array_of_min[0]
+        dx=array_of_min_selected[0]
+        dy=array_of_min_selected[1]
+        focus_res_final_combination=dx*single_realization_p10+dy*single_realization_0p1+(1-dx-dy)*single_realization
+    
+    if itemindex==1:
+        array_of_min_selected=array_of_min[1]
+        dx=array_of_min_selected[0]
+        dy=array_of_min_selected[1]
+        focus_res_final_combination=dx*single_realization_p10+dy*single_realization_0m1+(1-dx-dy)*single_realization
+    
+    if itemindex==2:
+        array_of_min_selected=array_of_min[2]
+        dx=array_of_min_selected[0]
+        dy=array_of_min_selected[1]
+        focus_res_final_combination=dx*single_realization_m10+dy*single_realization_0p1+(1-dx-dy)*single_realization
+    
+    if itemindex==3:
+        array_of_min_selected=array_of_min[3]
+        dx=array_of_min_selected[0]
+        dy=array_of_min_selected[1]
+        focus_res_final_combination=dx*single_realization_m10+dy*single_realization_0m1+(1-dx-dy)*single_realization
+
+    single_realization_finalImg=focus_res_final_combination 
+    #############################################   
+    #input_img_single_realization_before_downsampling=input_img[resmin_y:resmin_y+oversampling*shape_of_sci_image,resmin_x:resmin_x+oversampling*shape_of_sci_image]
+    #single_realization=resize(input_img_single_realization_before_downsampling,(shape_of_sci_image,shape_of_sci_image))
+    #multiplicative_factor=np.sum(sci_image)/np.sum(single_realization)
+    #single_realization_finalImg=v_flux*multiplicative_factor*single_realization
 
     return single_realization_finalImg
 
@@ -2847,8 +2944,8 @@ def create_parInit(allparameters_proposal,multi=None,pupil_parameters=None,allpa
             globalparameters_flatten_err=allparameters_proposal_err[(8+11)*2:]        
         
         
-    print(globalparameters_flatten)
-    print(globalparameters_flatten_err)
+    #print(globalparameters_flatten)
+    #print(globalparameters_flatten_err)
     if zmax==11:
         if multi is None:
             try: 
