@@ -1,7 +1,6 @@
 """
 Created on Mon Aug 13 10:01:03 2018
 
-
 Versions
 Oct 31, 2018; 0.1 -> 0.11 fixed FRD effect
 Nov 1, 2018; 0.11 -> 0.12 added correct edges to the detector; fixed wrong behavior for misaligment 
@@ -16,11 +15,12 @@ Dec 23, 2018; 0.14d -> 0.15 refactoring so that x_ilum and y_ilum is one
 Dec 26, 2018; 0.15 -> 0.15b when in focus, create exactly 10x oversampling
 Dec 31, 2018; 0.15b -> 0.16 major rewrite of downsampling algorithm
 Jan 8, 2019; 0.16 -> 0.17 added support for zmax=22
-Jan 14, 2019; 0.17 -> 0.18 fixed bug with dowsamplign algorithm - I was just taking central values
+Jan 14, 2019; 0.17 -> 0.18 fixed bug with dowsampling algorithm - I was just taking central values
 Jan 15, 2019; 0.18 -> 0.19 added simple algorithm to interpolate between 1/10 pixels in the best position
 
 @author: Neven Caplar
 @contact: ncaplar@princeton.edu
+@web: www.ncaplar.com
 """
 
 
@@ -74,7 +74,7 @@ from matplotlib.colors import LogNorm
 
 __all__ = ['PupilFactory', 'Pupil','ZernikeFitter_PFS','LN_PFS_single','LNP_PFS','find_centroid_of_flux','create_res_data','create_parInit','downsample_manual_function','Zernike_Analysis','PFSPupilFactory','custom_fftconvolve','stepK','maxK','sky_scale','sky_size','create_x','remove_pupil_parameters_from_all_parameters','create_mask','resize']
 
-__version__ = "0.18"
+__version__ = "0.19"
 
 ############################################################
 # name your directory where you want to have files!
@@ -2415,7 +2415,7 @@ def find_single_realization_min_cut(input_img,oversampling,size_natural_resoluti
             single_realization_finalImg=v_flux*multiplicative_factor*single_realization
             res_init.append([deltax,deltay,np.mean((single_realization_finalImg-sci_image)**2/var_image)])
             
-    np.save(TESTING_FINAL_IMAGES_FOLDER+'res_init',res_init)          
+    #np.save(TESTING_FINAL_IMAGES_FOLDER+'res_init',res_init)          
     res_init=np.array(res_init)
     resmin_init=res_init[res_init[:,2]==np.min(res_init[:,2])][0]
     resmin_init_x=int(resmin_init[0])
@@ -2436,7 +2436,7 @@ def find_single_realization_min_cut(input_img,oversampling,size_natural_resoluti
             res.append([deltax,deltay,np.mean((single_realization_finalImg-sci_image)**2/var_image)])
             
     res=np.array(res)
-    np.save(TESTING_FINAL_IMAGES_FOLDER+'res',res)
+    #np.save(TESTING_FINAL_IMAGES_FOLDER+'res',res)
     #print(res)
     resmin=res[res[:,2]==np.min(res[:,2])][0]
     
