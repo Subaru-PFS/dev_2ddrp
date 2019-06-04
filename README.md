@@ -2,7 +2,9 @@
 
 Collection of files and documents related to my work on 2D modeling of the point spread function in the PFS project.
 
-1. Data: Collection of post stamp images taken with HgAr lamp at LAM on December 1.2 15, 2017
+1. Data: Collection of post stamp images 
+- 1.1. CutsForTigerFeb5 - data taken with different lamps at LAM  during February, 2019
+- 1.2. CutsForTigerMay2 - data taken with HgAr lamp at LAM on December 1.2 15, 2017 (cut created on May 2 2018)
 
 2. Old Code: collection of outdated code
 
