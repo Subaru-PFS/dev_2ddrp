@@ -8,11 +8,13 @@ Collection of files and documents related to my work on 2D modeling of the point
 
 3. Cluster Code: Code to analyze many images in an automatic manner on Princeton clusters
 
-
 4. Presentations and reports
-4.1. 2DPipeline: Poster for collaboration meeting in Japan, December 2017
-4.2. PresentationMondayMeeting: Presentation for astronomical data group at Princeton, June 18 2018
-4.3. Caplar_New_Directions_Conference_Presentation: Presentation for the New Directions in Optical/Near-IR Spectrographs and Wide-field Imagers conference at Princeton, August 2018
+- 4.1. 2DPipeline: Poster for collaboration meeting in Japan, December 2017
+- 4.2. PresentationMondayMeeting: Presentation for astronomical data group at Princeton, June 18 2018
+- 4.3 interim-report-status.pdf: Interim report on the status of 2D PSF modeling, July 5, 2018
+- 4.3. Caplar_New_Directions_Conference_Presentation: Presentation for the New Directions in Optical/Near-IR Spectrographs and Wide-field Imagers conference at Princeton, August 2018
+- 4.4 MondayMorningJanuary282019.pdf: Presentation for astronomical data group at Princeton, January 28 2019
+- 4.5 LAM_May072019.pdf: Presentation at Laboratoire d'Astrophysique de Marseille, May 07 2019
 
 6. Zernike.ipynb: (soon deprecated) complete script from May 2018 which can fit the data
 
