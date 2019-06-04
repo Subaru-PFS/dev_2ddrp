@@ -22,14 +22,13 @@ Feb 21, 2019; 0.20 -> 0.20b test parameter for showing globalparamers outside th
 Feb 22, 2019; 0.20 -> 0.21 added support for Zernike higher than 22
 Feb 22, 2019; 0.21 -> 0.21b added support for return image along side likelihood
 Apr 17, 2019; 0.21b -> 0.21c changed defintion of residuals from (model-data) to (data-model)
+Jun 4, 2019; 0.21c -> 0.21d slight cleaning of the code, no functional changes
 
 @author: Neven Caplar
 @contact: ncaplar@princeton.edu
 @web: www.ncaplar.com
 """
-
-
-
+########################################
 #standard library imports
 from __future__ import absolute_import, division, print_function
 import os
@@ -40,22 +39,22 @@ import socket
 os.environ["MKL_NUM_THREADS"] = "1" 
 os.environ["NUMEXPR_NUM_THREADS"] = "1" 
 os.environ["OMP_NUM_THREADS"] = "1" 
-
 import numpy as np
 np.set_printoptions(suppress=True)
 np.seterr(divide='ignore', invalid='ignore')
 #print(np.__config__)
 from multiprocessing import current_process
-
 from functools import lru_cache
-
 #import pyfftw
 #import pandas as pd
 
-#Related third party imports
+########################################
+# Related third party imports
+# none at the moment
 
-#Local application/library specific imports
-#galsim
+########################################
+# Local application/library specific imports
+# galsim
 import galsim
 galsim.GSParams.maximum_fft_size=12000
 
@@ -76,19 +75,16 @@ import lmfit
 import matplotlib
 import matplotlib.pyplot as plt
 from matplotlib.colors import LogNorm
-
+########################################
 
 __all__ = ['PupilFactory', 'Pupil','ZernikeFitter_PFS','LN_PFS_single','LNP_PFS','find_centroid_of_flux','create_res_data','create_parInit','downsample_manual_function','Zernike_Analysis','PFSPupilFactory','custom_fftconvolve','stepK','maxK','sky_scale','sky_size','create_x','remove_pupil_parameters_from_all_parameters','create_mask','resize']
 
-__version__ = "0.21c"
+__version__ = "0.21d"
 
 ############################################################
 # name your directory where you want to have files!
 PSF_DIRECTORY='/Users/nevencaplar/Documents/PFS/'
-# place cutouts in this folder - name as you wish
-DATA_FOLDER=PSF_DIRECTORY+'TigerAnalysis/CutsForTigerMay2/'
-############################################################
-    
+############################################################   
 
 TESTING_FOLDER=PSF_DIRECTORY+'Testing/'
 TESTING_PUPIL_IMAGES_FOLDER=TESTING_FOLDER+'Pupil_Images/'
@@ -114,7 +110,6 @@ class Pupil(object):
         self.illuminated = illuminated
         self.size = size
         self.scale = scale
-
 
 class PupilFactory(object):
     """!Pupil obscuration function factory for use with Fourier optics.
@@ -153,16 +148,6 @@ class PupilFactory(object):
         #print('frd_sigma:'+str(frd_sigma))
         #print('det_vert:'+str(det_vert))
 
-        """
-    def getPupil(self, point):
-        !Calculate a Pupil at a given point in the focal plane.
-
-        @param point  Point2D indicating focal plane coordinates.
-        @returns      Pupil
-       
-        raise NotImplementedError(
-            "PupilFactory not implemented for this camera")
-        """
     @staticmethod
     def _pointLineDistance(p0, p1, p2):
         """Compute the right-angle distance between the points given by `p0`
@@ -184,8 +169,7 @@ class PupilFactory(object):
         """Make a fully-illuminated Pupil.
 
         @returns Pupil
-        """
-        
+        """      
         illuminated = np.ones(self.u.shape, dtype=np.float32)
         #np.save(TESTING_FOLDER+'fullPupililluminated',illuminated) 
         return Pupil(illuminated, self.pupilSize, self.pupilScale)       
@@ -197,7 +181,6 @@ class PupilFactory(object):
         @param[in] p0         2-tuple indicating region center
         @param[in] r          Circular region radius
         """
-
         r2 = (self.u - p0[0])**2 + (self.v - p0[1])**2
         pupil.illuminated[r2 < r**2] = False
         
@@ -210,10 +193,6 @@ class PupilFactory(object):
         """
         r2 = (self.u - p0[0])**2 + (self.v - p0[1])**2
         pupil.illuminated[r2 > r**2] = False
-        #np.save(TESTING_FOLDER+'selfu',self.u) 
-        #np.save(TESTING_FOLDER+'selfv',self.v) 
-        #np.save(TESTING_FOLDER+'cutCircleExteriorilluminated',pupil.illuminated) 
-        #return Pupil(illuminated, self.pupilSize, self.pupilScale)
     
     def _cutEllipseExterior(self, pupil, p0, r, b, thetarot):
         """Cut out the exterior of a circular region from a Pupil.
@@ -235,26 +214,6 @@ class PupilFactory(object):
         #np.save(TESTING_FOLDER+'fullPupililluminated',pupil.illuminated) 
         #return Pupil(illuminated, self.pupilSize, self.pupilScale)
 
-    """def _cutSquare(self,pupil, p0, r,angle):
-        Cut out the interior of a circular region from a Pupil.
-
-        @param[in,out] pupil  Pupil to modify in place
-        @param[in] p0         2-tuple indicating region center
-        @param[in] r          half lenght of the length of square side
-        @param[in] angle      angle that the camera is rotated
-      
-        x21 = p0[0]-r/2
-        x22 = p0[0]+r/2
-        y21 = p0[1]-r/2
-        y22 = p0[1]+r/2
-        print("I am not sure that central square moves properly when moving and rotating on focal plane!!!!!")
-        #pupil.illuminated[np.logical_and((self.u<x22) & (self.u>x21),(self.v<y22) & (self.v>y21))] = False
-        angleRad = angle
-        pupil.illuminated[np.logical_and((self.u*np.cos(-angle)+self.v*np.sin(-angleRad)<x22) & \
-                          (self.u*np.cos(-angleRad)+self.v*np.sin(-angleRad)>x21),\
-                          (self.v*np.cos(-angleRad)-self.u*np.sin(-angleRad)<y22) & \
-                          (self.v*np.cos(-angleRad)-self.u*np.sin(-angleRad)>y21))] = False
-  """
     def _cutSquare(self,pupil, p0, r,angle,det_vert):
         """Cut out the interior of a circular region from a Pupil.
 
@@ -288,7 +247,7 @@ class PupilFactory(object):
     
         f=0.2
         ###########################################################
-        # Down right corner
+        # Lower right corner
         x21 = -r/2
         x22 = +r/2
         y21 = -r/2*det_vert
@@ -350,7 +309,7 @@ class PupilFactory(object):
                   ((self.v-p21[1])*np.cos(-angleRad12)-(self.u-p21[0])*np.sin(-angleRad12)>y21))  ] = True  
 
         ###########################################################
-        # Lower down corner
+        # Lower right corner
         x21 = -r/2*1
         x22 = +r/2*1
         y21 = -r/2*det_vert
@@ -374,14 +333,7 @@ class PupilFactory(object):
         pupil.illuminated=pupil.illuminated*pupil_illuminated_only1
         time_end_single=time.time()
         #print('Time for single calculation is '+str(time_end_single-time_start_single))    
-    
-        # code to add edges to the squre, as in the real detector
-        #self._addRay(pupil, ((x21+p0[0])*1.07,y21+np.abs(y21/8)),-np.pi/4,r/12,'rad') 
-        #self._addRay(pupil, ((x21+p0[0])*1.07,y22-np.abs(y21/8)),+np.pi/4,r/12,'rad')
-        #self._addRay(pupil, ((x22+p0[0])*1.07,y22-np.abs(y22/8)),-np.pi/4+np.pi,r/12,'rad')
-        #self._addRay(pupil, ((x22+p0[0])*1.07,y21+np.abs(y21/8)),np.pi/4+np.pi,r/12,'rad')
-    
-        
+      
     def _cutRay(self, pupil, p0, angle, thickness,angleunit=None):
         """Cut out a ray from a Pupil.
 
@@ -402,31 +354,6 @@ class PupilFactory(object):
                           ((self.u - p0[0])*np.cos(angleRad) +
                            (self.v - p0[1])*np.sin(angleRad) >= 0)] = False   
 
-    """
-    def _frd_effect(self,pupil,frd_sigma):
-
-     
-        #print('FRD')
-        #print(frd_sigma)
-        
-        # frd_sigma of 0.0165 equals 6.8 mrad frd from Belland paper
-        # so the factor is roughly 4
-        
-        sigma=pupil.illuminated.shape[0]*frd_sigma
-        #print(sigma)
-        
-        #time_start_single=time.time()
-        #pupil.illuminated=scipy.signal.fftconvolve(pupil.illuminated, Gaussian2DKernel(sigma).array, mode = 'same')
-        #time_end_single=time.time()
-        #print('Time for single calculation is '+str(time_end_single-time_start_single))        
-
-
-        #time_start_single=time.time()
-        pupil.illuminated=gaussian_filter(pupil.illuminated, sigma=sigma)
-        #time_end_single=time.time()
-        #print('Time for single calculation is '+str(time_end_single-time_start_single))
-    """
-
     def _addRay(self, pupil, p0, angle, thickness,angleunit=None):
         """Add a ray from a Pupil.
 
@@ -445,10 +372,7 @@ class PupilFactory(object):
         d = PupilFactory._pointLineDistance((self.u, self.v), p0, p1)
         pupil.illuminated[(d < 0.5*thickness) &
                           ((self.u - p0[0])*np.cos(angleRad) +
-                           (self.v - p0[1])*np.sin(angleRad) >= 0)] = True 
-                           
-
-                           
+                           (self.v - p0[1])*np.sin(angleRad) >= 0)] = True                   
                      
 class PFSPupilFactory(PupilFactory):
     """!Pupil obscuration function factory for PFS 
@@ -528,22 +452,7 @@ class PFSPupilFactory(PupilFactory):
         camY = thetaY * hscRate
         #self._cutCircleInterior(pupil, (camX, camY), hscRadius)
 
-        #print(self.effective_ilum_radius)
-        # Cut out primary mirror exterior
-        """
-        self._cutCircleExterior(pupil, (0.0, 0.0), subaruRadius*self.effective_ilum_radius)
-        np.save(TESTING_PUPIL_IMAGES_FOLDER+'pupil_pre1',pupil.illuminated)        
-        #pupil_first_cut=pupil.illuminated
-        
-        #self._cutEllipseExterior(pupil, (0.0, 0.0), subaruRadius*self.effective_ilum_radius,self.effective_ilum_radius*subaruRadius*self.minorAxis,self.pupilAngle)
-        
-        # apply frd effect
-        frd_sigma=self.frd_sigma
-        self._frd_effect(pupil,frd_sigma)        
-        pupil_frd=pupil.illuminated 
-        """
-        #np.save(TESTING_PUPIL_IMAGES_FOLDER+'pupil_pre2',pupil.illuminated)
-          
+
         single_element=np.linspace(-1,1,len(pupil.illuminated), endpoint=True)
         u_manual=np.tile(single_element,(len(single_element),1))
         v_manual=np.transpose(u_manual)  
@@ -766,7 +675,7 @@ class ZernikeFitter_PFS(object):
         @param det_vert                  multiplicative factor determining vertical size of the detector obscuration
         @param slitHolder_frac_dx        dx position of slit holder
 
-        # convolving parameters
+        # convolving (postprocessing) parameters
         @param grating_lines             number of effective lines in the grating
         @param scattering_slopeInit      slope of scattering
         @param scattering_amplitudeInit  amplitude of scattering compared to optical PSF
