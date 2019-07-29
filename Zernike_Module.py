@@ -23,6 +23,7 @@ Feb 22, 2019; 0.20 -> 0.21 added support for Zernike higher than 22
 Feb 22, 2019; 0.21 -> 0.21b added support for return image along side likelihood
 Apr 17, 2019; 0.21b -> 0.21c changed defintion of residuals from (model-data) to (data-model)
 Jun 4, 2019; 0.21c -> 0.21d slight cleaning of the code, no functional changes
+Jun 26, 2019; 0.21d -> 0.21e inlucded variable ``dataset'', which denots which data we are using in the analysis
 
 @author: Neven Caplar
 @contact: ncaplar@princeton.edu
@@ -79,7 +80,7 @@ from matplotlib.colors import LogNorm
 
 __all__ = ['PupilFactory', 'Pupil','ZernikeFitter_PFS','LN_PFS_single','LNP_PFS','find_centroid_of_flux','create_res_data','create_parInit','downsample_manual_function','Zernike_Analysis','PFSPupilFactory','custom_fftconvolve','stepK','maxK','sky_scale','sky_size','create_x','remove_pupil_parameters_from_all_parameters','create_mask','resize']
 
-__version__ = "0.21d"
+__version__ = "0.21e"
 
 ############################################################
 # name your directory where you want to have files!
@@ -1451,7 +1452,7 @@ class ZernikeFitter_PFS(object):
 
 class LN_PFS_single(object):
         
-    def __init__(self,sci_image,var_image,dithering=None,save=None,pupil_parameters=None,use_pupil_parameters=None,use_optPSF=None,zmax=None,extraZernike=None,pupilExplicit=None):    
+    def __init__(self,sci_image,var_image,mask_image=None,dithering=None,save=None,pupil_parameters=None,use_pupil_parameters=None,use_optPSF=None,zmax=None,extraZernike=None,pupilExplicit=None):    
         """
         @param image        image to analyze
         @param image_var    variance image
@@ -1481,7 +1482,10 @@ class LN_PFS_single(object):
               'x_fiber','y_fiber','effective_ilum_radius','frd_sigma','frd_lorentz_factor','det_vert','slitHolder_frac_dx',
               'grating_lines','scattering_slope','scattering_amplitude',
               'pixel_effect','fiber_r','flux']    
-
+        
+        if mask_image is None:
+            mask_image=np.zeros(sci_image.shape)
+        self.mask_image=mask_image
         self.sci_image=sci_image
         self.var_image=var_image
         self.dithering=dithering
@@ -1518,7 +1522,7 @@ class LN_PFS_single(object):
                   det_vertInit=pupil_parameters[10],slitHolder_frac_dxInit=pupil_parameters[11]) 
             self.single_image_analysis=single_image_analysis
 
-    def create_chi_2_almost(self,modelImg,sci_image,var_image):
+    def create_chi_2_almost(self,modelImg,sci_image,var_image,mask_image):
         """
         return array with 3 values
         1. normal chi**2
@@ -1529,19 +1533,24 @@ class LN_PFS_single(object):
         @param sci_image    scientific image 
         @param var_image    variance image
         """ 
-            
-        sigma = np.sqrt(var_image)
-        chi = (sci_image - modelImg)/sigma
-        chi2_intrinsic=np.sum(sci_image**2/var_image)
+        inverted_mask=~mask_image.astype(bool)
+        
+        var_image_masked=var_image*inverted_mask
+        sci_image_masked=sci_image*inverted_mask
+        modelImg_masked=modelImg*inverted_mask
+        
+        sigma = np.sqrt(var_image_masked)
+        chi = (sci_image_masked - modelImg_masked)/sigma
+        chi2_intrinsic=np.sum(sci_image_masked**2/var_image_masked)
         
         chi_without_nan=[]
         chi_without_nan = chi.ravel()[~np.isnan(chi.ravel())]
         res=(chi_without_nan)**2
         
         # calculates 'Q' values
-        Qlist=np.abs((sci_image - modelImg))
+        Qlist=np.abs((sci_image_masked - modelImg_masked))
         Qlist_without_nan=Qlist.ravel()[~np.isnan(Qlist.ravel())]
-        sci_image_without_nan=sci_image.ravel()[~np.isnan(sci_image.ravel())]
+        sci_image_without_nan=sci_image_masked.ravel()[~np.isnan(sci_image_masked.ravel())]
         Qvalue = np.sum(Qlist_without_nan)/np.sum(sci_image_without_nan)
         
         return [np.sum(res),chi2_intrinsic,Qvalue]
@@ -1576,6 +1585,7 @@ class LN_PFS_single(object):
         #When running big fits these are limits which ensure that the code does not wander off in tottaly nonphyical region
 
          # hsc frac
+        """
         if globalparameters[0]<=0.6 or globalparameters[0]>0.8:
             print('globalparameters[0] outside limits') if test_print == 1 else False 
             return -np.inf
@@ -1589,7 +1599,7 @@ class LN_PFS_single(object):
         #if globalparameters[4]<globalparameters[1]:
             #print('globalparameters[1] not smaller than 4 outside limits')
             #return -np.inf
-        
+
          #dx Focal
         if globalparameters[2]>0.4:
             print('globalparameters[2] outside limits') if test_print == 1 else False 
@@ -1605,7 +1615,7 @@ class LN_PFS_single(object):
         if globalparameters[3]<-0.4:
             print('globalparameters[3] outside limits') if test_print == 1 else False 
             return -np.inf
-        
+
         # slitFrac
         if globalparameters[4]<0.05:
             print('globalparameters[4] outside limits') if test_print == 1 else False 
@@ -1613,7 +1623,7 @@ class LN_PFS_single(object):
         if globalparameters[4]>0.09:
             print('globalparameters[4] outside limits') if test_print == 1 else False 
             return -np.inf
-       
+
         # slitFrac_dy
         if globalparameters[5]<-0.5:
             print('globalparameters[5] outside limits') if test_print == 1 else False 
@@ -1757,11 +1767,11 @@ class LN_PFS_single(object):
         if globalparameters[22]>1.02:
             print('globalparameters[22] outside limits') if test_print == 1 else False 
             return -np.inf      
-
+        """
         x=self.create_x(zparameters,globalparameters)
         for i in range(len(self.columns)):
             self.single_image_analysis.params[self.columns[i]].set(x[i])
-        
+
 
         
         if len(allparameters)>len(self.columns):
@@ -1800,7 +1810,7 @@ class LN_PFS_single(object):
         #if np.abs(dif_FWHM)>.03:
         #    return -np.inf
         
-        chi_2_almost_multi_values=self.create_chi_2_almost(modelImg,self.sci_image,self.var_image)
+        chi_2_almost_multi_values=self.create_chi_2_almost(modelImg,self.sci_image,self.var_image,self.mask_image)
         chi_2_almost=chi_2_almost_multi_values[0]
         #chi_2_max=chi_2_almost_multi_values[1]     
         #chi_2_Q=chi_2_almost_multi_values[2]
@@ -1898,48 +1908,56 @@ class Zernike_Analysis(object):
     Class for analysing results of the cluster run
     """
 
-    def __init__(self, date,obs,single_number,eps,arc=None):
+    def __init__(self, date,obs,single_number,eps,arc=None,dataset=None):
         """!
 
         @param[in]
         """
         if arc is None:
             arc=''
-            
-            
-            
-        STAMPS_FOLDER='/Users/nevencaplar/Documents/PFS/Data_Nov_14/Stamps_Cleaned/'
-        
-   
-                
 
-        
-        ##########################
-        #if arc is not None:
-        #    if arc=='HgAr':
-        #        single_number_focus=8603
-        #    elif arc=='Ne':
-        #        single_number_focus=8693
-         ##########################
-        if arc is not None:
-            if arc=='HgAr':
-               single_number_focus=11748
-            elif arc=='Ne':
-                single_number_focus=11748+607
-            ##########################
-            # version 0.19 to 0.20 change
-            # STAMPS_FOLDER="/Users/nevencaplar/Documents/PFS/Data_Nov_14/Stamps_cleaned/"
-            ##########################
+        if dataset==0:
+            STAMPS_FOLDER="/Users/nevencaplar/Documents/PFS/Data_Nov_14/Stamps_cleaned/"
+            if arc is not None:         
+                if arc=="HgAr":
+                    single_number_focus=8603
+                elif arc=="Ne":
+                    single_number_focus=8693  
+
+        if dataset==1:   
             STAMPS_FOLDER="/Users/nevencaplar/Documents/PFS/ReducedData/Data_Feb_5/Stamps_cleaned/"
+            if arc is not None:         
+                if arc=="HgAr":
+                    single_number_focus=11748
+                elif arc=="Ne":
+                    single_number_focus=11748+607  
+ 
+        if dataset==2:
+            STAMPS_FOLDER="/Users/nevencaplar/Documents/PFS/ReducedData/Data_May_28/Stamps_cleaned/"
+            if arc is not None:         
+                if arc=="HgAr":
+                    single_number_focus=17017+54
+                elif arc=="Ne":
+                    single_number_focus=16292  
+                
+        if dataset==3:  
+            STAMPS_FOLDER="/Users/nevencaplar/Documents/PFS/ReducedData/Data_Jun_25/Stamps_cleaned/"
+            if arc is not None:         
+                if arc=="HgAr":
+                    single_number_focus=19238+54
+                elif arc=="Ne":
+                    single_number_focus=19472  
+
             
+            ##########################
             # import data
-            if obs==8600:
-                print("Not implemented for December 2018 data")
-            else:
-                sci_image =np.load(STAMPS_FOLDER+'sci'+str(obs)+str(single_number)+str(arc)+'_Stacked.npy')
-                var_image =np.load(STAMPS_FOLDER+'var'+str(obs)+str(single_number)+str(arc)+'_Stacked.npy')
-                sci_image_focus_large =np.load(STAMPS_FOLDER+'sci'+str(single_number_focus)+str(single_number)+str(arc)+'_Stacked_large.npy')
-                var_image_focus_large =np.load(STAMPS_FOLDER+'var'+str(single_number_focus)+str(single_number)+str(arc)+'_Stacked_large.npy')   
+        if obs==8600:
+            print("Not implemented for December 2018 data")
+        else:
+            sci_image =np.load(STAMPS_FOLDER+'sci'+str(obs)+str(single_number)+str(arc)+'_Stacked.npy')
+            var_image =np.load(STAMPS_FOLDER+'var'+str(obs)+str(single_number)+str(arc)+'_Stacked.npy')
+            sci_image_focus_large =np.load(STAMPS_FOLDER+'sci'+str(single_number_focus)+str(single_number)+str(arc)+'_Stacked_large.npy')
+            var_image_focus_large =np.load(STAMPS_FOLDER+'var'+str(single_number_focus)+str(single_number)+str(arc)+'_Stacked_large.npy')   
         
         
         self.sci_image=sci_image
@@ -1956,6 +1974,11 @@ class Zernike_Analysis(object):
         self.columns=columns
         
         RESULT_FOLDER='/Users/nevencaplar/Documents/PFS/TigerAnalysis/ResultsFromTiger/'+date+'/'
+        if os.path.exists(RESULT_FOLDER):
+            pass
+        else:
+            RESULT_FOLDER='/Volumes/My Passport for Mac/Old_Files/PFS/TigerAnalysis/ResultsFromTiger/'+date+'/'
+        
         self.RESULT_FOLDER=RESULT_FOLDER
         
         IMAGES_FOLDER='/Users/nevencaplar/Documents/PFS/Images/'+date+'/'
@@ -2103,21 +2126,6 @@ class Zernike_Analysis(object):
         
         #likechain0_Emcee2=likechain_Emcee2[0]
         #chain0_Emcee2=chain_Emcee2[0]        
-        
-        chain_Emcee3=np.load(self.RESULT_FOLDER+'chain'+str(self.date)+'_Single_'+str(self.method)+'_'+str(self.obs)+str(self.single_number)+str(self.eps)+str(self.arc)+'Emcee3.npy')
-        likechain_Emcee3=np.load(self.RESULT_FOLDER+'likechain'+str(self.date)+'_Single_'+str(self.method)+'_'+str(self.obs)+str(self.single_number)+str(self.eps)+str(self.arc)+'Emcee3.npy')
-        
-        # get chain number 0, which is has lowest temperature
-        likechain0_Emcee3=likechain_Emcee3
-        chain0_Emcee3=chain_Emcee3     
-        
-        self.chain0_Emcee3=chain0_Emcee3
-        self.likechain0_Emcee3=likechain0_Emcee3
-        
-        return chain0_Emcee3,likechain0_Emcee3   
-
-
-    def create_chains(self):
         
         chain_Emcee3=np.load(self.RESULT_FOLDER+'chain'+str(self.date)+'_Single_'+str(self.method)+'_'+str(self.obs)+str(self.single_number)+str(self.eps)+str(self.arc)+'Emcee3.npy')
         likechain_Emcee3=np.load(self.RESULT_FOLDER+'likechain'+str(self.date)+'_Single_'+str(self.method)+'_'+str(self.obs)+str(self.single_number)+str(self.eps)+str(self.arc)+'Emcee3.npy')
