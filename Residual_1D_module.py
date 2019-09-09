@@ -200,6 +200,12 @@ def plot_1D_residual(sci_image,var_image,model_image,title=None):
     plt.figure(figsize=(20,10))
     plt.errorbar(np.array(range(len(init_lamda))),init_lamda,yerr=std_init_lamda,fmt='o',elinewidth=2,capsize=12,markeredgewidth=2,label='data',color='orange')
     plt.errorbar(np.array(range(len(init_removal_lamda))),init_removal_lamda,yerr=std_init_removal_lamda,color='red',fmt='o',elinewidth=2,capsize=10,markeredgewidth=2,label='residual')
+
+    for i in range(20):
+        plt.text(-0.5+i, -1250, str("{:1.0f}".format(init_lamda[i])), fontsize=20,rotation=70.,color='orange')
+
+    for i in range(20):
+        plt.text(-0.5+i, -2050, str("{:1.1f}".format(init_removal_lamda[i]/std_init_removal_lamda[i])), fontsize=20,rotation=70.,color='red')
     
     if title is None:
         pass
@@ -221,11 +227,7 @@ def plot_1D_residual(sci_image,var_image,model_image,title=None):
     pixels_to_test=np.array(range(20))[(np.abs(difference_from_max)>2)&(np.abs(difference_from_max)<=6)]
     Q=np.mean(np.abs(init_removal_lamda[pixels_to_test]/std_init_removal_lamda[pixels_to_test]))
     
-    for i in range(20):
-        plt.text(-0.5+i, -1250, str("{:1.0f}".format(init_lamda[i])), fontsize=20,rotation=70.,color='orange')
 
-    for i in range(20):
-        plt.text(-0.5+i, -2050, str("{:1.1f}".format(init_removal_lamda[i]/std_init_removal_lamda[i])), fontsize=20,rotation=70.,color='red')
     
     plt.text(19.5,2300, 'Q='+str("{:1.2f}".format(Q)),
             horizontalalignment='right',
