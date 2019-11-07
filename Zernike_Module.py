@@ -72,6 +72,7 @@ from astropy.convolution import Gaussian2DKernel
 # scipy and skimage
 import scipy.misc
 import skimage.transform
+import scipy.optimize as optimize
 from scipy.ndimage.filters import gaussian_filter
 
 #lmfit
@@ -81,11 +82,18 @@ import lmfit
 import matplotlib
 import matplotlib.pyplot as plt
 from matplotlib.colors import LogNorm
+
+# needed for resizing routines
+from typing import Tuple, Iterable
 ########################################
 
-__all__ = ['PupilFactory', 'Pupil','ZernikeFitter_PFS','LN_PFS_single','LNP_PFS','find_centroid_of_flux','create_res_data','create_parInit','downsample_manual_function','Zernike_Analysis','PFSPupilFactory','custom_fftconvolve','stepK','maxK','sky_scale','sky_size','create_x','remove_pupil_parameters_from_all_parameters','create_mask','resize']
+__all__ = ['PupilFactory', 'Pupil','ZernikeFitter_PFS','LN_PFS_single','LNP_PFS',\
+           'find_centroid_of_flux','create_parInit','downsample_manual_function',\
+           'Zernike_Analysis','PFSPupilFactory','custom_fftconvolve','stepK','maxK',\
+           'sky_scale','sky_size','create_x','remove_pupil_parameters_from_all_parameters',\
+           'resize']
 
-__version__ = "0.22"
+__version__ = "0.22b"
 
 ############################################################
 # name your directory where you want to have files!
@@ -3334,113 +3342,6 @@ def Ifun16Ne (lambdaV,lambda0,Ne):
     return (lambda0/(Ne*np.pi*np.sqrt(2)))**2/((lambdaV-lambda0)**2+(lambda0/(Ne*np.pi*np.sqrt(2)))**2)
 
 
-def create_mask(FFTTest_fiber_and_pixel_convolved_downsampled_40,semi=None):
-    central_position=np.array(find_centroid_of_flux(FFTTest_fiber_and_pixel_convolved_downsampled_40))
-    central_position_int=np.round(central_position)
-    central_position_int_x=int(central_position_int[0])
-    central_position_int_y=int(central_position_int[1])
-
-    center_square=np.zeros((40,40))
-    center_square[central_position_int_y-6:+central_position_int_y+6,central_position_int_x-6:central_position_int_x+6]=np.ones((12,12))
-
-    horizontal_cross=np.zeros((40,40))
-    horizontal_cross[central_position_int_y-6:central_position_int_y+6,0:40,]=np.ones((12,40))
-    horizontal_cross_full=horizontal_cross
-    horizontal_cross=horizontal_cross-center_square
-
-    vertical_cross=np.zeros((40,40))
-    if semi is None:
-        vertical_cross[0:40,central_position_int_x-6:central_position_int_x+6]=np.ones((40,12))
-        vertical_cross=vertical_cross-center_square
-    if semi=='+':
-        vertical_cross[central_position_int_y+6:40,central_position_int_x-6:central_position_int_x+6]=np.ones((40-central_position_int_y-6,12))
-    if semi=='-':
-        vertical_cross[0:central_position_int_y-6,central_position_int_x-6:central_position_int_x+6]=np.ones((central_position_int_y-6,12))
-    vertical_cross_full=vertical_cross
-
-
-    diagonal_cross=np.zeros((40,40))
-    if semi is None:
-        #print(central_position_int_y)
-        #print(central_position_int_x)
-        diagonal_cross[0:central_position_int_y-4,0:central_position_int_x-4]=np.ones((central_position_int_y-4,central_position_int_x-4))
-        diagonal_cross[(central_position_int_y+4):40,0:(central_position_int_x-4)]=np.ones((40-(central_position_int_y+4),(central_position_int_x-4)))
-        diagonal_cross[0:(central_position_int_y-4),(central_position_int_x+4):40]=np.ones(((central_position_int_y-4),40-(central_position_int_x+4)))
-        diagonal_cross[(central_position_int_y+4):40,(central_position_int_x+4):40]=np.ones((40-(central_position_int_y+4),40-(central_position_int_x+4)))
-    if semi=='+':
-        diagonal_cross[(central_position_int_y+4):40,0:(central_position_int_x-4)]=np.ones((40-(central_position_int_y+4),(central_position_int_x-4)))
-        diagonal_cross[(central_position_int_y+4):40,(central_position_int_x+4):40]=np.ones((40-(central_position_int_y+4),40-(central_position_int_x+4)))
-    if semi=='-':
-        diagonal_cross[0:central_position_int_y-4,0:central_position_int_x-4]=np.ones((central_position_int_y-4,central_position_int_x-4))
-        diagonal_cross[0:(central_position_int_y-4),(central_position_int_x+4):40]=np.ones(((central_position_int_y-4),40-(central_position_int_x+4)))
-    if semi=='r':
-        diagonal_cross[(central_position_int_y+4):40,(central_position_int_x+4):40]=np.ones((40-(central_position_int_y+4),40-(central_position_int_x+4)))
-        diagonal_cross[0:(central_position_int_y-4),(central_position_int_x+4):40]=np.ones(((central_position_int_y-4),40-(central_position_int_x+4)))
-    if semi=='l':
-        diagonal_cross[0:central_position_int_y-4,0:central_position_int_x-4]=np.ones((central_position_int_y-4,central_position_int_x-4))
-        diagonal_cross[(central_position_int_y+4):40,0:(central_position_int_x-4)]=np.ones((40-(central_position_int_y+4),(central_position_int_x-4)))
-
-    total_mask=np.zeros((40,40))
-    if semi is None:
-        total_mask=np.ones((40,40))
-    if semi=='+':
-        total_mask[(central_position_int_y):40,0:40]=np.ones((40-(central_position_int_y),40))
-    if semi=='-':
-        total_mask[:(central_position_int_y),0:40]=np.ones(((central_position_int_y),40))
-    if semi=='r':
-        total_mask[:(central_position_int_y),0:40]=np.ones(((central_position_int_y),40))  
-    if semi=='l':
-        total_mask[:(central_position_int_y),0:40]=np.ones(((central_position_int_y),40))   
-        
-    return [center_square,horizontal_cross,vertical_cross,diagonal_cross,total_mask]
-
-
-def create_res_data(FFTTest_fiber_and_pixel_convolved_downsampled_40,mask=None,custom_cent=None,size_pixel=None):
-    """!given the small science image, create radial profile in microns
-    
-    @param FFTTest_fiber_and_pixel_convolved_downsampled_40     science data stamps
-    @param mask                                                 mask to cover science data [default: no mask]
-    @param custom_cent                                          should you create new center using the function ``find_centroid_of_flux'' [default:No]
-    @param size_pixel                                           pixel size in the image, in microns [default:7.5]
-     """     
-    if size_pixel is None:
-        size_pixel=7.5
-    
-    image_shape=np.array(FFTTest_fiber_and_pixel_convolved_downsampled_40.shape)
-    if custom_cent is None:
-        xs0=0
-        ys0=0
-    else:
-
-        xs0=(find_centroid_of_flux(FFTTest_fiber_and_pixel_convolved_downsampled_40)[0]-int(image_shape[0]/2))*size_pixel
-        ys0=(find_centroid_of_flux(FFTTest_fiber_and_pixel_convolved_downsampled_40)[1]-int(image_shape[0]/2))*size_pixel
-    pointsx = np.linspace(-(int(image_shape[0]*size_pixel)-size_pixel)/2,(int(image_shape[0]*size_pixel)-size_pixel)/2,num=int(image_shape[0]))
-    pointsy = np.linspace(-(int(image_shape[0]*size_pixel)-size_pixel)/2,(int(image_shape[0]*size_pixel)-size_pixel)/2,num=int(image_shape[0]))
-    xs, ys = np.meshgrid(pointsx, pointsy)
-    r0 = np.sqrt((xs-xs0)** 2 + (ys-ys0)** 2)
-    
-    if mask is None:
-        mask=np.ones((FFTTest_fiber_and_pixel_convolved_downsampled_40.shape[0],FFTTest_fiber_and_pixel_convolved_downsampled_40.shape[1]))
-    
-    distances=range(int(image_shape[0]/2*size_pixel*1.2))
-
-    res_test_data=[]
-    for r in distances:
-        pixels_upper_limit=(mask*FFTTest_fiber_and_pixel_convolved_downsampled_40)[r0<(r+size_pixel)]
-        pixels_lower_limit=(mask*FFTTest_fiber_and_pixel_convolved_downsampled_40)[r0<(r)]
-        
-        mask_upper_limit=mask[r0<(r+size_pixel)]
-        mask_lower_limit=mask[r0<(r)]
-        
-        number_of_valid_pixels=np.sum(mask_upper_limit)-np.sum(mask_lower_limit)
-        
-        if number_of_valid_pixels==0:
-            res_test_data.append(0)
-        else:                  
-            average_flux=(np.sum(pixels_upper_limit)-np.sum(pixels_lower_limit))/number_of_valid_pixels
-            res_test_data.append(average_flux)        
-
-    return res_test_data 
 
 def custom_fftconvolve(array1, array2):
     assert array1.shape==array2.shape
@@ -3556,8 +3457,7 @@ def add_pupil_parameters_to_all_parameters(parameters,pupil_parameters):
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import numpy as np
-from typing import Tuple, Iterable
+
 
 
 def _reflect_breaks(size: int) -> np.ndarray:
@@ -3650,62 +3550,3 @@ def resize(array: np.ndarray,
     output = np.moveaxis(product, -1, axis)
   return output
 
-def create_mask(FFTTest_fiber_and_pixel_convolved_downsampled_40,semi=None):
-    central_position=np.array(find_centroid_of_flux(FFTTest_fiber_and_pixel_convolved_downsampled_40))
-    central_position_int=np.round(central_position)
-    central_position_int_x=int(central_position_int[0])
-    central_position_int_y=int(central_position_int[1])
-
-    center_square=np.zeros((40,40))
-    center_square[central_position_int_y-6:+central_position_int_y+6,central_position_int_x-6:central_position_int_x+6]=np.ones((12,12))
-
-    horizontal_cross=np.zeros((40,40))
-    horizontal_cross[central_position_int_y-6:central_position_int_y+6,0:40,]=np.ones((12,40))
-    horizontal_cross_full=horizontal_cross
-    horizontal_cross=horizontal_cross-center_square
-
-    vertical_cross=np.zeros((40,40))
-    if semi is None:
-        vertical_cross[0:40,central_position_int_x-6:central_position_int_x+6]=np.ones((40,12))
-        vertical_cross=vertical_cross-center_square
-    if semi=='+':
-        vertical_cross[central_position_int_y+6:40,central_position_int_x-6:central_position_int_x+6]=np.ones((40-central_position_int_y-6,12))
-    if semi=='-':
-        vertical_cross[0:central_position_int_y-6,central_position_int_x-6:central_position_int_x+6]=np.ones((central_position_int_y-6,12))
-    vertical_cross_full=vertical_cross
-
-
-    diagonal_cross=np.zeros((40,40))
-    if semi is None:
-        #print(central_position_int_y)
-        #print(central_position_int_x)
-        diagonal_cross[0:central_position_int_y-4,0:central_position_int_x-4]=np.ones((central_position_int_y-4,central_position_int_x-4))
-        diagonal_cross[(central_position_int_y+4):40,0:(central_position_int_x-4)]=np.ones((40-(central_position_int_y+4),(central_position_int_x-4)))
-        diagonal_cross[0:(central_position_int_y-4),(central_position_int_x+4):40]=np.ones(((central_position_int_y-4),40-(central_position_int_x+4)))
-        diagonal_cross[(central_position_int_y+4):40,(central_position_int_x+4):40]=np.ones((40-(central_position_int_y+4),40-(central_position_int_x+4)))
-    if semi=='+':
-        diagonal_cross[(central_position_int_y+4):40,0:(central_position_int_x-4)]=np.ones((40-(central_position_int_y+4),(central_position_int_x-4)))
-        diagonal_cross[(central_position_int_y+4):40,(central_position_int_x+4):40]=np.ones((40-(central_position_int_y+4),40-(central_position_int_x+4)))
-    if semi=='-':
-        diagonal_cross[0:central_position_int_y-4,0:central_position_int_x-4]=np.ones((central_position_int_y-4,central_position_int_x-4))
-        diagonal_cross[0:(central_position_int_y-4),(central_position_int_x+4):40]=np.ones(((central_position_int_y-4),40-(central_position_int_x+4)))
-    if semi=='r':
-        diagonal_cross[(central_position_int_y+4):40,(central_position_int_x+4):40]=np.ones((40-(central_position_int_y+4),40-(central_position_int_x+4)))
-        diagonal_cross[0:(central_position_int_y-4),(central_position_int_x+4):40]=np.ones(((central_position_int_y-4),40-(central_position_int_x+4)))
-    if semi=='l':
-        diagonal_cross[0:central_position_int_y-4,0:central_position_int_x-4]=np.ones((central_position_int_y-4,central_position_int_x-4))
-        diagonal_cross[(central_position_int_y+4):40,0:(central_position_int_x-4)]=np.ones((40-(central_position_int_y+4),(central_position_int_x-4)))
-
-    total_mask=np.zeros((40,40))
-    if semi is None:
-        total_mask=np.ones((40,40))
-    if semi=='+':
-        total_mask[(central_position_int_y):40,0:40]=np.ones((40-(central_position_int_y),40))
-    if semi=='-':
-        total_mask[:(central_position_int_y),0:40]=np.ones(((central_position_int_y),40))
-    if semi=='r':
-        total_mask[:(central_position_int_y),0:40]=np.ones(((central_position_int_y),40))  
-    if semi=='l':
-        total_mask[:(central_position_int_y),0:40]=np.ones(((central_position_int_y),40))   
-        
-    return [center_square,horizontal_cross,vertical_cross,diagonal_cross,total_mask]

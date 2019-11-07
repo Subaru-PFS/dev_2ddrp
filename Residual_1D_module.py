@@ -9,7 +9,7 @@ www.ncaplar.com
 import numpy as np
 import matplotlib
 import matplotlib.pyplot as plt
-
+from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 
 def find_centroid_of_flux(image):
     """
@@ -149,13 +149,14 @@ def add_artificial_noise(sci_image,var_image,model_image):
     """
 
     # what is the ratio between the current science image and 40000 value 
-    multi_factor=np.max(sci_image)/40000
+    #multi_factor=np.max(sci_image)/40000
     
-    # signal to noise ration in the brightess pixel
+    # signal to noise ratio in the brightess pixel
     Max_SN_now=np.max(sci_image)/np.max(np.sqrt(var_image))
     
-    # what is the ratio between the SN ratio in the brightest pixel to what I expect (which is roughly np.sqrt(40000)=200)
-    dif_in_SN=Max_SN_now/200
+    # what is the ratio between the SN ratio in the brightest pixel to what I expect (which is roughly np.sqrt(40000/1.2)=220)
+    # factor 1.2 in the previous line comes because variance is empirically a bit smaller than the signal
+    dif_in_SN=Max_SN_now/220
     
     # prepare array which will contain artifically created noise
     artifical_noise=np.zeros_like(model_image)
@@ -164,7 +165,7 @@ def add_artificial_noise(sci_image,var_image,model_image):
     # minimal value in the variance image
     min_var_value=np.min(var_image)
     
-    # for each pixel create artifical random noise, drawing from the normal distribution
+    # for each pixel create additional artifical random noise, drawing from the normal distribution
     for i in range(len(artifical_noise)):
         for j in range(len(artifical_noise)):
             artifical_noise[i,j]=np.random.randn()*np.sqrt((dif_in_SN**2-1)*(var_image[i,j]-min_var_value))   
@@ -196,6 +197,12 @@ def plot_1D_residual(sci_image,var_image,model_image,title=None):
     
     
     init_lamda,std_init_lamda,init_removal_lamda,std_init_removal_lamda=residual_1D(sci_image,var_image,model_image)
+    
+    
+    position_of_max_flux=np.where(init_lamda==np.max(init_lamda))[0][0]
+    difference_from_max=range(20)-position_of_max_flux
+    pixels_to_test=np.array(range(20))[(np.abs(difference_from_max)>2)&(np.abs(difference_from_max)<=6)]
+    Q=np.mean(np.abs(init_removal_lamda[pixels_to_test]/std_init_removal_lamda[pixels_to_test]))
  
     plt.figure(figsize=(20,10))
     plt.errorbar(np.array(range(len(init_lamda))),init_lamda,yerr=std_init_lamda,fmt='o',elinewidth=2,capsize=12,markeredgewidth=2,label='data',color='orange')
@@ -225,11 +232,11 @@ def plot_1D_residual(sci_image,var_image,model_image,title=None):
     position_of_max_flux=np.where(init_lamda==np.max(init_lamda))[0][0]
     difference_from_max=range(20)-position_of_max_flux
     pixels_to_test=np.array(range(20))[(np.abs(difference_from_max)>2)&(np.abs(difference_from_max)<=6)]
-    Q=np.mean(np.abs(init_removal_lamda[pixels_to_test]/std_init_removal_lamda[pixels_to_test]))
+    Q_40000=np.mean(np.abs(init_removal_lamda[pixels_to_test]/std_init_removal_lamda[pixels_to_test]))
     
 
     
-    plt.text(19.5,2300, 'Q='+str("{:1.2f}".format(Q)),
+    plt.text(19.5,2300, '$Q_{'+str(np.int(np.round(np.max(sci_image))))+'}$='+str("{:1.2f}".format(Q)),
             horizontalalignment='right',
             verticalalignment='top',fontsize=26)
 
@@ -241,10 +248,181 @@ def plot_1D_residual(sci_image,var_image,model_image,title=None):
 
     chi2_40000=np.mean((model_image_40000-sci_image_40000)**2/var_image_40000)
 
-    plt.text(19.5,1650, '$\chi^{2}_{40000}$='+str("{:1.2f}".format(chi2_40000)),
+    plt.text(19.5,1650, '$Q_{40000}$='+str("{:1.2f}".format(Q_40000)),
+            horizontalalignment='right',
+            verticalalignment='top',fontsize=26)
+    plt.text(19.5,1300, '$\chi^{2}_{40000}$='+str("{:1.2f}".format(chi2_40000)),
             horizontalalignment='right',
             verticalalignment='top',fontsize=26)
 
-
     plt.axvspan(pixels_to_test[0]-0.5, pixels_to_test[3]+0.5, alpha=0.3, color='grey')
     plt.axvspan(pixels_to_test[4]-0.5, pixels_to_test[7]+0.5, alpha=0.3, color='grey')
+    
+def plot_1D_residual_custom(sci_image,var_image,model_image,title=None):
+        
+    """
+
+    @array[in] sci_image               numpy array with the values for the cutout of the science image (20x20 cutout)
+    @array[in] var_image               numpy array with the cutout for the cutout of the variance image (20x20 cutout)
+    @array[in] model_image             model (20x20 image)
+    @string[in] title                  custom title to appear above the plot
+
+
+    @plot[out]                         diagnostic plot
+
+    """
+    
+    
+    init_lamda,std_init_lamda,init_removal_lamda,std_init_removal_lamda=residual_1D(sci_image,var_image,model_image)
+    
+    
+    position_of_max_flux=np.where(init_lamda==np.max(init_lamda))[0][0]
+    difference_from_max=range(20)-position_of_max_flux
+    pixels_to_test=np.array(range(20))[(np.abs(difference_from_max)>2)&(np.abs(difference_from_max)<=6)]
+    Q=np.mean(np.abs(init_removal_lamda[pixels_to_test]/std_init_removal_lamda[pixels_to_test]))
+ 
+    plt.figure(figsize=(20,10))
+    plt.errorbar(np.array(range(len(init_lamda)))[2:19],init_lamda[2:19],yerr=std_init_lamda[2:19],fmt='o',elinewidth=2,capsize=12,markeredgewidth=2,label='data',color='black')
+    plt.errorbar(np.array(range(len(init_removal_lamda)))[2:19],init_removal_lamda[2:19],yerr=std_init_removal_lamda[2:19],color='red',fmt='o',elinewidth=2,capsize=10,markeredgewidth=2,label='residual')
+    """
+    for i in range(2,18):
+        plt.text(-0.5+i, -1250, str("{:1.0f}".format(init_lamda[i])), fontsize=20,rotation=70.,color='orange')
+
+    for i in range(2,18):
+        plt.text(-0.5+i, -2050, str("{:1.1f}".format(init_removal_lamda[i]/std_init_removal_lamda[i])), fontsize=20,rotation=70.,color='red')
+    
+    if title is None:
+        pass
+    else:
+        plt.title(str(title))
+    """    
+    plt.legend(loc=2, fontsize=30)
+    plt.plot(np.zeros(20),'--',color='black')
+    plt.ylim(-700,1500)
+    plt.xlim(1.5,18.5)
+    plt.ylabel('flux',size=35)
+    plt.xlabel('pixel',size=35)
+    plt.xticks(range(20)[2:19])
+
+    sci_image_40000,var_image_40000,model_image_40000=add_artificial_noise(sci_image,var_image,model_image)
+    init_lamda,std_init_lamda,init_removal_lamda,std_init_removal_lamda=residual_1D(sci_image_40000,var_image_40000,model_image_40000)
+
+    position_of_max_flux=np.where(init_lamda==np.max(init_lamda))[0][0]
+    difference_from_max=range(20)-position_of_max_flux
+    pixels_to_test=np.array(range(20))[(np.abs(difference_from_max)>2)&(np.abs(difference_from_max)<=6)]
+    Q_40000=np.mean(np.abs(init_removal_lamda[pixels_to_test]/std_init_removal_lamda[pixels_to_test]))
+    
+
+    """
+    plt.text(19.5,2300, '$Q_{'+str(np.int(np.round(np.max(sci_image))))+'}$='+str("{:1.2f}".format(Q)),
+            horizontalalignment='right',
+            verticalalignment='top',fontsize=26)
+
+    chi2=np.mean((model_image-sci_image)**2/var_image)
+
+    plt.text(19.5,2000, '$\chi^{2}_{'+str(np.int(np.round(np.max(sci_image))))+'}$='+str("{:1.2f}".format(chi2)),
+            horizontalalignment='right',
+            verticalalignment='top',fontsize=26)
+
+    chi2_40000=np.mean((model_image_40000-sci_image_40000)**2/var_image_40000)
+
+    plt.text(19.5,1650, '$Q_{40000}$='+str("{:1.2f}".format(Q_40000)),
+            horizontalalignment='right',
+            verticalalignment='top',fontsize=26)
+    plt.text(19.5,1300, '$\chi^{2}_{40000}$='+str("{:1.2f}".format(chi2_40000)),
+            horizontalalignment='right',
+            verticalalignment='top',fontsize=26)
+    """
+    plt.axvspan(pixels_to_test[0]-0.5, pixels_to_test[3]+0.5, alpha=0.3, color='grey')
+    plt.axvspan(pixels_to_test[4]-0.5, pixels_to_test[7]+0.5, alpha=0.3, color='grey')
+    
+def plot_1D_residual_custom_large(sci_image,var_image,model_image,title=None):
+        
+    """
+
+    @array[in] sci_image               numpy array with the values for the cutout of the science image (20x20 cutout)
+    @array[in] var_image               numpy array with the cutout for the cutout of the variance image (20x20 cutout)
+    @array[in] model_image             model (20x20 image)
+    @string[in] title                  custom title to appear above the plot
+
+
+    @plot[out]                         diagnostic plot
+
+    """
+    
+    
+    init_lamda,std_init_lamda,init_removal_lamda,std_init_removal_lamda=residual_1D(sci_image,var_image,model_image)
+    
+    
+    position_of_max_flux=np.where(init_lamda==np.max(init_lamda))[0][0]
+    difference_from_max=range(20)-position_of_max_flux
+    pixels_to_test=np.array(range(20))[(np.abs(difference_from_max)>2)&(np.abs(difference_from_max)<=6)]
+    Q=np.mean(np.abs(init_removal_lamda[pixels_to_test]/std_init_removal_lamda[pixels_to_test]))
+    
+    fig, ax = plt.subplots(figsize=[20, 10])
+
+    ax.errorbar(np.array(range(len(init_lamda)))[2:19],init_lamda[2:19],yerr=std_init_lamda[2:19],fmt='o',elinewidth=2,capsize=12,markeredgewidth=2,label='data',color='black',ls='--')
+    ax.errorbar(np.array(range(len(init_removal_lamda)))[2:19],init_removal_lamda[2:19],yerr=std_init_removal_lamda[2:19],color='red',fmt='o',elinewidth=2,capsize=10,markeredgewidth=2,label='residual')
+    """
+    for i in range(2,18):
+        plt.text(-0.5+i, -1250, str("{:1.0f}".format(init_lamda[i])), fontsize=20,rotation=70.,color='orange')
+
+    for i in range(2,18):
+        plt.text(-0.5+i, -2050, str("{:1.1f}".format(init_removal_lamda[i]/std_init_removal_lamda[i])), fontsize=20,rotation=70.,color='red')
+    
+    if title is None:
+        pass
+    else:
+        plt.title(str(title))
+    """    
+    ax.legend(loc=2, fontsize=35)
+    ax.plot(np.zeros(20),'--',color='grey')
+    ax.set_ylim(-10000,135000)
+    ax.set_xticks(range(18))
+    ax.set_xlim(1.5,18.5)
+    ax.set_ylabel('flux',size=45)
+    ax.set_xlabel('pixel',size=45)
+
+
+    sci_image_40000,var_image_40000,model_image_40000=add_artificial_noise(sci_image,var_image,model_image)
+    init_lamda,std_init_lamda,init_removal_lamda,std_init_removal_lamda=residual_1D(sci_image_40000,var_image_40000,model_image_40000)
+
+    position_of_max_flux=np.where(init_lamda==np.max(init_lamda))[0][0]
+    difference_from_max=range(20)-position_of_max_flux
+    pixels_to_test=np.array(range(20))[(np.abs(difference_from_max)>2)&(np.abs(difference_from_max)<=6)]
+    Q_40000=np.mean(np.abs(init_removal_lamda[pixels_to_test]/std_init_removal_lamda[pixels_to_test]))
+    
+
+    """
+    plt.text(19.5,2300, '$Q_{'+str(np.int(np.round(np.max(sci_image))))+'}$='+str("{:1.2f}".format(Q)),
+            horizontalalignment='right',
+            verticalalignment='top',fontsize=26)
+
+    chi2=np.mean((model_image-sci_image)**2/var_image)
+
+    plt.text(19.5,2000, '$\chi^{2}_{'+str(np.int(np.round(np.max(sci_image))))+'}$='+str("{:1.2f}".format(chi2)),
+            horizontalalignment='right',
+            verticalalignment='top',fontsize=26)
+
+    chi2_40000=np.mean((model_image_40000-sci_image_40000)**2/var_image_40000)
+
+    plt.text(19.5,1650, '$Q_{40000}$='+str("{:1.2f}".format(Q_40000)),
+            horizontalalignment='right',
+            verticalalignment='top',fontsize=26)
+    plt.text(19.5,1300, '$\chi^{2}_{40000}$='+str("{:1.2f}".format(chi2_40000)),
+            horizontalalignment='right',
+            verticalalignment='top',fontsize=26)
+    """
+    #ax.axvspan(pixels_to_test[0]-0.5, pixels_to_test[3]+0.5, alpha=0.3, color='grey')
+    #ax.axvspan(pixels_to_test[4]-0.5, pixels_to_test[7]+0.5, alpha=0.3, color='grey')
+    
+    axins = inset_axes(ax, width="100%", height="100%", loc=1,bbox_to_anchor=(0.63,0.55,0.35,0.38), bbox_transform=ax.transAxes)
+    axins.errorbar(np.array(range(len(init_lamda)))[2:19],init_lamda[2:19],yerr=std_init_lamda[2:19],fmt='o',elinewidth=2,capsize=12,markeredgewidth=2,label='data',color='black',ls='--')
+    axins.errorbar(np.array(range(len(init_removal_lamda)))[2:19],init_removal_lamda[2:19],yerr=std_init_removal_lamda[2:19],color='red',fmt='o',elinewidth=2,capsize=10,markeredgewidth=2,label='residual')
+    axins.set_ylim(-400,1400)
+    axins.set_xlim(1.5,18.5)
+    axins.plot(np.zeros(20),'--',color='grey')
+    axins.axvspan(pixels_to_test[0]-0.5, pixels_to_test[3]+0.5, alpha=0.3, color='grey')
+    axins.axvspan(pixels_to_test[4]-0.5, pixels_to_test[7]+0.5, alpha=0.3, color='grey')
+    
+    fig.savefig('/Users/nevencaplar/Documents/PFS/Poster/Poster2019/' + '1d.png', bbox_inches='tight')
