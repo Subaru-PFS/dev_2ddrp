@@ -29,6 +29,12 @@ Sep 11, 2019; 0.21f -> 0.21g globalparameters_flat_6<1 to globalparameters_flat_
 Oct 10, 2019: 0.21g -> 0.21h scattered_light_kernel saving option
 Oct 31, 2019: 0.21h -> 0.22 (re)introduced small amount of apodization (PIPE2D-463)
 Oct 31, 2019: 0.22 -> 0.22b introduced verbosity
+Nov 07, 2019: 0.22b -> 0.22c nan values can pass through find_single_realization_min_cut
+Nov 08, 2019: 0.22c -> 0.22d changes to resizing and centering 
+Nov 13, 2019: 0.22d -> 0.23 major changes to centering - chief ray in the center of oversampled image
+Nov 15, 2019: 0.23 -> 0.24 change likelihood definition
+Dec 16, 2019: 0.24 -> 0.24a added iluminaton with z4,z11,z22=0
+Jan 14, 2020: 0.24a -> 0.24b added verbosity in find_single_realization_min_cut function
 
 @author: Neven Caplar
 @contact: ncaplar@princeton.edu
@@ -88,12 +94,12 @@ from typing import Tuple, Iterable
 ########################################
 
 __all__ = ['PupilFactory', 'Pupil','ZernikeFitter_PFS','LN_PFS_single','LNP_PFS',\
-           'find_centroid_of_flux','create_parInit','downsample_manual_function',\
+           'find_centroid_of_flux','create_parInit',\
            'Zernike_Analysis','PFSPupilFactory','custom_fftconvolve','stepK','maxK',\
            'sky_scale','sky_size','create_x','remove_pupil_parameters_from_all_parameters',\
-           'resize']
+           'resize','_interval_overlap']
 
-__version__ = "0.22b"
+__version__ = "0.24b"
 
 ############################################################
 # name your directory where you want to have files!
@@ -951,7 +957,7 @@ class ZernikeFitter_PFS(object):
             print('size_of_central_cut: '+str(size_of_central_cut))
             
         #cut part which you need
-        optPsf_cut=cut_Centroid_of_natural_resolution_image(optPsf,size_of_central_cut,1,0,0)
+        optPsf_cut=cut_Centroid_of_natural_resolution_image(optPsf,size_of_central_cut+1,1,0,0)
         if self.verbosity==1:
             print('optPsf_cut.shape'+str(optPsf_cut.shape))
 
@@ -960,20 +966,25 @@ class ZernikeFitter_PFS(object):
         if self.verbosity==1:
             print('oversampling:' +str(oversampling))
         
-        size_of_optPsf_cut_downsampled=np.round(optPsf_cut.shape[0]/(oversampling_original/oversampling))
+        size_of_optPsf_cut_downsampled=np.round(size_of_central_cut/(oversampling_original/oversampling))
         if self.verbosity==1:
             print('optPsf_cut.shape[0]'+str(optPsf_cut.shape[0]))
             print('size_of_optPsf_cut_downsampled: '+str(size_of_optPsf_cut_downsampled))
             
-        optPsf_cut_downsampled=resize(optPsf_cut,(size_of_optPsf_cut_downsampled,size_of_optPsf_cut_downsampled))
+        #optPsf_cut_downsampled_p1=resize(optPsf_cut,(size_of_optPsf_cut_downsampled,size_of_optPsf_cut_downsampled))
+        #optPsf_cut_downsampled_m1=resize(optPsf_cut[1:-1,1:-1],(size_of_optPsf_cut_downsampled,size_of_optPsf_cut_downsampled))
+        #optPsf_cut_downsampled=(optPsf_cut_downsampled_p1+optPsf_cut_downsampled_m1)/2
+        
+        optPsf_cut_downsampled=skimage.transform.resize(optPsf_cut,(size_of_optPsf_cut_downsampled+1,size_of_optPsf_cut_downsampled+1),mode='constant')
+        
         if self.verbosity==1:        
             print('optPsf_cut_downsampled.shape: '+str(optPsf_cut_downsampled.shape))
         
         # ensure it is shape is even nubmer, needed for fft convolutions later
-        if optPsf_cut_downsampled.shape[0] % 2 ==0:
-            pass
-        else:
-            optPsf_cut_downsampled=optPsf_cut_downsampled[:optPsf_cut_downsampled.shape[0]-1,:optPsf_cut_downsampled.shape[0]-1]
+        #if optPsf_cut_downsampled.shape[0] % 2 ==0:
+        #    pass
+        #else:
+        #    optPsf_cut_downsampled=optPsf_cut_downsampled[:optPsf_cut_downsampled.shape[0]-1,:optPsf_cut_downsampled.shape[0]-1]
         
         # gives middle point of the image to used for calculations of scattered light 
         mid_point_of_optPsf_cut_downsampled=int(optPsf_cut_downsampled.shape[0]/2)
@@ -1005,6 +1016,8 @@ class ZernikeFitter_PFS(object):
         # convolve the psf with the scattered light kernel
         scattered_light= custom_fftconvolve(optPsf_cut_downsampled,scattered_light_kernel)
 
+        
+
         # add back the scattering to the image
         optPsf_cut_downsampled_scattered=optPsf_cut_downsampled+scattered_light        
         
@@ -1015,44 +1028,51 @@ class ZernikeFitter_PFS(object):
         fiber_padded=np.zeros_like(optPsf_cut_downsampled_scattered)
         mid_point_of_optPsf_cut_downsampled=int(optPsf_cut_downsampled.shape[0]/2)
         fiber_array_size=fiber.shape[0]
-        fiber_padded[int(mid_point_of_optPsf_cut_downsampled-fiber_array_size/2):int(mid_point_of_optPsf_cut_downsampled+fiber_array_size/2),int(mid_point_of_optPsf_cut_downsampled-fiber_array_size/2):int(mid_point_of_optPsf_cut_downsampled+fiber_array_size/2)]=fiber
+        fiber_padded[int(mid_point_of_optPsf_cut_downsampled-fiber_array_size/2)+1:int(mid_point_of_optPsf_cut_downsampled+fiber_array_size/2)+1,\
+                     int(mid_point_of_optPsf_cut_downsampled-fiber_array_size/2)+1:int(mid_point_of_optPsf_cut_downsampled+fiber_array_size/2)+1]=fiber
 
+        
         # convolve with fiber
         # legacy code is the line below, followed by the currently used code
         #optPsf_fiber_convolved=scipy.signal.fftconvolve(optPsf_downsampled_scattered, fiber, mode = 'same') 
         optPsf_cut_fiber_convolved=custom_fftconvolve(optPsf_cut_downsampled_scattered,fiber_padded)
          
         #pixels are not perfect, sigma is around 7 microns Jim claimes, controled by @param 'pixel_effect'
-        # I should implement custom_fft function (custom_fftconvolve), as above
-        optPsf_cut_pixel_response_convolved=scipy.signal.fftconvolve(optPsf_cut_fiber_convolved, Gaussian2DKernel(oversampling*v['pixel_effect']*self.dithering).array, mode = 'same')
+        pixel_gauss=Gaussian2DKernel(oversampling*v['pixel_effect']*self.dithering).array
+        pixel_gauss_padded=np.pad(pixel_gauss,int((len(optPsf_cut_fiber_convolved)-len(pixel_gauss))/2),'constant',constant_values=0)
+        optPsf_cut_pixel_response_convolved=custom_fftconvolve(optPsf_cut_fiber_convolved, pixel_gauss_padded)
+        #optPsf_cut_pixel_response_convolved=custom_fftconvolve(optPsf_cut_fiber_convolved, Gaussian2DKernel(oversampling*v['pixel_effect']*self.dithering).array)        
+        #optPsf_cut_pixel_response_convolved=optPsf_cut_pixel_response_convolved[:-1,:-1]
+        
         
         # following grating calculation is done
         # assuming that 15 microns covers wavelength range of 0.07907 nm
         #(assuming that 4300 pixels in real detector uniformly covers 340 nm)
-        kernel=np.ones((optPsf_cut_pixel_response_convolved.shape[0],1))
-        for i in range(len(kernel)):
-            kernel[i]=Ifun16Ne((i-int(optPsf_cut_pixel_response_convolved.shape[0]/2))*0.07907*10**-9/(self.dithering*oversampling)+self.wavelength*10**-9,self.wavelength*10**-9,v['grating_lines'])
-        kernel=kernel/np.sum(kernel)
+        grating_kernel=np.ones((optPsf_cut_pixel_response_convolved.shape[0],1))
+        for i in range(len(grating_kernel)):
+            grating_kernel[i]=Ifun16Ne((i-int(optPsf_cut_pixel_response_convolved.shape[0]/2))*0.07907*10**-9/(self.dithering*oversampling)+self.wavelength*10**-9,self.wavelength*10**-9,v['grating_lines'])
+        grating_kernel=grating_kernel/np.sum(grating_kernel)
         
         # I should implement custom_fft function (custom_fftconvolve), as above
-        optPsf_cut_grating_convolved=scipy.signal.fftconvolve(optPsf_cut_pixel_response_convolved, kernel, mode='same')
+        # This is 1D convolution so it would need a bit of work, and I see that behavioru if fine
+        optPsf_cut_grating_convolved=scipy.signal.fftconvolve(optPsf_cut_pixel_response_convolved, grating_kernel, mode='same')
         
         # This is the part which creates oversampled images
         if self.verbosity==1:
             print('simulation_00 parameter:' +str(self.simulation_00))
         if self.simulation_00 is not None:
-            optPsf_cut_grating_convolved_simulation=resize(optPsf_cut_grating_convolved,(int(len(optPsf_cut_grating_convolved)*5/oversampling),int(len(optPsf_cut_grating_convolved)*5/oversampling)))
-            optPsf_cut_grating_convolved_simulation_cut=cut_Centroid_of_natural_resolution_image(optPsf_cut_grating_convolved_simulation,100,1,0,0)
+            #optPsf_cut_grating_convolved_simulation=resize(optPsf_cut_grating_convolved,(int(len(optPsf_cut_grating_convolved)*5/oversampling),int(len(optPsf_cut_grating_convolved)*5/oversampling)))
+            optPsf_cut_grating_convolved_simulation_cut=cut_Centroid_of_natural_resolution_image(optPsf_cut_grating_convolved,211,1,+1,+1)
             optPsf_cut_grating_convolved_simulation_cut=optPsf_cut_grating_convolved_simulation_cut/np.sum(optPsf_cut_grating_convolved_simulation_cut)
             np.save(TESTING_FINAL_IMAGES_FOLDER+'optPsf_cut_grating_convolved_simulation_cut',optPsf_cut_grating_convolved_simulation_cut)
         else:
             pass
-        
-        #finds the best downsampling combination automatically 
+
+        # finds the best downsampling combination automatically 
         # only accepts integer values for downsampling!
         optPsf_cut_fiber_convolved_downsampled=find_single_realization_min_cut(optPsf_cut_grating_convolved,
                                                                                int(round(oversampling)),shape[0],self.image,self.image_var,
-                                                                               v['flux'])
+                                                                               v['flux'],False,False,self.verbosity)
         
         if self.verbosity==1:
             print('Sucesfully created optPsf_cut_fiber_convolved_downsampled') 
@@ -1068,10 +1088,12 @@ class ZernikeFitter_PFS(object):
                 np.save(TESTING_FINAL_IMAGES_FOLDER+'scattered_light',scattered_light)
                 np.save(TESTING_FINAL_IMAGES_FOLDER+'scattered_light_kernel',scattered_light_kernel)
                 np.save(TESTING_FINAL_IMAGES_FOLDER+'fiber',fiber)
+                np.save(TESTING_FINAL_IMAGES_FOLDER+'fiber_padded',fiber_padded)
                 np.save(TESTING_FINAL_IMAGES_FOLDER+'optPsf_cut_downsampled_scattered',optPsf_cut_downsampled_scattered)        
                 np.save(TESTING_FINAL_IMAGES_FOLDER+'optPsf_cut_fiber_convolved',optPsf_cut_fiber_convolved) 
                 np.save(TESTING_FINAL_IMAGES_FOLDER+'optPsf_cut_pixel_response_convolved',optPsf_cut_pixel_response_convolved) 
                 np.save(TESTING_FINAL_IMAGES_FOLDER+'optPsf_cut_grating_convolved',optPsf_cut_grating_convolved) 
+                np.save(TESTING_FINAL_IMAGES_FOLDER+'grating_kernel',grating_kernel)
         
         if self.verbosity==1:      
             print('Finished with optPsf_postprocessing')
@@ -1161,9 +1183,15 @@ class ZernikeFitter_PFS(object):
 
         aberrations_init=[0.0,0,0.0,0.0]
         aberrations = aberrations_init
+        # list of aberrations where we set z4, z11, z22 etc. to 0 do study behavioru of non-focus terms
+        aberrations_0=list(np.copy(aberrations_init))
         
         for i in range(4, self.zmax + 1):
             aberrations.append(params['z{}'.format(i)]) 
+            if i in [4,11,22]:
+                aberrations_0.append(0)
+            else:
+                aberrations_0.append(params['z{}'.format(i)]) 
             
         if self.verbosity==1:    
             print('Supplied pupil size is (pupil.size) [m]: '+str(pupil.size))
@@ -1187,7 +1215,10 @@ class ZernikeFitter_PFS(object):
                 pupil_plane_im = self.pupilExplicit.astype(np.float32),
                 pupil_plane_scale = pupil.scale,
                 pupil_plane_size = None)         
-            
+        
+        
+        
+        
         if self.verbosity==1:   
             print('Starting creation of wavefront')    
         # create wavefront across the exit pupil      
@@ -1200,11 +1231,13 @@ class ZernikeFitter_PFS(object):
         if self.verbosity==1:   
             print('diam_sic: '+str(diam_sic))
             print('aberrations: '+str(aberrations))
+            print('aberrations 0 '+str(aberrations_0))
             print('aberrations extra: '+str(self.extraZernike))
             print('self.wavelength: '+str(self.wavelength))
         
         if self.extraZernike==None:
             optics_screen = galsim.phase_screens.OpticalScreen(diam=diam_sic,aberrations=aberrations,lam_0=self.wavelength)
+            optics_screen_fake_0 = galsim.phase_screens.OpticalScreen(diam=diam_sic,aberrations=aberrations_0,lam_0=self.wavelength)
         else:
             optics_screen = galsim.phase_screens.OpticalScreen(diam=diam_sic,aberrations=aberrations_extended,lam_0=self.wavelength)      
             
@@ -1213,6 +1246,7 @@ class ZernikeFitter_PFS(object):
         
         #optics_screen = galsim.phase_screens.OpticalScreen(diam=diam_sic,aberrations=np.array(aberrations)/2,lam_0=self.wavelength)
         screens = galsim.PhaseScreenList(optics_screen)   
+        screens_fake_0 = galsim.PhaseScreenList(optics_screen_fake_0)  
         
         # create array with pixels=1 if the area is illuminated and 0 if it is obscured
         ilum=np.array(aper.illuminated, dtype=np.float64)
@@ -1284,6 +1318,9 @@ class ZernikeFitter_PFS(object):
         wf_grid[r_ilum] = (wf/self.wavelength)
         wf_grid_rot=wf_grid
         
+        wf_full_fake_0 = screens_fake_0.wavefront(u_manual, v_manual, None, 0)
+        
+        
         # exponential of the wavefront
         expwf_grid = np.zeros_like(r_ilum, dtype=np.complex128)
         expwf_grid[r_ilum] = r[r_ilum]*np.exp(2j*np.pi * wf_grid_rot[r_ilum])
@@ -1297,7 +1334,6 @@ class ZernikeFitter_PFS(object):
         # ftexpwf = galsim.fft.fft2(expwf_grid,shift_in=True,shift_out=True)
         
         # uncoment to get timming 
-        time_start_single=time.time()
         time_start_single=time.time()
         ftexpwf =np.fft.fftshift(np.fft.fft2(np.fft.fftshift(expwf_grid)))
         img_apod = np.abs(ftexpwf)**2
@@ -1335,6 +1371,8 @@ class ZernikeFitter_PFS(object):
                 
                 np.save(TESTING_WAVEFRONT_IMAGES_FOLDER+'wf_grid',wf_grid)  
                 np.save(TESTING_WAVEFRONT_IMAGES_FOLDER+'wf_full',wf_full) 
+                np.save(TESTING_WAVEFRONT_IMAGES_FOLDER+'wf_full_fake_0',wf_full_fake_0)       
+                
                 np.save(TESTING_WAVEFRONT_IMAGES_FOLDER+'expwf_grid',expwf_grid)   
 
         if self.verbosity==1:
@@ -1548,12 +1586,15 @@ class LN_PFS_single(object):
         globalparameters=allparameters[len(zparameters):]
         #print(zparameters)
         #print(globalparameters)
+        
 
 
         # internal parameter for debugging change value to 1 to see which parameters are failling
         test_print=0
+        if self.verbosity==1:
+            test_print=1
         #When running big fits these are limits which ensure that the code does not wander off in totally nonphyical region
-        
+        """
         # hsc frac
         if globalparameters[0]<=0.6 or globalparameters[0]>0.8:
             print('globalparameters[0] outside limits') if test_print == 1 else False 
@@ -1736,7 +1777,7 @@ class LN_PFS_single(object):
         if globalparameters[22]>1.02:
             print('globalparameters[22] outside limits') if test_print == 1 else False 
             return -np.inf      
-
+        """
         x=self.create_x(zparameters,globalparameters)
         for i in range(len(self.columns)):
             self.single_image_analysis.params[self.columns[i]].set(x[i])
@@ -1769,7 +1810,9 @@ class LN_PFS_single(object):
         chi_2_almost_multi_values=self.create_chi_2_almost(modelImg,self.sci_image,self.var_image,self.mask_image)
         chi_2_almost=chi_2_almost_multi_values[0]
         
-        res=-(1/2)*(chi_2_almost+np.log(2*np.pi*np.sum(self.var_image)))
+        #res=-(1/2)*(chi_2_almost+np.log(2*np.pi*np.sum(self.var_image)))
+        
+        res=-(1/2)*(chi_2_almost+np.sum(np.log(2*np.pi*self.var_image)))
 
         if self.verbosity==True:
             print('Finished with lnlike_Neven')
@@ -1915,9 +1958,9 @@ class Zernike_Analysis(object):
         if obs==8600:
             print("Not implemented for December 2018 data")
         else:
-            sci_image =np.load(STAMPS_FOLDER+'sci'+str(obs)+str(single_number)+str(arc)+'_Stacked.npy')
-            mask_image =np.load(STAMPS_FOLDER+'mask'+str(obs)+str(single_number)+str(arc)+'_Stacked.npy')
-            var_image =np.load(STAMPS_FOLDER+'var'+str(obs)+str(single_number)+str(arc)+'_Stacked.npy')
+            sci_image =np.load(STAMPS_FOLDER+'sci'+str(obs)+str(single_number)+str(arc)+'_2Stacked.npy')
+            mask_image =np.load(STAMPS_FOLDER+'mask'+str(obs)+str(single_number)+str(arc)+'_2Stacked.npy')
+            var_image =np.load(STAMPS_FOLDER+'var'+str(obs)+str(single_number)+str(arc)+'_2Stacked.npy')
             sci_image_focus_large =np.load(STAMPS_FOLDER+'sci'+str(single_number_focus)+str(single_number)+str(arc)+'_Stacked_large.npy')
             var_image_focus_large =np.load(STAMPS_FOLDER+'var'+str(single_number_focus)+str(single_number)+str(arc)+'_Stacked_large.npy')   
         
@@ -2466,45 +2509,15 @@ def cut_Centroid_of_natural_resolution_image(image,size_natural_resolution,overs
     @param dy                             how much to move in dy direction (fix)
     """
 
-    positions_from_where_to_start_cut=[int(len(image)/2-size_natural_resolution/2-dx*oversampling),
-                                       int(len(image)/2-size_natural_resolution/2-dy*oversampling)]
+    positions_from_where_to_start_cut=[int(len(image)/2-size_natural_resolution/2-dx*oversampling+1),
+                                       int(len(image)/2-size_natural_resolution/2-dy*oversampling+1)]
 
     res=image[positions_from_where_to_start_cut[1]:positions_from_where_to_start_cut[1]+int(size_natural_resolution),
                  positions_from_where_to_start_cut[0]:positions_from_where_to_start_cut[0]+int(size_natural_resolution)]
     
     return res
 
-def downsample_manual_function(optPsf_cut_fiber_convolved,npixfinal):
-    """
-    function which downsamples the image ''manually'' i.e., without interpolation
-    
-    
-    @param optPsf_cut_fiber_convolved     image which needs to be downsampled (in our case this will be image of the optical psf convolved with fiber)
-    @param npixfinal                      what is the size of the final image
-    """
-    res=[]
-    FFTImage_cropped_split=np.array_split(optPsf_cut_fiber_convolved,npixfinal)
-    for j in range(len(FFTImage_cropped_split)):
-        FFTImage_cropped_split_split=np.array_split(FFTImage_cropped_split[j],npixfinal,axis=1)
-        for i in range(len(FFTImage_cropped_split_split)):
-            res.append(np.sum(FFTImage_cropped_split_split[i]))
-
-    res=np.array(res)
-    FFTImage_croppedEvenDownsampled32=res.reshape(npixfinal,npixfinal)
-    return FFTImage_croppedEvenDownsampled32
-
-def find_nearest(array,value):
-    """
-    function which fineds the nearest value in the array to the input value (not sure if I am still using this)
-    
-    
-    @param optPsf_cut_fiber_convolved     image which needs to be downsampled (in our case this will be image of the optical psf convolved with fiber)
-    @param npixfinal                      what is the size of the final image
-    """
-    idx = (np.abs(array-value)).argmin()
-    return idx
-
-def find_single_realization_min_cut(input_img,oversampling,size_natural_resolution,sci_image,var_image,v_flux, zero_modification=False):
+def find_single_realization_min_cut(input_img,oversampling,size_natural_resolution,sci_image,var_image,v_flux, zero_modification=False, double_sources=False,verbosity=0):
 
     """
     function called by create_optPSF_natural
@@ -2516,6 +2529,7 @@ def find_single_realization_min_cut(input_img,oversampling,size_natural_resoluti
     @param sci_image_0                                                scientific image
     @param var_image_0                                                variance image
     @param v_flux                                                     flux normalization
+    @param zero_modification                                          do not move the center, for making good comparisons between images
     """
     
     shape_of_input_img=input_img.shape[0]
@@ -2524,11 +2538,13 @@ def find_single_realization_min_cut(input_img,oversampling,size_natural_resoluti
     min_possible_value_to_analyze=int(oversampling)
     center_point=int(shape_of_input_img/2)
     
+    # largest and smallest value to analyze 
     min_dx_value_to_analyse=int(center_point+oversampling*(-shape_of_sci_image/2-5))
     max_dx_value_to_analyse=int(center_point+oversampling*(shape_of_sci_image/2+5)) 
     min_dy_value_to_analyse=int(center_point+oversampling*(-shape_of_sci_image/2-5))
     max_dy_value_to_analyse=int(center_point+oversampling*(shape_of_sci_image/2+5))    
     
+    # if largest and smallest values are outside image 
     if max_dx_value_to_analyse>max_possible_value_to_analyze:  
         max_dx_value_to_analyse=max_possible_value_to_analyze
     if max_dy_value_to_analyse>max_possible_value_to_analyze:  
@@ -2537,50 +2553,67 @@ def find_single_realization_min_cut(input_img,oversampling,size_natural_resoluti
         min_dx_value_to_analyse=min_possible_value_to_analyze
     if min_dy_value_to_analyse<min_possible_value_to_analyze:  
         min_dy_value_to_analyse=min_possible_value_to_analyze 
-    
+        
+    ###############################################################
+    # First step
+    # test chi2 for every combination of the parameters
+    # create an array res_init, for every movement of pixel dx and dy, give chi2
+    first_step_start_downsampling_time=time.time()
+ 
     res_init=[]
-    for deltay in np.arange(min_dy_value_to_analyse,max_dy_value_to_analyse-oversampling*shape_of_sci_image,oversampling):
-        for deltax in np.arange(min_dx_value_to_analyse,max_dx_value_to_analyse-oversampling*shape_of_sci_image,oversampling):
+    
+    delta_x_1=np.arange(min_dy_value_to_analyse,max_dy_value_to_analyse-oversampling*shape_of_sci_image,oversampling)
+    delta_y_1=np.arange(min_dx_value_to_analyse,max_dx_value_to_analyse-oversampling*shape_of_sci_image,oversampling)
+    
+    for deltay in delta_x_1:
+        for deltax in delta_y_1:
             y_list=np.arange(deltay,deltay+oversampling*shape_of_sci_image,oversampling,dtype=np.intp)
             x_list=np.arange(deltax,deltax+oversampling*shape_of_sci_image,oversampling,dtype=np.intp)
             single_realization=input_img[y_list][:,x_list]
+            np.save(TESTING_FINAL_IMAGES_FOLDER+'single_realization',single_realization) 
+            
             multiplicative_factor=np.sum(sci_image)/np.sum(single_realization)
             single_realization_finalImg=v_flux*multiplicative_factor*single_realization
-            
-            ###############
-            # debuggin Feb 18, 2019
-            #print(single_realization_finalImg.shape)
-            #print(sci_image.shape)
-            #print(var_image.shape)            
-            ###############
             res_init.append([deltax,deltay,np.mean((single_realization_finalImg-sci_image)**2/var_image)])
             
-    #np.save(TESTING_FINAL_IMAGES_FOLDER+'res_init',res_init)          
+         
     res_init=np.array(res_init)
+    
+    # uncomment if you fish to save this intermediate result
+    # np.save(TESTING_FINAL_IMAGES_FOLDER+'res_init',res_init) 
+    
+    # find the dx and dy value which gives the best result
     resmin_init=res_init[res_init[:,2]==np.min(res_init[:,2])][0]
     resmin_init_x=int(resmin_init[0])
     resmin_init_y=int(resmin_init[1])
+    first_step_end_downsampling_time=time.time()
+    if verbosity==1:
+        print('Number of steps in the first downsampling step:'+str(len(delta_x_1)*len(delta_y_1)))
+        print('Time for first downsampling step is '+str(first_step_end_downsampling_time-first_step_start_downsampling_time))   
     
+    ###############################################################
 
+    # Second step 
+    # move in small steps around the init result and find the best fit
     
+    second_step_start_downsampling_time=time.time()
     res=[]
-    for deltay in np.arange(int(resmin_init_y-1.5*oversampling),int(resmin_init_y+1.5*oversampling),1):
-        for deltax in np.arange(int(resmin_init_x-1.5*oversampling),int(resmin_init_x+1.5*oversampling),1):
-            #y_list=np.arange(deltay,deltay+oversampling*shape_of_sci_image,oversampling,dtype=np.intp)
-            #x_list=np.arange(deltax,deltax+oversampling*shape_of_sci_image,oversampling,dtype=np.intp)
-
+    
+    delta_x_2=np.arange(int(resmin_init_y-1.5*oversampling),int(resmin_init_y+1.5*oversampling),1)
+    delta_y_2=np.arange(int(resmin_init_x-1.5*oversampling),int(resmin_init_x+1.5*oversampling),1)
+    for deltay in delta_x_2:
+        for deltax in delta_y_2:
             input_img_single_realization_before_downsampling=input_img[deltay:deltay+oversampling*shape_of_sci_image,deltax:deltax+oversampling*shape_of_sci_image]
             single_realization=resize(input_img_single_realization_before_downsampling,(shape_of_sci_image,shape_of_sci_image))
-            
-            #single_realization=input_img[y_list][:,x_list]
             multiplicative_factor=np.sum(sci_image)/np.sum(single_realization)
             single_realization_finalImg=v_flux*multiplicative_factor*single_realization
             res.append([deltax,deltay,np.mean((single_realization_finalImg-sci_image)**2/var_image)])
             
     res=np.array(res)
 
+    # find the precise dx and dy value which gives the best result
 
-    resmin=res[res[:,2]==np.min(res[:,2])][0]
+    resmin=res[res[:,2]==np.min(res[:,2][~np.isnan(res[:,2])]  )][0]
 
     resmin_x=int(resmin[0])
     resmin_y=int(resmin[1])
@@ -2591,13 +2624,18 @@ def find_single_realization_min_cut(input_img,oversampling,size_natural_resoluti
         resmin_x=int(center_point-oversampling*shape_of_sci_image/2)
         resmin_y=int(center_point-oversampling*shape_of_sci_image/2)
     
-    #y_list_final=np.arange(resmin_y,resmin_y+oversampling*shape_of_sci_image,oversampling,dtype=np.intp)
-    #x_list_final=np.arange(resmin_x,resmin_x+oversampling*shape_of_sci_image,oversampling,dtype=np.intp)
-    #single_realization=input_img[y_list_final][:,x_list_final]
-    
+    second_step_end_downsampling_time=time.time()
+    if verbosity==1:
+        print('Number of steps in the second downsampling step:'+str(len(delta_x_2)*len(delta_y_2)))
+        print('Time for second downsampling step is '+str(second_step_end_downsampling_time-second_step_start_downsampling_time))      
 
-    
     #############################################
+    
+    # Third step 
+    # effectivly do bilinear interpolation for fine subpixel fitting
+    
+    third_step_start_downsampling_time=time.time() 
+    
     res_pp=[]
     res_pm=[]
     res_mp=[]
@@ -2644,20 +2682,13 @@ def find_single_realization_min_cut(input_img,oversampling,size_natural_resoluti
     res_mp=np.array(res_mp)    
     res_pm=np.array(res_pm)
     res_mm=np.array(res_mm)
-    #print(res_pp)
-    #print(res_mp)
-    #print(res_pm)
-    #print(res_mm)
-
     
     array_of_min=np.array([res_pp[res_pp[:,2]==np.min(res_pp[:,2])][0],res_pm[res_pm[:,2]==np.min(res_pm[:,2])][0],res_mp[res_mp[:,2]==np.min(res_mp[:,2])][0],res_mm[res_mm[:,2]==np.min(res_mm[:,2])][0]])
-    #print(array_of_min)
     
-    itemindex = np.where(array_of_min[:,2]==np.min(array_of_min[:,2]))[0][0]
-    
-     # DIRTY HACK HERE, JUST TO CREATE COMPARABLE RESULTS WHEN SIMULATING DIFFERENT FRD FOR SPOT AT CENTER OF DETECTOR
+    itemindex = np.where(array_of_min[:,2]==np.min(array_of_min[:,2]))[0][0]  
     
     
+    # if you do not want to move around, go into center and do not move
     if zero_modification==True:
         itemindex=5
         
@@ -2694,257 +2725,14 @@ def find_single_realization_min_cut(input_img,oversampling,size_natural_resoluti
         dy=array_of_min_selected[1]
         focus_res_final_combination=dx*single_realization_m10+dy*single_realization_0m1+(1-dx-dy)*single_realization
 
+    third_step_end_downsampling_time=time.time()
+    if verbosity==1:
+        print('Time for third downsampling step is '+str(third_step_end_downsampling_time-third_step_start_downsampling_time))     
+
+
     single_realization_finalImg=focus_res_final_combination 
-    #############################################   
-    #input_img_single_realization_before_downsampling=input_img[resmin_y:resmin_y+oversampling*shape_of_sci_image,resmin_x:resmin_x+oversampling*shape_of_sci_image]
-    #single_realization=resize(input_img_single_realization_before_downsampling,(shape_of_sci_image,shape_of_sci_image))
-    #multiplicative_factor=np.sum(sci_image)/np.sum(single_realization)
-    #single_realization_finalImg=v_flux*multiplicative_factor*single_realization
-
+    
     return single_realization_finalImg
-
-"""
-def create_single_realization(optPsf_cut_pixel_response_convolved_pixelized_convolved,deltax,deltay,oversampling,sci_image_0,dx_large=None,dy_large=None):
-"""
-"""
-    (II.) called by find_single_realization_min_cut
-    for a given intrapixel variation  crete single realization of the oversampled image     
-    
-    @param optPsf_cut_pixel_response_convolved_pixelized_convolved     image to be analyzed (in our case this will be image of the optical psf convolved with fiber)
-    @param deltax                                                      how much to move off center in dx direction
-    @param deltay                                                      how much to move off center in dy direction
-    @param oversampling                                                how much is it oversampled
-    @param sci_image_0                                                 what is the science image that we will compare to 
-"""
-"""
-    # what is the size of the input
-    shape_of_input_img=optPsf_cut_pixel_response_convolved_pixelized_convolved.shape[0]
-  
-    max_possible_value_final_pixel_to_analyze=int(shape_of_input_img-oversampling)
-    min_possible_value_final_pixel_to_analyze=int(oversampling)
-    print('max_possible_value_final_pixel_to_analyze: '+str(max_possible_value_final_pixel_to_analyze))
-    print('min_possible_value_final_pixel_to_analyze: '+str(min_possible_value_final_pixel_to_analyze))    
-    
-
-    
-    
-        #we do not analyze the full image to save time; I assume that centering is around dx_large and dy_large which was determined in the first initial run
-    if dx_large is None:
-        dx_large_Init=None
-        dx_large=0
-    else:
-        dx_large_Init=dx_large
-        
-    if dy_large is None:
-        dy_large_Init=None
-        dy_large=0
-    else:
-        dy_large_Init=dy_large
-    
-    
-    print('dx_large: '+str(dx_large))
-    print('dy_large: '+str(dy_large))
-    print('shape_of_input_img:' +str(shape_of_input_img))
-    print('oversampling:' +str(oversampling))
-    print('sci_image_0.shape[0]'+str(sci_image_0.shape[0]))
-
-    # ensure that you are not testing outside acceptable limits
-    # if this is not initial run (dx_large and dy_large are determined) explore smaller range
-    if dx_large_Init is None:
-        min_dx_value_to_analyse=int(shape_of_input_img/2+oversampling*(-sci_image_0.shape[0]/2+dx_large-5))
-        max_dx_value_to_analyse=int(shape_of_input_img/2+oversampling*(sci_image_0.shape[0]/2+dx_large+5)) 
-        min_dy_value_to_analyse=int(shape_of_input_img/2+oversampling*(-sci_image_0.shape[0]/2+dy_large-5))
-        max_dy_value_to_analyse=int(shape_of_input_img/2+oversampling*(sci_image_0.shape[0]/2+dy_large+5))         
-    else:
-        min_dx_value_to_analyse=int(shape_of_input_img/2+oversampling*(-sci_image_0.shape[0]/2+dx_large-3))
-        max_dx_value_to_analyse=int(shape_of_input_img/2+oversampling*(sci_image_0.shape[0]/2+dx_large+3)) 
-        min_dy_value_to_analyse=int(shape_of_input_img/2+oversampling*(-sci_image_0.shape[0]/2+dy_large-3))
-        max_dy_value_to_analyse=int(shape_of_input_img/2+oversampling*(sci_image_0.shape[0]/2+dy_large+3))  
-        
-    if max_dx_value_to_analyse>max_possible_value_final_pixel_to_analyze:  
-        max_dx_value_to_analyse=max_possible_value_final_pixel_to_analyze
-    if max_dy_value_to_analyse>max_possible_value_final_pixel_to_analyze:  
-        max_dy_value_to_analyse=max_possible_value_final_pixel_to_analyze 
-    if min_dx_value_to_analyse<min_possible_value_final_pixel_to_analyze:  
-        min_dx_value_to_analyse=min_possible_value_final_pixel_to_analyze
-    if min_dy_value_to_analyse<min_possible_value_final_pixel_to_analyze:  
-        min_dy_value_to_analyse=min_possible_value_final_pixel_to_analyze 
-                
-        
-    #print('dx_large: '+str(dx_large))      
-    #print('dy_large: '+str(dy_large))  
-    #print('dx_large_Init: '+str(dx_large_Init))      
-    #print('dy_large_Init: '+str(dy_large_Init))      
-    
-
-    #if min_value_to_analyse<min_possible_value_final_pixel_to_analyze:
-    #    max_value_to_analyse=min_possible_value_final_pixel_to_analyze        
-        
-    print("min_dx_value_to_analyse in the oversampled image: "+str(min_dx_value_to_analyse))
-    print("max_dx_value_to_analyse in the oversampled image: "+str(max_dx_value_to_analyse))
-    print("min_dy_value_to_analyse in the oversampled image: "+str(min_dy_value_to_analyse))
-    print("max_dy_value_to_analyse in the oversampled image: "+str(max_dy_value_to_analyse))    
-
-    #print("shape_of_input_img: "+str(shape_of_input_img))
-    assert max_dx_value_to_analyse+oversampling<=shape_of_input_img, "oversampled image is too small to downsample in x dimension"
-    assert max_dy_value_to_analyse+oversampling<=shape_of_input_img, "oversampled image is too small to downsample in y dimension"
-    assert min_dx_value_to_analyse>=0, "oversampled image is too small to downsample in x dimension"
-    assert min_dy_value_to_analyse>=0, "oversampled image is too small to downsample in y dimension"
-    #how big is the final image 
-    #size_of_single_realization_y=len(np.arange(min_value_to_analyse+deltay,max_value_to_analyse,oversampling))
-    #size_of_single_realization_x=len(np.arange(min_value_to_analyse+deltax,max_value_to_analyse,oversampling))
-    
-    #create lists where to sample
-    print('(min_dy_value_to_analyse+deltay,max_dy_value_to_analyse+deltay)'+str((min_dy_value_to_analyse+deltay,max_dy_value_to_analyse+deltay)))
-    print('(min_dx_value_to_analyse+deltay,max_dx_value_to_analyse+deltay)'+str((min_dx_value_to_analyse+deltax,max_dx_value_to_analyse+deltax)))
-    y_list=np.arange(min_dy_value_to_analyse+deltay,max_dy_value_to_analyse+deltay,oversampling,dtype=np.intp)
-    x_list=np.arange(min_dx_value_to_analyse+deltax,max_dx_value_to_analyse+deltax,oversampling,dtype=np.intp)
-    
-    #use fancy indexing to get correct pixels
-    single_realization=optPsf_cut_pixel_response_convolved_pixelized_convolved[y_list][:,x_list]
-
-    return single_realization
-"""
-"""
-def find_min_chi_single_realization(single_realization,size_natural_resolution,sci_image_0,var_image_0,v_flux):
-"""
-"""
-    (III.) called by find_single_realization_min_cut
-    loop over big (sampled) pixels and find realization of the oversampled image which has smallest chi2
-    
-    @param single_realization        single realzation of the oversampled image
-    @param size_natural_resolution   size of the final image (fix)
-    @param sci_image_0               science image
-    @param var_image_0               variance image
-    @param v_flux                    flux (do I use?)
-"""
-"""    
-    
-    # print(v_flux)
-    assert size_natural_resolution==len(sci_image_0), "size of the generated image does not match science image"
-    assert len(single_realization)>len(sci_image_0), "size of the single realization is smaller than the size of the science image"
-    res=[]
-    #print('single_realization.shape[1]'+str(single_realization.shape[1]))
-    for x in range(single_realization.shape[1]-size_natural_resolution+1):
-        for y in range(single_realization.shape[0]-size_natural_resolution+1):
-            single_realization_cut=single_realization[y:y+size_natural_resolution,x:x+size_natural_resolution]
-            #trace_and_serial_suggestion=estimate_trace_and_serial(sci_image_0,single_realization_cut)
-            #single_realization_trace=create_trace(single_realization_cut,trace_and_serial_suggestion[0],trace_and_serial_suggestion[1])
-            
-            #trace_and_serial_suggestion=estimate_trace_and_serial(sci_image_0,single_realization_cut)
-            #single_realization_trace=create_trace(single_realization_cut,0,0)          
-            single_realization_trace=single_realization_cut         
-            
-            multiplicative_factor=np.sum(sci_image_0)/np.sum(single_realization_trace)
-            single_realization_trace_finalImg=v_flux*multiplicative_factor*single_realization_trace
-            np.save(TESTING_FOLDER+'single_realization_trace_finalImg'+str(x)+str(y),single_realization_trace_finalImg)
-            #np.save(TESTING_FOLDER+'single_realization_trace'+str(x)+str(y),single_realization_trace)
-            #np.save(TESTING_FOLDER+'trace_and_serial_suggestion'+str(x)+str(y),trace_and_serial_suggestion)
-            np.save(TESTING_FOLDER+'single_realization_cut'+str(x)+str(y),single_realization_cut)
-            res.append([x,y,np.mean((single_realization_trace_finalImg-sci_image_0)**2/var_image_0)])
-
-    res=np.array(res)
-    #print('find_min_chi_single_realization res:'+str(res))
-
-    resmin=res[res[:,2]==np.min(res[:,2])][0]
-
-    #print("resmin: "+str(resmin))
-    
-    x=int(resmin[0])
-    y=int(resmin[1])
-    #print([x,y])
-    single_realization_cut=single_realization[y:y+size_natural_resolution,x:x+size_natural_resolution]
-    
-    #trace_and_serial_suggestion=estimate_trace_and_serial(sci_image_0,single_realization_cut)
-    
-    #this line below is capable of creating artifical cross structure in order to help recreate the data
-    #single_realization_trace=create_trace(single_realization_cut,trace_and_serial_suggestion[0],trace_and_serial_suggestion[1])
-    #single_realization_trace=create_trace(single_realization_cut,0,0)
-    single_realization_trace=single_realization_cut
-    
-    multiplicative_factor=np.sum(sci_image_0)/np.sum(single_realization_trace)
-    single_realization_trace_finalImg=v_flux*multiplicative_factor*single_realization_trace
-    
-    return resmin,single_realization_trace_finalImg
-"""
-"""
-def find_single_realization_min_cut(optPsf_cut_grating_convolved,oversampling,size_natural_resolution,sci_image_0,var_image_0,v_flux):
-"""
-"""
-    (I.) function called by create_optPSF_natural
-    find what is the best starting point to downsample the oversampled image  - (seaches within one oversampled pixel?)
-    
-    @param optPsf_cut_pixel_response_convolved_pixelized_convolved    image to be analyzed (in our case this will be image of the optical psf convolved with fiber)
-    @param oversampling                                               oversampling
-    @param size_natural_resolution                                    size of final image
-    @param sci_image_0                                                scientific image
-    @param var_image_0                                                variance image
-    @param v_flux                                                     flux
-"""
-""" 
-    
-    # do a quick single run without intrapixel variations
-    single_realization00=create_single_realization(optPsf_cut_grating_convolved,0,0,oversampling,sci_image_0)
-    np.save(TESTING_FOLDER+'single_realization00',single_realization00)
-    print(single_realization00.shape)
-    # find best chi for this single realization 
-    print('size_natural_resolution: '+str(size_natural_resolution))
-    central_cut_single_realization_test00=find_min_chi_single_realization(single_realization00,size_natural_resolution,sci_image_0,var_image_0,v_flux)[0]    
-    print('central_cut_single_realization_test00 '+str(central_cut_single_realization_test00))
-    # this is best 'sampled' central pixel, determined without intrapixel (oversampled) variations
-    # do analyis around this pixel
-    central_cut_single_realization_test00dx=central_cut_single_realization_test00[0]-5
-    central_cut_single_realization_test00dy=central_cut_single_realization_test00[1]-5
-
-    res=[]
-    # run over all intra-pixels oversampeld variations around the central 'sampled' pixel
-    for deltax in range(0,oversampling):
-        for deltay in range(0,oversampling):
-            # create single realization of the downsampled image
-            single_realization=create_single_realization(optPsf_cut_grating_convolved,deltax,deltay,oversampling,sci_image_0,central_cut_single_realization_test00dx,central_cut_single_realization_test00dy)
-            # find best chi for this single realization i.e., best big pixel for this oversampled pixel combination
-            central_cut_single_realization_test=find_min_chi_single_realization(single_realization,size_natural_resolution,sci_image_0,var_image_0,v_flux)[0]
-            #put it in a list
-            res.append([deltax,deltay,central_cut_single_realization_test[0],central_cut_single_realization_test[1],central_cut_single_realization_test[2]])
-            
-    res=np.array(res)
-    print(res.shape)
-    print(res)
-
-    # values which minimize chi**2 1. deltax in oversampled space, 2. deltay in oversampled space, 3. deltax in big space, 4. deltay in big single_realization, 5. min chi**2
-    min_chi_arr=res[res[:,4]==np.min(res[:,4])][0]
-    print(min_chi_arr)
-    # create single realization which deltax and delta y from line above
-    single_realization_min=create_single_realization(optPsf_cut_grating_convolved,min_chi_arr[0],
-                                                     min_chi_arr[1],oversampling,sci_image_0,central_cut_single_realization_test00dx+central_cut_single_realization_test[0],central_cut_single_realization_test00dy+central_cut_single_realization_test[1])
- 
-    # DIRTY HACK HERE, JUST TO CREATE COMPARABLE RESULTS WHEN SIMULATING DIFFERENT FRD FOR SPOT AT CENTER OF DETECTOR
-    #single_realization_min=create_single_realization(optPsf_cut_pixel_response_convolved_pixelized_convolved,0,
-    #                                                 0,oversampling,sci_image_0)
-    
-    # DIRTY HACK HERE, JUST TO CREATE COMPARABLE RESULTS WHEN SIMULATING DIFFERENT FRD FOR SPOT AT EDGE OF DETECTOR
-    #single_realization_min=create_single_realization(optPsf_cut_pixel_response_convolved_pixelized_convolved,1,
-    #                                                 min_chi_arr[1],oversampling,sci_image_0)
-    
-    
-    # find best cut from the single realization 
-    single_realization_min_min=find_min_chi_single_realization(single_realization_min,size_natural_resolution,sci_image_0,var_image_0,v_flux)[1]
-
-    return single_realization_min_min
-"""
-
-"""
-def nyQuistScale(diam,lamda,oversampling=0.5):
-
-    gives nyquist scale in arcsec
-    
-    @param diam      diam(exit pupil size) in  
-    @param lamda     wavelength in nanometers
-
-    multiplicativefactor=1.19648053887*(136.88e-3)/(794*10**-9)*0.5/oversampling
-    return multiplicativefactor*(lamda*10**-9)/diam    
-"""                          
-    
 
 def create_trace(best_img,norm_of_trace,norm_of_serial_trace):
     if norm_of_trace==0:
@@ -3345,7 +3133,19 @@ def Ifun16Ne (lambdaV,lambda0,Ne):
 
 def custom_fftconvolve(array1, array2):
     assert array1.shape==array2.shape
-    return np.fft.fftshift(np.real(np.fft.irfft2(np.fft.rfft2(array1)*np.fft.rfft2(array2))))
+    
+    
+    fft_result=np.fft.fftshift(np.real(np.fft.irfft2(np.fft.rfft2(array1)*np.fft.rfft2(array2),s=np.array(array1.shape))))
+    # ensure it is shape is even nubmer, needed for fft convolutions later
+    if array1.shape[0] % 2 ==0:
+        # if even
+        fft_result=fft_result[:fft_result.shape[0]-1,:fft_result.shape[1]-1]  
+    else:
+        # if it odd
+        fft_result=fft_result[:fft_result.shape[0]-2,:fft_result.shape[1]-2]    
+        fft_result=np.pad(fft_result,1,'constant',constant_values=0)
+    
+    return fft_result
 
 
 # Taken from galsim.Aperature() code
@@ -3456,9 +3256,6 @@ def add_pupil_parameters_to_all_parameters(parameters,pupil_parameters):
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
-
-
 
 def _reflect_breaks(size: int) -> np.ndarray:
   """Calculate cell boundaries with reflecting boundary conditions."""
