@@ -27,5 +27,5 @@ Collection of files and documents related to my work on 2D modeling of the point
 ![Overview of the notebook](https://www.dropbox.com/s/1v8sonvg5f23pgy/Screenshot%202018-07-30%2014.53.57.png?raw=1)
 
 - Zernike_Module (fluid, changes often) :  python module with definitions of functions 
-- Zernike_Work_ (fluid - currently  Zernike_Work_May):  latest jupyter notebook used to investigate 
+- Zernike_Work_ (fluid - currently  Zernike_Work_Jan_Feb_2020):  latest jupyter notebook used to investigate the problem
 
