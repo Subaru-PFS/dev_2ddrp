@@ -35,6 +35,8 @@ Nov 13, 2019: 0.22d -> 0.23 major changes to centering - chief ray in the center
 Nov 15, 2019: 0.23 -> 0.24 change likelihood definition
 Dec 16, 2019: 0.24 -> 0.24a added iluminaton with z4,z11,z22=0
 Jan 14, 2020: 0.24a -> 0.24b added verbosity in find_single_realization_min_cut function
+Jan 31, 2020: 0.24b -> 0.25 added support for data contaning spots from two wavelengths
+Feb 11, 2020: 0.25 -> 0.26 proper bilinear interpolation of the spots
 
 @author: Neven Caplar
 @contact: ncaplar@princeton.edu
@@ -99,7 +101,7 @@ __all__ = ['PupilFactory', 'Pupil','ZernikeFitter_PFS','LN_PFS_single','LNP_PFS'
            'sky_scale','sky_size','create_x','remove_pupil_parameters_from_all_parameters',\
            'resize','_interval_overlap']
 
-__version__ = "0.24b"
+__version__ = "0.26"
 
 ############################################################
 # name your directory where you want to have files!
@@ -515,7 +517,8 @@ class ZernikeFitter_PFS(object):
                  wf_full_Image=None,radiometricEffectArray_Image=None,
                  ilum_Image=None,dithering=None,save=None,
                  pupil_parameters=None,use_pupil_parameters=None,use_optPSF=None,
-                 zmaxInit=None,extraZernike=None,simulation_00=None,verbosity=None,*args):
+                 zmaxInit=None,extraZernike=None,simulation_00=None,verbosity=None,
+                 double_sources=None,double_sources_positions_ratios=None,*args):
         
         """
         @param image        image to analyze
@@ -606,10 +609,11 @@ class ZernikeFitter_PFS(object):
             self.pixelScale=self.pixelScale/dithering
         else:
             self.dithering=dithering         
-            self.pixelScale=self.pixelScale/dithering
+            self.pixelScale=self.pixelScale/dithering         
             
-        if save is None:
-            save=0
+        
+        if save in (None,0):
+            save=None
             self.save=save
         else:
             save=1
@@ -638,6 +642,9 @@ class ZernikeFitter_PFS(object):
         self.extraZernike=extraZernike
         
         self.verbosity=verbosity
+        
+        self.double_sources=double_sources
+        self.double_sources_positions_ratios=double_sources_positions_ratios
 
     
     def initParams(self,z4Init=None, dxInit=None,dyInit=None,hscFracInit=None,strutFracInit=None,
@@ -938,7 +945,7 @@ class ZernikeFitter_PFS(object):
         
         params = self.params
         shape = self.image.shape 
-        
+        double_sources=self.double_sources
         
         v = params.valuesdict()
         
@@ -956,8 +963,8 @@ class ZernikeFitter_PFS(object):
         if self.verbosity==1:
             print('size_of_central_cut: '+str(size_of_central_cut))
             
-        #cut part which you need
-        optPsf_cut=cut_Centroid_of_natural_resolution_image(optPsf,size_of_central_cut+1,1,0,0)
+        #cut part which you need image
+        optPsf_cut=Psf_position.cut_Centroid_of_natural_resolution_image(image=optPsf,size_natural_resolution=size_of_central_cut+1,oversampling=1,dx=0,dy=0)
         if self.verbosity==1:
             print('optPsf_cut.shape'+str(optPsf_cut.shape))
 
@@ -1062,7 +1069,7 @@ class ZernikeFitter_PFS(object):
             print('simulation_00 parameter:' +str(self.simulation_00))
         if self.simulation_00 is not None:
             #optPsf_cut_grating_convolved_simulation=resize(optPsf_cut_grating_convolved,(int(len(optPsf_cut_grating_convolved)*5/oversampling),int(len(optPsf_cut_grating_convolved)*5/oversampling)))
-            optPsf_cut_grating_convolved_simulation_cut=cut_Centroid_of_natural_resolution_image(optPsf_cut_grating_convolved,211,1,+1,+1)
+            optPsf_cut_grating_convolved_simulation_cut=Psf_position.cut_Centroid_of_natural_resolution_image(optPsf_cut_grating_convolved,211,1,+1,+1)
             optPsf_cut_grating_convolved_simulation_cut=optPsf_cut_grating_convolved_simulation_cut/np.sum(optPsf_cut_grating_convolved_simulation_cut)
             np.save(TESTING_FINAL_IMAGES_FOLDER+'optPsf_cut_grating_convolved_simulation_cut',optPsf_cut_grating_convolved_simulation_cut)
         else:
@@ -1070,10 +1077,20 @@ class ZernikeFitter_PFS(object):
 
         # finds the best downsampling combination automatically 
         # only accepts integer values for downsampling!
-        optPsf_cut_fiber_convolved_downsampled=find_single_realization_min_cut(optPsf_cut_grating_convolved,
-                                                                               int(round(oversampling)),shape[0],self.image,self.image_var,
-                                                                               v['flux'],False,False,self.verbosity)
+        single_Psf_position=Psf_position(optPsf_cut_grating_convolved, int(round(oversampling)),shape[0] ,double_sources=self.double_sources,double_sources_positions_ratios=self.double_sources_positions_ratios,
+                                                                               verbosity=self.verbosity)
         
+        if self.verbosity==1:
+            print('are we invoking double sources (1 if yes): '+str(self.double_sources)) 
+            print('double source position/ratio is:' +str(self.double_sources_positions_ratios))
+        
+        
+        optPsf_cut_fiber_convolved_downsampled=single_Psf_position.find_single_realization_min_cut(optPsf_cut_grating_convolved,
+                                                                               int(round(oversampling)),shape[0],self.image,self.image_var,
+                                                                               v_flux=v['flux'],zero_modification=False,
+                                                                               double_sources=self.double_sources,double_sources_positions_ratios=self.double_sources_positions_ratios,
+                                                                               verbosity=self.verbosity)
+     
         if self.verbosity==1:
             print('Sucesfully created optPsf_cut_fiber_convolved_downsampled') 
 
@@ -1449,7 +1466,8 @@ class LN_PFS_single(object):
         
     def __init__(self,sci_image,var_image,mask_image=None,dithering=None,save=None,verbosity=None,
                  pupil_parameters=None,use_pupil_parameters=None,use_optPSF=None,
-                 zmax=None,extraZernike=None,pupilExplicit=None,simulation_00=None):    
+                 zmax=None,extraZernike=None,pupilExplicit=None,simulation_00=None,
+                 double_sources=None,double_sources_positions_ratios=None):    
         """
         @param sci_image           science image 
         @param var_image           variance image
@@ -1461,6 +1479,9 @@ class LN_PFS_single(object):
         if use_pupil_parameters is not None:
             assert pupil_parameters is not None
             
+        if double_sources is not None:
+            
+            assert np.sum(np.abs(double_sources_positions_ratios))>0    
 
         if zmax is None:
             zmax=11
@@ -1495,6 +1516,8 @@ class LN_PFS_single(object):
         self.zmax=zmax
         self.extraZernike=extraZernike
         self.verbosity=verbosity
+        self.double_sources=double_sources
+        self.double_sources_positions_ratios=double_sources_positions_ratios
 
         if dithering is None:
             npix_value=int(math.ceil(int(1024*sci_image.shape[0]/(20*4)))*2)
@@ -1517,14 +1540,14 @@ class LN_PFS_single(object):
             single_image_analysis=ZernikeFitter_PFS(sci_image,var_image,npix=npix_value,dithering=dithering,save=save,\
                                                     pupil_parameters=pupil_parameters,use_pupil_parameters=use_pupil_parameters,
                                                     use_optPSF=use_optPSF,zmaxInit=zmax,extraZernike=extraZernike,
-                                                    pupilExplicit=pupilExplicit,simulation_00=simulation_00,verbosity=verbosity)  
+                                                    pupilExplicit=pupilExplicit,simulation_00=simulation_00,verbosity=verbosity,double_sources=double_sources,double_sources_positions_ratios=double_sources_positions_ratios)  
             single_image_analysis.initParams(zmax)
             self.single_image_analysis=single_image_analysis
         else:
 
             single_image_analysis=ZernikeFitter_PFS(sci_image,var_image,npix=npix_value,dithering=dithering,save=save,\
                                                     pupil_parameters=pupil_parameters,use_pupil_parameters=use_pupil_parameters,
-                                                    extraZernike=extraZernike,simulation_00=simulation_00,verbosity=verbosity)  
+                                                    extraZernike=extraZernike,simulation_00=simulation_00,verbosity=verbosity,double_sources=double_sources,double_sources_positions_ratios=double_sources_positions_ratios)  
             single_image_analysis.initParams(zmax,hscFracInit=pupil_parameters[0],strutFracInit=pupil_parameters[1],
                    focalPlanePositionInit=(pupil_parameters[2],pupil_parameters[3]),slitFracInit=pupil_parameters[4],
                   slitFrac_dy_Init=pupil_parameters[5],x_fiberInit=pupil_parameters[6],y_fiberInit=pupil_parameters[7],
@@ -1594,7 +1617,7 @@ class LN_PFS_single(object):
         if self.verbosity==1:
             test_print=1
         #When running big fits these are limits which ensure that the code does not wander off in totally nonphyical region
-        """
+
         # hsc frac
         if globalparameters[0]<=0.6 or globalparameters[0]>0.8:
             print('globalparameters[0] outside limits') if test_print == 1 else False 
@@ -1777,7 +1800,7 @@ class LN_PFS_single(object):
         if globalparameters[22]>1.02:
             print('globalparameters[22] outside limits') if test_print == 1 else False 
             return -np.inf      
-        """
+
         x=self.create_x(zparameters,globalparameters)
         for i in range(len(self.columns)):
             self.single_image_analysis.params[self.columns[i]].set(x[i])
@@ -2463,11 +2486,443 @@ class Zernike_Analysis(object):
                           truths=list(minchain[8:]))
         figure.savefig(IMAGES_FOLDER+'/globalparameters.png')
         
+
+
+class Psf_position(object):
+    """
+    Class that deals with positining the PSF model in respect to the data
+    
+    
+    """
+
+    def __init__(self, image,oversampling,size_natural_resolution, zero_modification=False, double_sources=False,double_sources_positions_ratios=[0,0],verbosity=0,save=None):
+        
+        self.image=image
+        self.oversampling=oversampling
+        self.size_natural_resolution=size_natural_resolution
+        self.zero_modification=zero_modification
+        self.double_sources=double_sources
+        self.double_sources_positions_ratios=double_sources_positions_ratios
+        self.verbosity=verbosity
+        if save is None:
+            save=0
+            self.save=save
+        else:
+            save=1
+            self.save=save
+        
+
+    def cut_Centroid_of_natural_resolution_image(image,size_natural_resolution,oversampling,dx,dy):
+        """
+        function which takes central part of a larger oversampled image
+        
+        @param image                          array contaning suggested starting values for a model 
+        @param size_natural_resolution        how many natural units to create new image (fix)
+        @param oversampling                   oversampling
+        @param dx                             how much to move in dx direction (fix)
+        @param dy                             how much to move in dy direction (fix)
+        """
+    
+        positions_from_where_to_start_cut=[int(len(image)/2-size_natural_resolution/2-dx*oversampling+1),
+                                           int(len(image)/2-size_natural_resolution/2-dy*oversampling+1)]
+    
+        res=image[positions_from_where_to_start_cut[1]:positions_from_where_to_start_cut[1]+int(size_natural_resolution),
+                     positions_from_where_to_start_cut[0]:positions_from_where_to_start_cut[0]+int(size_natural_resolution)]
+        
+        return res
+
+    def find_single_realization_min_cut(self, input_image,oversampling,size_natural_resolution,sci_image,var_image,v_flux, zero_modification=False,
+                                        double_sources=None,double_sources_positions_ratios=[0,0],verbosity=0):
+    
+        """
+        function called by create_optPSF_natural
+        find what is the best starting point to downsample the oversampled image
+        
+        @param image                                                      image to be analyzed (in our case this will be image of the optical psf convolved with fiber)
+        @param oversampling                                               oversampling
+        @param size_natural_resolution                                    size of final image (in the ``natural'', i.e., physical resolution)
+        @param sci_image_0                                                scientific image
+        @param var_image_0                                                variance image
+        @param v_flux                                                     flux normalization
+        @param zero_modification                                          do not move the center, for making good comparisons between images
+        @param double_sources                                             are there double sources avaliable in the image ?
+        @param double_sources_positions_ratios                            tuple describing init guess for the relation between secondary and primary souces (offset, ratio)
+        @param verbosity                                                  verbosity of the alrogithm
+        """
+        
+        self.sci_image=sci_image
+        self.var_image=var_image
+        self.v_flux=v_flux
+        
+        
+        shape_of_input_img=input_image.shape[0]
+        shape_of_sci_image=sci_image.shape[0]
+        max_possible_value_to_analyze=int(shape_of_input_img-oversampling)
+        min_possible_value_to_analyze=int(oversampling)
+        center_point=int(shape_of_input_img/2)
+        
+        self.shape_of_input_img=shape_of_input_img
+        self.shape_of_sci_image=shape_of_sci_image
+        
+        
+        if double_sources==None:
+            
+            # create one complete realization with default parameters - estimate centorids and use that knowledge to put fitting limits in the next step
+            centroid_of_sci_image=find_centroid_of_flux(sci_image)
+            initial_complete_realization=self.create_complete_realization([0,0,-double_sources_positions_ratios[0]*self.oversampling,double_sources_positions_ratios[1]],return_full_result=True)[-1]
+            centroid_of_initial_complete_realization=find_centroid_of_flux(initial_complete_realization)
+
+            #determine offset between the initial guess and the data
+            offset_initial_and_sci=np.array(find_centroid_of_flux(initial_complete_realization))-np.array(find_centroid_of_flux(sci_image))
+            
+            if verbosity==1:
+                print('offset_initial_and_sci: '+str(offset_initial_and_sci))
+            
+            if self.save==1:
+                np.save(TESTING_FINAL_IMAGES_FOLDER+'sci_image',sci_image) 
+                np.save(TESTING_FINAL_IMAGES_FOLDER+'initial_complete_realization',initial_complete_realization) 
+
+            # set the limits for the fitting procedure
+            y_2sources_limits=[(offset_initial_and_sci[1]-2)*self.oversampling,(offset_initial_and_sci[1]+2)*self.oversampling]
+            x_2sources_limits=[(offset_initial_and_sci[0]-1)*self.oversampling,(offset_initial_and_sci[0]+1)*self.oversampling]
+            
+            # search for best positioning
+            primary_position_and_ratio=scipy.optimize.shgo(self.create_complete_realization,bounds=\
+                                                                     [(x_2sources_limits[0],x_2sources_limits[1]),(y_2sources_limits[0],y_2sources_limits[1])],n=100,sampling_method='sobol')
+    
+            # return the best result
+            mean_res,single_realization_primary_renormalized,single_realization_secondary_renormalized,complete_realization_renormalized \
+            =self.create_complete_realization(primary_position_and_ratio.x, return_full_result=True)
+            
+            if self.save==1:
+                np.save(TESTING_FINAL_IMAGES_FOLDER+'single_realization_primary_renormalized',single_realization_primary_renormalized) 
+                np.save(TESTING_FINAL_IMAGES_FOLDER+'single_realization_secondary_renormalized',single_realization_secondary_renormalized)     
+                np.save(TESTING_FINAL_IMAGES_FOLDER+'complete_realization_renormalized',complete_realization_renormalized)     
+    
+            if self.verbosity==1:
+                print('We are fitting for only one source')
+                print('One source fitting result is '+str(primary_position_and_ratio.x))   
+            
+            return complete_realization_renormalized
+        else:          
+            # create one complete realization with default parameters - estimate centorids and use that knowledge to put fitting limits in the next step
+            centroid_of_sci_image=find_centroid_of_flux(sci_image)
+            initial_complete_realization=self.create_complete_realization([0,0,-double_sources_positions_ratios[0]*self.oversampling,double_sources_positions_ratios[1]],return_full_result=True)[-1]
+            centroid_of_initial_complete_realization=find_centroid_of_flux(initial_complete_realization)
+            
+            #determine offset between the initial guess and the data
+            offset_initial_and_sci=np.array(find_centroid_of_flux(initial_complete_realization))-np.array(find_centroid_of_flux(sci_image))
+            
+            if verbosity==1:
+                print('offset_initial_and_sci: '+str(offset_initial_and_sci))
+            
+            if self.save==1:
+                np.save(TESTING_FINAL_IMAGES_FOLDER+'sci_image',sci_image) 
+                np.save(TESTING_FINAL_IMAGES_FOLDER+'initial_complete_realization',initial_complete_realization) 
+
+            # set the limits for the fitting procedure
+            y_2sources_limits=[(offset_initial_and_sci[1]-2)*self.oversampling,(offset_initial_and_sci[1]+2)*self.oversampling]
+            x_2sources_limits=[(offset_initial_and_sci[0]-1)*self.oversampling,(offset_initial_and_sci[0]+1)*self.oversampling]
+            y_2sources_limits_second_source=[(-self.double_sources_positions_ratios[0]-2)*oversampling,(-self.double_sources_positions_ratios[0]+2)*oversampling]
+            
+            # search for best result
+            primary_secondary_position_and_ratio=scipy.optimize.shgo(self.create_complete_realization,bounds=\
+                                                                     [(x_2sources_limits[0],x_2sources_limits[1]),(y_2sources_limits[0],y_2sources_limits[1]),\
+                                                                      (y_2sources_limits_second_source[0],y_2sources_limits_second_source[1]),\
+                                                                      (self.double_sources_positions_ratios[1]/2,2*self.double_sources_positions_ratios[1])],n=250,sampling_method='sobol')
+            
+            #return best result
+            mean_res,single_realization_primary_renormalized,single_realization_secondary_renormalized,complete_realization_renormalized \
+            =self.create_complete_realization(primary_secondary_position_and_ratio.x, return_full_result=True)
+    
+            if save==1:
+                np.save(TESTING_FINAL_IMAGES_FOLDER+'single_realization_primary_renormalized',single_realization_primary_renormalized) 
+                np.save(TESTING_FINAL_IMAGES_FOLDER+'single_realization_secondary_renormalized',single_realization_secondary_renormalized)     
+                np.save(TESTING_FINAL_IMAGES_FOLDER+'complete_realization_renormalized',complete_realization_renormalized)     
+    
+            if verbosity==1:
+                print('We are fitting for two sources')
+                print('Two source fitting result is '+str(primary_secondary_position_and_ratio.x))   
+            
+            
+            return complete_realization_renormalized
+    
+    
+    def create_complete_realization(self, x, return_full_result=False):
+        # need to include masking
+        """
+        create one complete realization of the image from the full oversampled image
+        
+        @param x                                                          array contaning x_primary, y_primary (y_secondary, ratio_secondary)
+        @bol return_full_result                                           if yes, return the images iteself (not just chi**2)
+        """
+        
+        
+        image=self.image
+        sci_image=self.sci_image
+        var_image=self.var_image
+        shape_of_sci_image=self.size_natural_resolution
+        oversampling=self.oversampling
+        v_flux=self.v_flux
+        
+        # central position of the create oversampled image
+        center_position=int(np.floor(image.shape[0]/2))
+        primary_offset_axis_1=x[0]
+        primary_offset_axis_0=x[1]    
+        
+        # if you are only fitting for primary image
+        # add zero values for secondary image
+        if len(x)==2:
+            ratio_secondary=0
+        else:        
+            ratio_secondary=x[3]
+
+        if len(x)==2:
+            secondary_offset_axis_1=0
+            secondary_offset_axis_0=0
+        else:    
+            secondary_offset_axis_1=primary_offset_axis_1
+            secondary_offset_axis_0=x[2]+primary_offset_axis_0
+           
+        # offset from x positions
+        primary_offset_axis_1_floor=int(np.floor(primary_offset_axis_1)+center_position-shape_of_sci_image/2*oversampling)
+        primary_offset_axis_1_ceiling=int(np.ceil(primary_offset_axis_1)+center_position-shape_of_sci_image/2*oversampling)
+        primary_offset_axis_1_mod_from_floor=primary_offset_axis_1-int(np.floor(primary_offset_axis_1))
+        
+        # offset from y positions
+        primary_offset_axis_0_floor=int(np.floor(primary_offset_axis_0)+center_position-shape_of_sci_image/2*oversampling)
+        primary_offset_axis_0_ceiling=int(np.ceil(primary_offset_axis_0)+center_position-shape_of_sci_image/2*oversampling)
+        primary_offset_axis_0_mod_from_floor=primary_offset_axis_0-int(np.floor(primary_offset_axis_0))
+    
+        # secondary offset from x position (probably superflous, as it should be the same as primary )
+        secondary_offset_axis_1_floor=int(np.floor(secondary_offset_axis_1)+center_position-shape_of_sci_image/2*oversampling)
+        secondary_offset_axis_1_ceiling=int(np.ceil(secondary_offset_axis_1)+center_position-shape_of_sci_image/2*oversampling)
+        secondary_offset_axis_1_mod_from_floor=secondary_offset_axis_1-int(np.floor(secondary_offset_axis_1))
+    
+        # secondary offset from y position (probably superflous, as it should be the same as primary )
+        secondary_offset_axis_0_floor=int(np.floor(secondary_offset_axis_0)+center_position-shape_of_sci_image/2*oversampling)
+        secondary_offset_axis_0_ceiling=int(np.ceil(secondary_offset_axis_0)+center_position-shape_of_sci_image/2*oversampling)
+        secondary_offset_axis_0_mod_from_floor=secondary_offset_axis_0-int(np.floor(secondary_offset_axis_0))
+        
+        # if you have to pad the image with zeros on either side go into this part of if statment
+        if primary_offset_axis_0_floor<0 or (primary_offset_axis_0_ceiling+oversampling*shape_of_sci_image)>len(image)\
+        or primary_offset_axis_1_floor<0 or (primary_offset_axis_1_ceiling+oversampling*shape_of_sci_image)>len(image):
+            #print('going into crop loop')
+    
+            pos_floor_floor = np.array([primary_offset_axis_0_floor, primary_offset_axis_1_floor])
+            pos_floor_ceiling = np.array([primary_offset_axis_0_floor, primary_offset_axis_1_ceiling])
+            pos_ceiling_floor = np.array([primary_offset_axis_0_ceiling, primary_offset_axis_1_floor])
+            pos_ceiling_ceiling = np.array([primary_offset_axis_0_ceiling, primary_offset_axis_1_ceiling])    
+
+            # image in the top right corner, x=1, y=1
+            input_img_single_realization_before_downsampling_primary_floor_floor = np.zeros((oversampling*shape_of_sci_image, oversampling*shape_of_sci_image))
+            # image in the top left corner, x=0, y=1
+            input_img_single_realization_before_downsampling_primary_floor_ceiling = np.zeros((oversampling*shape_of_sci_image, oversampling*shape_of_sci_image))
+            # image in the bottom right corner, x=1, y=0
+            input_img_single_realization_before_downsampling_primary_ceiling_floor = np.zeros((oversampling*shape_of_sci_image, oversampling*shape_of_sci_image))
+            # image in the bottom left corner, x=0, y=0
+            input_img_single_realization_before_downsampling_primary_ceiling_ceiling = np.zeros((oversampling*shape_of_sci_image, oversampling*shape_of_sci_image))
+
+            self.fill_crop(image, pos_floor_floor, input_img_single_realization_before_downsampling_primary_floor_floor)
+            self.fill_crop(image, pos_floor_ceiling, input_img_single_realization_before_downsampling_primary_floor_ceiling)
+            self.fill_crop(image, pos_ceiling_floor, input_img_single_realization_before_downsampling_primary_ceiling_floor)
+            self.fill_crop(image, pos_ceiling_ceiling, input_img_single_realization_before_downsampling_primary_ceiling_ceiling)
+    
+        else:
+            # if you do not have to pad, just simply take the part of the original oversampled image
+            input_img_single_realization_before_downsampling_primary_floor_floor=image[primary_offset_axis_0_floor:primary_offset_axis_0_floor+oversampling*shape_of_sci_image,\
+                                                                       primary_offset_axis_1_floor:primary_offset_axis_1_floor+oversampling*shape_of_sci_image]
+            input_img_single_realization_before_downsampling_primary_floor_ceiling=image[primary_offset_axis_0_floor:primary_offset_axis_0_floor+oversampling*shape_of_sci_image,\
+                                                                       primary_offset_axis_1_ceiling:primary_offset_axis_1_ceiling+oversampling*shape_of_sci_image]
+            input_img_single_realization_before_downsampling_primary_ceiling_floor=image[primary_offset_axis_0_ceiling:primary_offset_axis_0_ceiling+oversampling*shape_of_sci_image,\
+                                                                       primary_offset_axis_1_floor:primary_offset_axis_1_floor+oversampling*shape_of_sci_image]
+            input_img_single_realization_before_downsampling_primary_ceiling_ceiling=image[primary_offset_axis_0_ceiling:primary_offset_axis_0_ceiling+oversampling*shape_of_sci_image,\
+                                                                       primary_offset_axis_1_ceiling:primary_offset_axis_1_ceiling+oversampling*shape_of_sci_image]
+        
+        # construct bilinear interpolation from these 4 images
+        input_img_single_realization_before_downsampling_primary=self.bilinear_interpolation(primary_offset_axis_0_mod_from_floor,primary_offset_axis_1_mod_from_floor,\
+                                                                                        input_img_single_realization_before_downsampling_primary_floor_floor,input_img_single_realization_before_downsampling_primary_floor_ceiling,\
+                                                                                        input_img_single_realization_before_downsampling_primary_ceiling_floor,input_img_single_realization_before_downsampling_primary_ceiling_ceiling)
+        
+        # downsample the primary image    
+        single_primary_realization=resize(input_img_single_realization_before_downsampling_primary,(shape_of_sci_image,shape_of_sci_image))
+    
+        ###################
+        if ratio_secondary !=0:
+            # go through secondary loop if ratio is not zero
+            if secondary_offset_axis_0_floor<0 or (secondary_offset_axis_0_ceiling+oversampling*shape_of_sci_image)>len(image)\
+            or secondary_offset_axis_1_floor<0 or (secondary_offset_axis_1_ceiling+oversampling*shape_of_sci_image)>len(image):
+                pos_floor_floor = np.array([secondary_offset_axis_0_floor, secondary_offset_axis_1_floor])
+                pos_floor_ceiling = np.array([secondary_offset_axis_0_floor, secondary_offset_axis_1_ceiling])
+                pos_ceiling_floor = np.array([secondary_offset_axis_0_ceiling, secondary_offset_axis_1_floor])
+                pos_ceiling_ceiling = np.array([secondary_offset_axis_0_ceiling, secondary_offset_axis_1_ceiling])    
+                
+                input_img_single_realization_before_downsampling_secondary_floor_floor = np.full([oversampling*shape_of_sci_image, oversampling*shape_of_sci_image], 0)
+                input_img_single_realization_before_downsampling_secondary_floor_ceiling = np.full([oversampling*shape_of_sci_image, oversampling*shape_of_sci_image], 0)
+                input_img_single_realization_before_downsampling_secondary_ceiling_floor = np.full([oversampling*shape_of_sci_image, oversampling*shape_of_sci_image], 0)
+                input_img_single_realization_before_downsampling_secondary_ceiling_ceiling= np.full([oversampling*shape_of_sci_image, oversampling*shape_of_sci_image], 0)
+        
+                self.fill_crop(image, pos_floor_floor, input_img_single_realization_before_downsampling_secondary_floor_floor)
+                self.fill_crop(image, pos_floor_ceiling, input_img_single_realization_before_downsampling_secondary_floor_ceiling)
+                self.fill_crop(image, pos_ceiling_floor, input_img_single_realization_before_downsampling_secondary_ceiling_floor)
+                self.fill_crop(image, pos_ceiling_ceiling, input_img_single_realization_before_downsampling_secondary_ceiling_ceiling)
+                
+            else:
+                input_img_single_realization_before_downsampling_secondary_floor_floor=image[secondary_offset_axis_0_floor:secondary_offset_axis_0_floor+oversampling*shape_of_sci_image,\
+                                                                           secondary_offset_axis_1_floor:secondary_offset_axis_1_floor+oversampling*shape_of_sci_image]
+                input_img_single_realization_before_downsampling_secondary_floor_ceiling=image[secondary_offset_axis_0_floor:secondary_offset_axis_0_floor+oversampling*shape_of_sci_image,\
+                                                                           secondary_offset_axis_1_ceiling:secondary_offset_axis_1_ceiling+oversampling*shape_of_sci_image]
+                input_img_single_realization_before_downsampling_secondary_ceiling_floor=image[secondary_offset_axis_0_ceiling:secondary_offset_axis_0_ceiling+oversampling*shape_of_sci_image,\
+                                                                           secondary_offset_axis_1_floor:secondary_offset_axis_1_floor+oversampling*shape_of_sci_image]  
+                input_img_single_realization_before_downsampling_secondary_ceiling_ceiling=image[secondary_offset_axis_0_ceiling:secondary_offset_axis_0_ceiling+oversampling*shape_of_sci_image,\
+                                                                           secondary_offset_axis_1_ceiling:secondary_offset_axis_1_ceiling+oversampling*shape_of_sci_image]
+        
+        
+            input_img_single_realization_before_downsampling_secondary=self.bilinear_interpolation(secondary_offset_axis_1_mod_from_floor,secondary_offset_axis_0_mod_from_floor,\
+                                                                                        input_img_single_realization_before_downsampling_secondary_floor_floor,input_img_single_realization_before_downsampling_secondary_floor_ceiling,\
+                                                                                        input_img_single_realization_before_downsampling_secondary_ceiling_floor,input_img_single_realization_before_downsampling_secondary_ceiling_ceiling)
+                    
+            single_secondary_realization=resize(input_img_single_realization_before_downsampling_secondary,(shape_of_sci_image,shape_of_sci_image))    
+    
+        if ratio_secondary !=0:
+            complete_realization=single_primary_realization+ratio_secondary*single_secondary_realization
+            complete_realization_renormalized=complete_realization*(np.sum(sci_image)*v_flux/np.sum(complete_realization))
+        else:
+            complete_realization=single_primary_realization
+            complete_realization_renormalized=complete_realization*(np.sum(sci_image)*v_flux/np.sum(complete_realization))
+            
+            
+        if return_full_result==False:
+            if self.verbosity==1:
+                print('chi2 within shgo optimization routine: '+str(np.mean((sci_image-complete_realization_renormalized)**2/var_image)))
+            return np.mean((sci_image-complete_realization_renormalized)**2/var_image)
+        else:
+            if ratio_secondary !=0:
+                single_primary_realization_renormalized=single_primary_realization*(np.sum(sci_image)*v_flux/np.sum(complete_realization))
+                single_secondary_realization_renormalized=ratio_secondary*single_secondary_realization*(np.sum(sci_image)*v_flux/np.sum(complete_realization))    
+            else:
+                single_primary_realization_renormalized=single_primary_realization*(np.sum(sci_image)*v_flux/np.sum(complete_realization))
+                single_secondary_realization_renormalized=np.zeros(single_primary_realization_renormalized.shape)                  
+            
+            
+            if self.save==1:
+                np.save(TESTING_FINAL_IMAGES_FOLDER+'image',image)            
+                
+                np.save(TESTING_FINAL_IMAGES_FOLDER+'input_img_single_realization_before_downsampling_primary_floor_floor',input_img_single_realization_before_downsampling_primary_floor_floor)            
+                np.save(TESTING_FINAL_IMAGES_FOLDER+'input_img_single_realization_before_downsampling_primary_floor_ceiling',input_img_single_realization_before_downsampling_primary_floor_ceiling)             
+                np.save(TESTING_FINAL_IMAGES_FOLDER+'input_img_single_realization_before_downsampling_primary_ceiling_floor',input_img_single_realization_before_downsampling_primary_ceiling_floor) 
+                np.save(TESTING_FINAL_IMAGES_FOLDER+'input_img_single_realization_before_downsampling_primary_ceiling_ceiling',input_img_single_realization_before_downsampling_primary_ceiling_ceiling) 
+    
+                np.save(TESTING_FINAL_IMAGES_FOLDER+'input_img_single_realization_before_downsampling_primary',input_img_single_realization_before_downsampling_primary) 
+                if ratio_secondary !=0:
+                    np.save(TESTING_FINAL_IMAGES_FOLDER+'single_secondary_realization',single_secondary_realization) 
+                np.save(TESTING_FINAL_IMAGES_FOLDER+'single_primary_realization',single_primary_realization) 
+                np.save(TESTING_FINAL_IMAGES_FOLDER+'single_primary_realization_renormalized_within_create_complete_realization',single_primary_realization_renormalized) 
+                np.save(TESTING_FINAL_IMAGES_FOLDER+'single_secondary_realization_renormalized_within_create_complete_realization',single_secondary_realization_renormalized)     
+                np.save(TESTING_FINAL_IMAGES_FOLDER+'complete_realization_renormalized_within_create_complete_realization',complete_realization_renormalized)     
+            
+            
+            return np.mean((sci_image-complete_realization_renormalized)**2/var_image),\
+            single_primary_realization_renormalized,single_secondary_realization_renormalized,complete_realization_renormalized   
+
+
+    def fill_crop(self, img, pos, crop):
+      '''
+      Fills `crop` with values from `img` at `pos`, 
+      while accounting for the crop being off the edge of `img`.
+      *Note:* negative values in `pos` are interpreted as-is, not as "from the end".
+      '''
+      img_shape, pos, crop_shape = np.array(img.shape), np.array(pos), np.array(crop.shape),
+      end = pos+crop_shape
+      # Calculate crop slice positions
+      crop_low = np.clip(0 - pos, a_min=0, a_max=crop_shape)
+      crop_high = crop_shape - np.clip(end-img_shape, a_min=0, a_max=crop_shape)
+      crop_slices = (slice(low, high) for low, high in zip(crop_low, crop_high))
+      # Calculate img slice positions
+      pos = np.clip(pos, a_min=0, a_max=img_shape)
+      end = np.clip(end, a_min=0, a_max=img_shape)
+      img_slices = (slice(low, high) for low, high in zip(pos, end))
+      crop[tuple(crop_slices)] = img[tuple(img_slices)]    
+      
+    def bilinear_interpolation(self, y,x,img_floor_floor,img_floor_ceiling,img_ceiling_floor,img_ceiling_ceiling):     
+        # have to check if floor and ceiling definciton are ok 
+        # https://en.wikipedia.org/wiki/Bilinear_interpolation
+        # x2=1
+        # x1=0
+        # y2=1
+        # y1=0
+        
+        # img_floor_floor in top right corner
+        # img_ceiling_ceiling in bottom left corner
+        # img_floor_ceiling in top left corner
+        # img_ceiling_floor in the bottom right corner 
+        
+        
+        return img_floor_floor*(1-x)*(1-y)+img_floor_ceiling*(x)*(1-y)+img_ceiling_floor*(1-x)*(y)+img_ceiling_ceiling*(x)*(y)
+        
+      
+     
+    
+    def create_trace(self, best_img,norm_of_trace,norm_of_serial_trace):
+        if norm_of_trace==0:
+            return best_img
+        else:
+            data_shifted_left_right=np.zeros(np.shape(best_img))
+            data_shifted_left_right[:, :] =np.sum(best_img,axis=0)*norm_of_trace
+        
+            data_shifted_up_down=np.transpose(np.zeros(np.shape(best_img)))         
+            data_shifted_up_down[:, :] =np.sum(best_img,axis=1)*norm_of_serial_trace
+            data_shifted_up_down=np.transpose(data_shifted_up_down)
+        
+            return best_img+data_shifted_up_down+data_shifted_left_right     
+        
+    def estimate_trace_and_serial(self, sci_image,model_image):
+    
+        model_image=np.sum(sci_image)/np.sum(model_image)*model_image
+        
+        flux_sci_all_columns_sum_rows=np.sum(sci_image,axis=1)
+        flux_sci_all_rows_sum_columns=np.sum(sci_image,axis=0)
+        flux_model_all_columns_sum_rows=np.sum(model_image,axis=1)
+        flux_model_all_rows_sum_columns=np.sum(model_image,axis=0)
+    
+        selection_of_faint_rows=flux_sci_all_columns_sum_rows<(np.sort(flux_sci_all_columns_sum_rows)[4]+1)
+        selection_of_faint_columns=flux_sci_all_rows_sum_columns<(np.sort(flux_sci_all_rows_sum_columns)[4]+1)
+    
+        #to determine median value
+        #median_rows=int(len(flux_sci_all_columns_sum_rows)/2)
+    
+        flux_sci_selected_faint_rows_sum_columns=np.sum(sci_image[selection_of_faint_rows],axis=0)
+        flux_model_selected_faint_rows_sum_columns=np.sum(model_image[selection_of_faint_rows],axis=0)
+        flux_sci_selected_faint_columns_sum_rows=np.sum(sci_image[:,selection_of_faint_columns],axis=1)
+        flux_model_selected_faint_columns_sum_rows=np.sum(model_image[:,selection_of_faint_columns],axis=1)
+        
+        
+        proposed_trace=((flux_sci_selected_faint_rows_sum_columns-flux_model_selected_faint_rows_sum_columns)/flux_model_all_rows_sum_columns)[flux_model_all_rows_sum_columns>np.max(flux_model_all_rows_sum_columns)*0.10]
+        proposed_trace=np.sort(proposed_trace)[int(len(proposed_trace)/2)]
+        
+        proposed_serial=((flux_sci_selected_faint_columns_sum_rows-flux_model_selected_faint_columns_sum_rows)/flux_model_all_columns_sum_rows)[flux_model_all_columns_sum_rows>np.max(flux_model_all_columns_sum_rows)*0.10]
+        proposed_serial=np.sort(proposed_serial)[int(len(proposed_serial)/2)]
+        if proposed_trace<0:
+            proposed_trace=0
+        else:
+            #divided by 5 because this is derived from 5 rows/columns
+            proposed_trace=proposed_trace/5
+    
+        if proposed_serial<0:
+            proposed_serial=0
+        else:
+            proposed_serial=proposed_serial/5
+            
+        return [proposed_trace,proposed_serial]
+    
+
+    
         
 # ***********************    
 # 'free' (not inside a class) definitions below
 # ***********************   
 
+    
 
 def find_centroid_of_flux(image):
     """
@@ -2497,294 +2952,6 @@ def find_centroid_of_flux(image):
     y_center=(np.sum(I_y[:,0]*I_y[:,1])/np.sum(I_y[:,1]))
 
     return(x_center,y_center)
-
-def cut_Centroid_of_natural_resolution_image(image,size_natural_resolution,oversampling,dx,dy):
-    """
-    function which takes central part of a larger oversampled image
-    
-    @param image                          array contaning suggested starting values for a model 
-    @param size_natural_resolution        how many natural units to create new image (fix)
-    @param oversampling                   oversampling
-    @param dx                             how much to move in dx direction (fix)
-    @param dy                             how much to move in dy direction (fix)
-    """
-
-    positions_from_where_to_start_cut=[int(len(image)/2-size_natural_resolution/2-dx*oversampling+1),
-                                       int(len(image)/2-size_natural_resolution/2-dy*oversampling+1)]
-
-    res=image[positions_from_where_to_start_cut[1]:positions_from_where_to_start_cut[1]+int(size_natural_resolution),
-                 positions_from_where_to_start_cut[0]:positions_from_where_to_start_cut[0]+int(size_natural_resolution)]
-    
-    return res
-
-def find_single_realization_min_cut(input_img,oversampling,size_natural_resolution,sci_image,var_image,v_flux, zero_modification=False, double_sources=False,verbosity=0):
-
-    """
-    function called by create_optPSF_natural
-    find what is the best starting point to downsample the oversampled image
-    
-    @param input_img                                                  image to be analyzed (in our case this will be image of the optical psf convolved with fiber)
-    @param oversampling                                               oversampling
-    @param size_natural_resolution                                    size of final image (in the ``natural'', i.e., physical resolution)
-    @param sci_image_0                                                scientific image
-    @param var_image_0                                                variance image
-    @param v_flux                                                     flux normalization
-    @param zero_modification                                          do not move the center, for making good comparisons between images
-    """
-    
-    shape_of_input_img=input_img.shape[0]
-    shape_of_sci_image=sci_image.shape[0]
-    max_possible_value_to_analyze=int(shape_of_input_img-oversampling)
-    min_possible_value_to_analyze=int(oversampling)
-    center_point=int(shape_of_input_img/2)
-    
-    # largest and smallest value to analyze 
-    min_dx_value_to_analyse=int(center_point+oversampling*(-shape_of_sci_image/2-5))
-    max_dx_value_to_analyse=int(center_point+oversampling*(shape_of_sci_image/2+5)) 
-    min_dy_value_to_analyse=int(center_point+oversampling*(-shape_of_sci_image/2-5))
-    max_dy_value_to_analyse=int(center_point+oversampling*(shape_of_sci_image/2+5))    
-    
-    # if largest and smallest values are outside image 
-    if max_dx_value_to_analyse>max_possible_value_to_analyze:  
-        max_dx_value_to_analyse=max_possible_value_to_analyze
-    if max_dy_value_to_analyse>max_possible_value_to_analyze:  
-        max_dy_value_to_analyse=max_possible_value_to_analyze 
-    if min_dx_value_to_analyse<min_possible_value_to_analyze:  
-        min_dx_value_to_analyse=min_possible_value_to_analyze
-    if min_dy_value_to_analyse<min_possible_value_to_analyze:  
-        min_dy_value_to_analyse=min_possible_value_to_analyze 
-        
-    ###############################################################
-    # First step
-    # test chi2 for every combination of the parameters
-    # create an array res_init, for every movement of pixel dx and dy, give chi2
-    first_step_start_downsampling_time=time.time()
- 
-    res_init=[]
-    
-    delta_x_1=np.arange(min_dy_value_to_analyse,max_dy_value_to_analyse-oversampling*shape_of_sci_image,oversampling)
-    delta_y_1=np.arange(min_dx_value_to_analyse,max_dx_value_to_analyse-oversampling*shape_of_sci_image,oversampling)
-    
-    for deltay in delta_x_1:
-        for deltax in delta_y_1:
-            y_list=np.arange(deltay,deltay+oversampling*shape_of_sci_image,oversampling,dtype=np.intp)
-            x_list=np.arange(deltax,deltax+oversampling*shape_of_sci_image,oversampling,dtype=np.intp)
-            single_realization=input_img[y_list][:,x_list]
-            np.save(TESTING_FINAL_IMAGES_FOLDER+'single_realization',single_realization) 
-            
-            multiplicative_factor=np.sum(sci_image)/np.sum(single_realization)
-            single_realization_finalImg=v_flux*multiplicative_factor*single_realization
-            res_init.append([deltax,deltay,np.mean((single_realization_finalImg-sci_image)**2/var_image)])
-            
-         
-    res_init=np.array(res_init)
-    
-    # uncomment if you fish to save this intermediate result
-    # np.save(TESTING_FINAL_IMAGES_FOLDER+'res_init',res_init) 
-    
-    # find the dx and dy value which gives the best result
-    resmin_init=res_init[res_init[:,2]==np.min(res_init[:,2])][0]
-    resmin_init_x=int(resmin_init[0])
-    resmin_init_y=int(resmin_init[1])
-    first_step_end_downsampling_time=time.time()
-    if verbosity==1:
-        print('Number of steps in the first downsampling step:'+str(len(delta_x_1)*len(delta_y_1)))
-        print('Time for first downsampling step is '+str(first_step_end_downsampling_time-first_step_start_downsampling_time))   
-    
-    ###############################################################
-
-    # Second step 
-    # move in small steps around the init result and find the best fit
-    
-    second_step_start_downsampling_time=time.time()
-    res=[]
-    
-    delta_x_2=np.arange(int(resmin_init_y-1.5*oversampling),int(resmin_init_y+1.5*oversampling),1)
-    delta_y_2=np.arange(int(resmin_init_x-1.5*oversampling),int(resmin_init_x+1.5*oversampling),1)
-    for deltay in delta_x_2:
-        for deltax in delta_y_2:
-            input_img_single_realization_before_downsampling=input_img[deltay:deltay+oversampling*shape_of_sci_image,deltax:deltax+oversampling*shape_of_sci_image]
-            single_realization=resize(input_img_single_realization_before_downsampling,(shape_of_sci_image,shape_of_sci_image))
-            multiplicative_factor=np.sum(sci_image)/np.sum(single_realization)
-            single_realization_finalImg=v_flux*multiplicative_factor*single_realization
-            res.append([deltax,deltay,np.mean((single_realization_finalImg-sci_image)**2/var_image)])
-            
-    res=np.array(res)
-
-    # find the precise dx and dy value which gives the best result
-
-    resmin=res[res[:,2]==np.min(res[:,2][~np.isnan(res[:,2])]  )][0]
-
-    resmin_x=int(resmin[0])
-    resmin_y=int(resmin[1])
-    
-    zero_modification=False
-
-    if zero_modification==True:
-        resmin_x=int(center_point-oversampling*shape_of_sci_image/2)
-        resmin_y=int(center_point-oversampling*shape_of_sci_image/2)
-    
-    second_step_end_downsampling_time=time.time()
-    if verbosity==1:
-        print('Number of steps in the second downsampling step:'+str(len(delta_x_2)*len(delta_y_2)))
-        print('Time for second downsampling step is '+str(second_step_end_downsampling_time-second_step_start_downsampling_time))      
-
-    #############################################
-    
-    # Third step 
-    # effectivly do bilinear interpolation for fine subpixel fitting
-    
-    third_step_start_downsampling_time=time.time() 
-    
-    res_pp=[]
-    res_pm=[]
-    res_mp=[]
-    res_mm=[]
-    input_img_single_realization_before_downsampling=input_img[resmin_y:resmin_y+oversampling*shape_of_sci_image,resmin_x:resmin_x+oversampling*shape_of_sci_image]
-    input_img_single_realization_before_downsampling_0p1=input_img[resmin_y+1:resmin_y+1+oversampling*shape_of_sci_image,resmin_x:resmin_x+oversampling*shape_of_sci_image]
-    input_img_single_realization_before_downsampling_0m1=input_img[resmin_y-1:resmin_y-1+oversampling*shape_of_sci_image,resmin_x:resmin_x+oversampling*shape_of_sci_image]    
-    input_img_single_realization_before_downsampling_p10=input_img[resmin_y:resmin_y+oversampling*shape_of_sci_image,resmin_x+1:resmin_x+1+oversampling*shape_of_sci_image]      
-    input_img_single_realization_before_downsampling_m10=input_img[resmin_y:resmin_y+oversampling*shape_of_sci_image,resmin_x-1:resmin_x-1+oversampling*shape_of_sci_image]  
-    
-    input_img_single_realization_before_downsampling=v_flux*input_img_single_realization_before_downsampling*(oversampling**2*np.sum(sci_image)/np.sum(input_img_single_realization_before_downsampling))
-    input_img_single_realization_before_downsampling_0p1=v_flux*input_img_single_realization_before_downsampling_0p1*(oversampling**2*np.sum(sci_image)/np.sum(input_img_single_realization_before_downsampling_0p1))
-    input_img_single_realization_before_downsampling_0m1=v_flux*input_img_single_realization_before_downsampling_0m1*(oversampling**2*np.sum(sci_image)/np.sum(input_img_single_realization_before_downsampling_0m1))
-    input_img_single_realization_before_downsampling_p10=v_flux*input_img_single_realization_before_downsampling_p10*(oversampling**2*np.sum(sci_image)/np.sum(input_img_single_realization_before_downsampling_p10))
-    input_img_single_realization_before_downsampling_m10=v_flux*input_img_single_realization_before_downsampling_m10*(oversampling**2*np.sum(sci_image)/np.sum(input_img_single_realization_before_downsampling_m10))    
-   
-    single_realization=resize(input_img_single_realization_before_downsampling,(shape_of_sci_image,shape_of_sci_image))
-    single_realization_0p1=resize(input_img_single_realization_before_downsampling_0p1,(shape_of_sci_image,shape_of_sci_image))
-    single_realization_0m1=resize(input_img_single_realization_before_downsampling_0m1,(shape_of_sci_image,shape_of_sci_image))
-    single_realization_p10=resize(input_img_single_realization_before_downsampling_p10,(shape_of_sci_image,shape_of_sci_image))
-    single_realization_m10=resize(input_img_single_realization_before_downsampling_m10,(shape_of_sci_image,shape_of_sci_image))
-    
-    for dx in np.linspace(0.00,0.45,10):
-        for dy in np.linspace(0.0,0.45,10):
-            focus_res_combination=dx*single_realization_p10+dy*single_realization_0p1+(1-dx-dy)*single_realization
-            res_pp.append([dx,dy,np.mean((focus_res_combination-sci_image)**2/(var_image))])
-   
-    for dx in np.linspace(0.00,0.45,10):
-        for dy in np.linspace(0.0,0.45,10):
-            focus_res_combination=dx*single_realization_p10+dy*single_realization_0m1+(1-dx-dy)*single_realization
-            res_pm.append([dx,dy,np.mean((focus_res_combination-sci_image)**2/(var_image))])
-            
-    for dx in np.linspace(0.00,0.45,10):
-        for dy in np.linspace(0.0,0.45,10):
-            focus_res_combination=dx*single_realization_m10+dy*single_realization_0p1+(1-dx-dy)*single_realization
-            res_mp.append([dx,dy,np.mean((focus_res_combination-sci_image)**2/(var_image))])
-
-    for dx in np.linspace(0.00,0.45,10):
-        for dy in np.linspace(0.0,0.45,10):
-            focus_res_combination=dx*single_realization_m10+dy*single_realization_0m1+(1-dx-dy)*single_realization
-            res_mm.append([dx,dy,np.mean((focus_res_combination-sci_image)**2/(var_image))])            
-
-    res_pp=np.array(res_pp)
-    res_mp=np.array(res_mp)    
-    res_pm=np.array(res_pm)
-    res_mm=np.array(res_mm)
-    
-    array_of_min=np.array([res_pp[res_pp[:,2]==np.min(res_pp[:,2])][0],res_pm[res_pm[:,2]==np.min(res_pm[:,2])][0],res_mp[res_mp[:,2]==np.min(res_mp[:,2])][0],res_mm[res_mm[:,2]==np.min(res_mm[:,2])][0]])
-    
-    itemindex = np.where(array_of_min[:,2]==np.min(array_of_min[:,2]))[0][0]  
-    
-    
-    # if you do not want to move around, go into center and do not move
-    if zero_modification==True:
-        itemindex=5
-        
-    if itemindex==5:
-        array_of_min_selected=array_of_min[0]
-        dx=0
-        dy=0
-        focus_res_final_combination=dx*single_realization_p10+dy*single_realization_0p1+(1-dx-dy)*single_realization
-    
-    #print(itemindex)
-    if itemindex==0:
-        array_of_min_selected=array_of_min[0]
-        dx=array_of_min_selected[0]
-        dy=array_of_min_selected[1]
-
-        
-        focus_res_final_combination=dx*single_realization_p10+dy*single_realization_0p1+(1-dx-dy)*single_realization
-    
-    if itemindex==1:
-        array_of_min_selected=array_of_min[1]
-        dx=array_of_min_selected[0]
-        dy=array_of_min_selected[1]
-        focus_res_final_combination=dx*single_realization_p10+dy*single_realization_0m1+(1-dx-dy)*single_realization
-    
-    if itemindex==2:
-        array_of_min_selected=array_of_min[2]
-        dx=array_of_min_selected[0]
-        dy=array_of_min_selected[1]
-        focus_res_final_combination=dx*single_realization_m10+dy*single_realization_0p1+(1-dx-dy)*single_realization
-    
-    if itemindex==3:
-        array_of_min_selected=array_of_min[3]
-        dx=array_of_min_selected[0]
-        dy=array_of_min_selected[1]
-        focus_res_final_combination=dx*single_realization_m10+dy*single_realization_0m1+(1-dx-dy)*single_realization
-
-    third_step_end_downsampling_time=time.time()
-    if verbosity==1:
-        print('Time for third downsampling step is '+str(third_step_end_downsampling_time-third_step_start_downsampling_time))     
-
-
-    single_realization_finalImg=focus_res_final_combination 
-    
-    return single_realization_finalImg
-
-def create_trace(best_img,norm_of_trace,norm_of_serial_trace):
-    if norm_of_trace==0:
-        return best_img
-    else:
-        data_shifted_left_right=np.zeros(np.shape(best_img))
-        data_shifted_left_right[:, :] =np.sum(best_img,axis=0)*norm_of_trace
-    
-        data_shifted_up_down=np.transpose(np.zeros(np.shape(best_img)))         
-        data_shifted_up_down[:, :] =np.sum(best_img,axis=1)*norm_of_serial_trace
-        data_shifted_up_down=np.transpose(data_shifted_up_down)
-    
-        return best_img+data_shifted_up_down+data_shifted_left_right     
-    
-def estimate_trace_and_serial(sci_image,model_image):
-
-    model_image=np.sum(sci_image)/np.sum(model_image)*model_image
-    
-    flux_sci_all_columns_sum_rows=np.sum(sci_image,axis=1)
-    flux_sci_all_rows_sum_columns=np.sum(sci_image,axis=0)
-    flux_model_all_columns_sum_rows=np.sum(model_image,axis=1)
-    flux_model_all_rows_sum_columns=np.sum(model_image,axis=0)
-
-    selection_of_faint_rows=flux_sci_all_columns_sum_rows<(np.sort(flux_sci_all_columns_sum_rows)[4]+1)
-    selection_of_faint_columns=flux_sci_all_rows_sum_columns<(np.sort(flux_sci_all_rows_sum_columns)[4]+1)
-
-    #to determine median value
-    #median_rows=int(len(flux_sci_all_columns_sum_rows)/2)
-
-    flux_sci_selected_faint_rows_sum_columns=np.sum(sci_image[selection_of_faint_rows],axis=0)
-    flux_model_selected_faint_rows_sum_columns=np.sum(model_image[selection_of_faint_rows],axis=0)
-    flux_sci_selected_faint_columns_sum_rows=np.sum(sci_image[:,selection_of_faint_columns],axis=1)
-    flux_model_selected_faint_columns_sum_rows=np.sum(model_image[:,selection_of_faint_columns],axis=1)
-    
-    
-    proposed_trace=((flux_sci_selected_faint_rows_sum_columns-flux_model_selected_faint_rows_sum_columns)/flux_model_all_rows_sum_columns)[flux_model_all_rows_sum_columns>np.max(flux_model_all_rows_sum_columns)*0.10]
-    proposed_trace=np.sort(proposed_trace)[int(len(proposed_trace)/2)]
-    
-    proposed_serial=((flux_sci_selected_faint_columns_sum_rows-flux_model_selected_faint_columns_sum_rows)/flux_model_all_columns_sum_rows)[flux_model_all_columns_sum_rows>np.max(flux_model_all_columns_sum_rows)*0.10]
-    proposed_serial=np.sort(proposed_serial)[int(len(proposed_serial)/2)]
-    if proposed_trace<0:
-        proposed_trace=0
-    else:
-        #divided by 5 because this is derived from 5 rows/columns
-        proposed_trace=proposed_trace/5
-
-    if proposed_serial<0:
-        proposed_serial=0
-    else:
-        proposed_serial=proposed_serial/5
-        
-    return [proposed_trace,proposed_serial]
 
 def create_parInit(allparameters_proposal,multi=None,pupil_parameters=None,allparameters_proposal_err=None,stronger=None,use_optPSF=None,deduced_scattering_slope=None,zmax=None):
     
@@ -3263,6 +3430,7 @@ def _reflect_breaks(size: int) -> np.ndarray:
   assert len(result) == size + 1
   return result
 
+
 def _interval_overlap(first_breaks: np.ndarray,
                       second_breaks: np.ndarray) -> np.ndarray:
   """Return the overlap distance between all pairs of intervals.
@@ -3287,6 +3455,7 @@ def _interval_overlap(first_breaks: np.ndarray,
 
   return np.maximum(upper - lower, 0)
 
+@lru_cache()
 def _resize_weights(
     old_size: int, new_size: int, reflect: bool = False) -> np.ndarray:
   """Create a weight matrix for resizing with the local mean along an axis.
@@ -3311,9 +3480,11 @@ def _resize_weights(
   assert weights.shape == (new_size, old_size)
   return weights
 
+
 def resize(array: np.ndarray,
            shape: Tuple[int, ...],
            reflect_axes: Iterable[int] = ()) -> np.ndarray:
+
   """Resize an array with the local mean / bilinear scaling.
 
   Works for both upsampling and downsampling in a fashion equivalent to
@@ -3343,6 +3514,7 @@ def resize(array: np.ndarray,
   for axis, (old_size, new_size) in enumerate(zip(array.shape, shape)):
     reflect = axis in reflect_axes_set
     weights = _resize_weights(old_size, new_size, reflect=reflect)
+
     product = np.tensordot(output, weights, [[axis], [-1]])
     output = np.moveaxis(product, -1, axis)
   return output
