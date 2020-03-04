@@ -41,7 +41,7 @@ Feb 17, 2020: 0.26 -> 0.26a increased speed when save parameter=0
 Feb 18, 2020: 0.26a -> 0.26b mask image going through subpixel interpolation
 Feb 19, 2020: 0.26b -> 0.26c normalization of sci image takes into account mask
 Mar 1, 2020: 0.26c -> 0.27 apodization scales with the size of input images
-
+Mar 4, 2020: 0.27 -> 0.28 (re-)introduced custom size of pupil image
 
 @author: Neven Caplar
 @contact: ncaplar@princeton.edu
@@ -106,7 +106,7 @@ __all__ = ['PupilFactory', 'Pupil','ZernikeFitter_PFS','LN_PFS_single','LNP_PFS'
            'sky_scale','sky_size','create_x','remove_pupil_parameters_from_all_parameters',\
            'resize','_interval_overlap']
 
-__version__ = "0.27"
+__version__ = "0.28"
 
 ############################################################
 # name your directory where you want to have files!
@@ -880,10 +880,11 @@ class ZernikeFitter_PFS(object):
         """Construct model image from parameters
         @param params      lmfit.Parameters object or python dictionary with
                            param values to use, or None to use self.params
-        @param pixelScale  pixel scale in arcseconds to use for model image,
-                           or None to use self.pixelScale.
         @param shape       (nx, ny) shape for model image, or None to use
                            the shape of self.maskedImage
+        @param pixelScale  pixel scale in arcseconds to use for model image,
+                           or None to use self.pixelScale.
+
         @returns           numpy array image with the same flux as the input image
         """
         
@@ -893,15 +894,18 @@ class ZernikeFitter_PFS(object):
         
         if params is None:
             params = self.params
+            
         if shape is None:
             shape = self.image.shape 
 
         if pixelScale is None:
             pixelScale = self.pixelScale
+            
         if jacobian is None:
             jacobian = np.eye(2, dtype=np.float64)
         else:
             jacobian = self.jacobian          
+            
         try:
             v = params.valuesdict()
         except AttributeError:
@@ -958,6 +962,8 @@ class ZernikeFitter_PFS(object):
         shape = self.image.shape 
         double_sources=self.double_sources
         
+        # all of the parameters for the creation of the image
+        # very stupidly called ``v'' without any reason whatsoever
         v = params.valuesdict()
         
        # how much is my generated image oversampled compared to final image
@@ -968,32 +974,30 @@ class ZernikeFitter_PFS(object):
             print('oversampling_original: ' +str(oversampling_original))
 
         
-        # from the large image cut the central portion (1.4 times larger than the size of actual image)
+        # determine the size, so that from the hughe generated large image we cut the central portion (1.4 times larger than the size of actual image)
         size_of_central_cut=int(oversampling_original*self.image.shape[0]*1.4)
         assert size_of_central_cut<optPsf.shape[0]
         if self.verbosity==1:
             print('size_of_central_cut: '+str(size_of_central_cut))
             
-        #cut part which you need image
+        # cut part which you need image 
+        # set oversampling to 1 so you are not resizing and dx=0 and dy=0 so that you are not moving around, i.e., you are cutting the central region
         optPsf_cut=Psf_position.cut_Centroid_of_natural_resolution_image(image=optPsf,size_natural_resolution=size_of_central_cut+1,oversampling=1,dx=0,dy=0)
         if self.verbosity==1:
             print('optPsf_cut.shape'+str(optPsf_cut.shape))
 
-        # reduce oversampling by the factor of 4  to make things easier
+        # we want to reduce oversampling by roughly the factor of 4 to make things easier
         oversampling=np.round(oversampling_original/4)
         if self.verbosity==1:
             print('oversampling:' +str(oversampling))
         
+        # what is the size of the images after you resize to the new oversampled ratio
         size_of_optPsf_cut_downsampled=np.round(size_of_central_cut/(oversampling_original/oversampling))
         if self.verbosity==1:
             print('optPsf_cut.shape[0]'+str(optPsf_cut.shape[0]))
             print('size_of_optPsf_cut_downsampled: '+str(size_of_optPsf_cut_downsampled))
-            
-        #optPsf_cut_downsampled_p1=resize(optPsf_cut,(size_of_optPsf_cut_downsampled,size_of_optPsf_cut_downsampled))
-        #optPsf_cut_downsampled_m1=resize(optPsf_cut[1:-1,1:-1],(size_of_optPsf_cut_downsampled,size_of_optPsf_cut_downsampled))
-        #optPsf_cut_downsampled=(optPsf_cut_downsampled_p1+optPsf_cut_downsampled_m1)/2
-        
-        # make sure that optPsf_cut_downsampled is an array with odd sizes
+                    
+        # make sure that optPsf_cut_downsampled is an array which has an odd size - increase size by 1 if needed
         if (size_of_optPsf_cut_downsampled % 2) == 0:
             optPsf_cut_downsampled=skimage.transform.resize(optPsf_cut,(size_of_optPsf_cut_downsampled+1,size_of_optPsf_cut_downsampled+1),mode='constant')
         else:
@@ -1002,22 +1006,32 @@ class ZernikeFitter_PFS(object):
         if self.verbosity==1:        
             print('optPsf_cut_downsampled.shape: '+str(optPsf_cut_downsampled.shape))
         
-        # ensure it is shape is even nubmer, needed for fft convolutions later
-        #if optPsf_cut_downsampled.shape[0] % 2 ==0:
-        #    pass
-        #else:
-        #    optPsf_cut_downsampled=optPsf_cut_downsampled[:optPsf_cut_downsampled.shape[0]-1,:optPsf_cut_downsampled.shape[0]-1]
-        
         # gives middle point of the image to used for calculations of scattered light 
         mid_point_of_optPsf_cut_downsampled=int(optPsf_cut_downsampled.shape[0]/2)
         
         # gives the size of one pixel in optPsf_downsampled in microns
+        # one pixel is 15 microns
         size_of_pixels_in_optPsf_cut_downsampled=(15/self.dithering)/oversampling
         
         # size of the created optical PSF images in microns
         size_of_optPsf_cut_in_Microns=size_of_pixels_in_optPsf_cut_downsampled*(optPsf_cut_downsampled.shape[0])
         if self.verbosity==1:   
             print('size_of_optPsf_cut_in_Microns: '+str(size_of_optPsf_cut_in_Microns))
+    
+        #########        #########        #########        #########        #########         #########        #########        #########        #########        #########
+    
+        # we now apply various effects that are separate from pure optical PSF 
+        # Those include
+        # 1. scattered light
+        # 2. convolution with fiber
+        # 3. CCD difusion
+        # 4. grating effects
+        
+        # We then finish with the centering algorithm to move our created image to fit the input science image
+        # 5. centering
+        
+        #########        #########        #########        #########        #########         #########        #########        #########        #########        #########
+        # 1. scattered light
         
         # create grid to apply scattered light
         pointsx = np.linspace(-(size_of_optPsf_cut_in_Microns-size_of_pixels_in_optPsf_cut_downsampled)/2,(size_of_optPsf_cut_in_Microns-size_of_pixels_in_optPsf_cut_downsampled)/2,num=optPsf_cut_downsampled.shape[0])
@@ -1028,14 +1042,15 @@ class ZernikeFitter_PFS(object):
         # creating scattere light code
         scattered_light_kernel=(r0**(-v['scattering_slope']))
         
-        # the line below from previous code where I terminated scattering radius dependece below certain radius (changed on Oct 04, 2018)
-        #scattered_light_kernel[r0<v['scattering_radius']]=v['scattering_radius']**(-v['scattering_slope'])
+        # the line below from previous code where I terminated scattering radius dependece below certain radius which could have change (changed on Oct 04, 2018)
+        # keep for some more time for historic reasons
+        # scattered_light_kernel[r0<v['scattering_radius']]=v['scattering_radius']**(-v['scattering_slope'])
         
         scattered_light_kernel[r0<7.5]=7.5**(-v['scattering_slope'])
         scattered_light_kernel[scattered_light_kernel == np.inf] = 0
         scattered_light_kernel=scattered_light_kernel*(v['scattering_amplitude'])/(10*np.max(scattered_light_kernel))
         
-        # convolve the psf with the scattered light kernel
+        # convolve the psf with the scattered light kernel to create scattered light component
         scattered_light=custom_fftconvolve(optPsf_cut_downsampled,scattered_light_kernel)
 
         # add back the scattering to the image
@@ -1044,26 +1059,39 @@ class ZernikeFitter_PFS(object):
         if self.verbosity==1:
             print('optPsf_cut_downsampled_scattered.shape:' +str(optPsf_cut_downsampled_scattered.shape))
 
+        #########        #########        #########        #########        #########         #########        #########        #########        #########        #########
+        # 2. convolution with fiber
+
+
+        # create tophat2d
         fiber = astropy.convolution.Tophat2DKernel(oversampling*1*v['fiber_r']*self.dithering,mode='oversample').array
+        # create array with zeros with size of the current image, which we will fill with fiber array in the middle
         fiber_padded=np.zeros_like(optPsf_cut_downsampled_scattered)
         mid_point_of_optPsf_cut_downsampled=int(optPsf_cut_downsampled.shape[0]/2)
         fiber_array_size=fiber.shape[0]
+        # fill the zeroes image with fiber here
         fiber_padded[int(mid_point_of_optPsf_cut_downsampled-fiber_array_size/2)+1:int(mid_point_of_optPsf_cut_downsampled+fiber_array_size/2)+1,\
                      int(mid_point_of_optPsf_cut_downsampled-fiber_array_size/2)+1:int(mid_point_of_optPsf_cut_downsampled+fiber_array_size/2)+1]=fiber
 
         
-        # convolve with fiber
-        # legacy code is the line below, followed by the currently used code
+        # legacy code for is the line below, followed by the currently used code
         #optPsf_fiber_convolved=scipy.signal.fftconvolve(optPsf_downsampled_scattered, fiber, mode = 'same') 
+        
+        # convolve with fiber 
         optPsf_cut_fiber_convolved=custom_fftconvolve(optPsf_cut_downsampled_scattered,fiber_padded)
          
-        #pixels are not perfect, sigma is around 7 microns Jim claimes, controled by @param 'pixel_effect'
+        #########        #########        #########        #########        #########         #########        #########        #########        #########        #########
+        # 3. CCD difusion
+        
+        #pixels are not perfect detectors
+        # charge diffusion in our optical CCDs, can be well described with a Gaussian 
+        # sigma is around 7 microns (Jim Gunn - private communication). This is controled in our code by @param 'pixel_effect'
         pixel_gauss=Gaussian2DKernel(oversampling*v['pixel_effect']*self.dithering).array
         pixel_gauss_padded=np.pad(pixel_gauss,int((len(optPsf_cut_fiber_convolved)-len(pixel_gauss))/2),'constant',constant_values=0)
         optPsf_cut_pixel_response_convolved=custom_fftconvolve(optPsf_cut_fiber_convolved, pixel_gauss_padded)
-        #optPsf_cut_pixel_response_convolved=custom_fftconvolve(optPsf_cut_fiber_convolved, Gaussian2DKernel(oversampling*v['pixel_effect']*self.dithering).array)        
-        #optPsf_cut_pixel_response_convolved=optPsf_cut_pixel_response_convolved[:-1,:-1]
-        
+      
+        #########        #########        #########        #########        #########         #########        #########        #########        #########        #########        
+        # 4. grating effects
         
         # following grating calculation is done
         # assuming that 15 microns covers wavelength range of 0.07907 nm
@@ -1077,31 +1105,41 @@ class ZernikeFitter_PFS(object):
         # This is 1D convolution so it would need a bit of work, and I see that behavioru is fine
         optPsf_cut_grating_convolved=scipy.signal.fftconvolve(optPsf_cut_pixel_response_convolved, grating_kernel, mode='same')
         
-        # This is the part which creates oversampled images
+        #########        #########        #########        #########        #########         #########        #########        #########        #########        #########   
+        # 5. centering
+        # This is the part which creates the final image
+        
+        # if you have requsted a simulated image without movement, `simulation_00' will not be `None' and go into this small loop below
         if self.verbosity==1:
             print('simulation_00 parameter:' +str(self.simulation_00))
         if self.simulation_00 is not None:
-            #optPsf_cut_grating_convolved_simulation=resize(optPsf_cut_grating_convolved,(int(len(optPsf_cut_grating_convolved)*5/oversampling),int(len(optPsf_cut_grating_convolved)*5/oversampling)))
-            optPsf_cut_grating_convolved_simulation_cut=Psf_position.cut_Centroid_of_natural_resolution_image(optPsf_cut_grating_convolved,211,1,+1,+1)
+            # needs to be improved and made sure that you take the oversampling into account
+            optPsf_cut_grating_convolved_simulation_cut=Psf_position.cut_Centroid_of_natural_resolution_image(optPsf_cut_grating_convolved,20*oversampling,1,+1,+1)
             optPsf_cut_grating_convolved_simulation_cut=optPsf_cut_grating_convolved_simulation_cut/np.sum(optPsf_cut_grating_convolved_simulation_cut)
             np.save(TESTING_FINAL_IMAGES_FOLDER+'optPsf_cut_grating_convolved_simulation_cut',optPsf_cut_grating_convolved_simulation_cut)
+            
+            optPsf_cut_grating_convolved_simulation_cut_odd=Psf_position.cut_Centroid_of_natural_resolution_image(optPsf_cut_grating_convolved,21*oversampling,1,+1,+1)
+            optPsf_cut_grating_convolved_simulation_cut_odd=optPsf_cut_grating_convolved_simulation_cut_odd/np.sum(optPsf_cut_grating_convolved_simulation_cut_odd)
+            np.save(TESTING_FINAL_IMAGES_FOLDER+'optPsf_cut_grating_convolved_simulation_cut_odd',optPsf_cut_grating_convolved_simulation_cut_odd)
+            
         else:
             pass
 
-        # finds the best downsampling combination automatically 
-        # only accepts integer values for downsampling!
-        single_Psf_position=Psf_position(optPsf_cut_grating_convolved, int(round(oversampling)),shape[0] ,double_sources=self.double_sources,double_sources_positions_ratios=self.double_sources_positions_ratios,
-                                                                               verbosity=self.verbosity)
         
+        # the algorithm  finds (or at least should find) the best downsampling combination automatically 
         if self.verbosity==1:
             print('are we invoking double sources (1 if yes): '+str(self.double_sources)) 
             print('double source position/ratio is:' +str(self.double_sources_positions_ratios))
-        
-        
+            
+        # initialize the class which does the centering - the separation between the class and the main function in the class, ``find_single_realization_min_cut'', is a bit blurry and unsatisfactory
+        single_Psf_position=Psf_position(optPsf_cut_grating_convolved, int(round(oversampling)),shape[0] ,double_sources=self.double_sources,double_sources_positions_ratios=self.double_sources_positions_ratios,
+                                                                               verbosity=self.verbosity)
+       
+        #  run the code for centering
         time_start_single=time.time()
         optPsf_cut_fiber_convolved_downsampled=single_Psf_position.find_single_realization_min_cut(optPsf_cut_grating_convolved,
                                                                                int(round(oversampling)),shape[0],self.image,self.image_var,self.image_mask,
-                                                                               v_flux=v['flux'],zero_modification=self.simulation_00,
+                                                                               v_flux=v['flux'],simulation_00=self.simulation_00,
                                                                                double_sources=self.double_sources,double_sources_positions_ratios=self.double_sources_positions_ratios,
                                                                                verbosity=self.verbosity)
         time_end_single=time.time()
@@ -1110,8 +1148,6 @@ class ZernikeFitter_PFS(object):
    
         if self.verbosity==1:
             print('Sucesfully created optPsf_cut_fiber_convolved_downsampled') 
-
-        
         
         if self.save==1:
             if socket.gethostname()=='IapetusUSA':
@@ -1136,8 +1172,6 @@ class ZernikeFitter_PFS(object):
         return optPsf_cut_fiber_convolved_downsampled
     
     
-    
-    
     @lru_cache(maxsize=3)
     def _get_Pupil(self,params):
         
@@ -1145,10 +1179,9 @@ class ZernikeFitter_PFS(object):
             print(' ')
             print('Entering _get_Pupil')        
         
-        
         diam_sic=self.diam_sic
         npix=self.npix
-        
+         
         if self.verbosity==1:
             print('Size of the pupil (npix): '+str(npix))        
         
@@ -1183,14 +1216,13 @@ class ZernikeFitter_PFS(object):
         if self.verbosity==1:
             print(' ')
             print('Entering _getOptPsf_naturalResolution')       
-
-        i=4
-        
+       
         if self.verbosity==1:
             print('use_pupil_parameters: '+str(self.use_pupil_parameters))
             print('pupil_parameters if you use_pupil_parameters: '+str(self.pupil_parameters))
 
-            
+        # parmeters ``i'' just to precision in the construction of ``pupil_parameters'' array
+        i=4    
         if self.use_pupil_parameters is None:
             pupil_parameters=np.array([params['hscFrac'.format(i)],params['strutFrac'.format(i)],
                                     params['dxFocal'.format(i)],params['dyFocal'.format(i)],
@@ -1217,9 +1249,8 @@ class ZernikeFitter_PFS(object):
 
         aberrations_init=[0.0,0,0.0,0.0]
         aberrations = aberrations_init
-        # list of aberrations where we set z4, z11, z22 etc. to 0 do study behavioru of non-focus terms
-        aberrations_0=list(np.copy(aberrations_init))
-        
+        # list of aberrations where we set z4, z11, z22 etc. to 0 do study behaviour of non-focus terms
+        aberrations_0=list(np.copy(aberrations_init))  
         for i in range(4, self.zmax + 1):
             aberrations.append(params['z{}'.format(i)]) 
             if i in [4,11,22]:
@@ -1231,9 +1262,10 @@ class ZernikeFitter_PFS(object):
             print('Supplied pupil size is (pupil.size) [m]: '+str(pupil.size))
             print('One pixel has size of (pupil.scale) [m]: '+str(pupil.scale))
             print('Supplied pupil has so many pixels (pupil_plane_im): '+str(pupil.illuminated.astype(np.int16).shape))
-            print('pupil.scale: '+str(pupil.scale))
-            print('pupil.illuminated.astype(np.float32).shape: '+str(pupil.illuminated.astype(np.float32).shape))
-    
+   
+        
+        # initialize galsim.Aperature class
+        # the output will be the size of pupil.illuminated
         
         if self.pupilExplicit is None:
             aper = galsim.Aperture(
@@ -1324,7 +1356,8 @@ class ZernikeFitter_PFS(object):
         # the apodization sigma is set to that in focus it is at 0.75
         # for larger images, scale according to the size of the input image which is to be FFT-ed
         # 0.75 is an arbitrary number
-        apodization_sigma=(len(ilum_radiometric))/1158*0.75
+        apodization_sigma=((len(ilum_radiometric))/1158)**0.875*0.75
+        #apodization_sigma=0.75
         r = gaussian_filter(ilum_radiometric, sigma=apodization_sigma)
         
         # put pixels for which amplitude is less than 0.01 to 0
@@ -1489,7 +1522,7 @@ class LN_PFS_single(object):
     def __init__(self,sci_image,var_image,mask_image=None,dithering=None,save=None,verbosity=None,
                  pupil_parameters=None,use_pupil_parameters=None,use_optPSF=None,
                  zmax=None,extraZernike=None,pupilExplicit=None,simulation_00=None,
-                 double_sources=None,double_sources_positions_ratios=None):    
+                 double_sources=None,double_sources_positions_ratios=None,npix=None):    
         """
         @param sci_image           science image 
         @param var_image           variance image
@@ -1501,8 +1534,7 @@ class LN_PFS_single(object):
         if use_pupil_parameters is not None:
             assert pupil_parameters is not None
             
-        if double_sources is not None:
-            
+        if double_sources is not None:      
             assert np.sum(np.abs(double_sources_positions_ratios))>0    
 
         if zmax is None:
@@ -1540,11 +1572,19 @@ class LN_PFS_single(object):
         self.verbosity=verbosity
         self.double_sources=double_sources
         self.double_sources_positions_ratios=double_sources_positions_ratios
+        self.npix_value=npix
 
-        if dithering is None:
-            npix_value=int(math.ceil(int(1024*sci_image.shape[0]/(20*4)))*2)
-        else:
-            npix_value=int(math.ceil(int(1024*sci_image.shape[0]/(20*4*self.dithering)))*2)
+        # if npix is not specified automatically scale the image
+        # this will create images which will have different pupil size for different sizes of science image
+        # and this will influence the results
+        if npix is None:
+            if dithering is None:
+                npix_value=int(math.ceil(int(1024*sci_image.shape[0]/(20*4)))*2)
+            else:
+                    npix_value=int(math.ceil(int(1024*sci_image.shape[0]/(20*4*self.dithering)))*2)
+        
+        # the pinnacle of coding right here, returning the self.value right back
+        npix_value=self.npix_value
         
         if verbosity==1:
             print('Science image shape is: '+str(sci_image.shape))
@@ -2524,12 +2564,12 @@ class Psf_position(object):
     
     """
 
-    def __init__(self, image,oversampling,size_natural_resolution, zero_modification=False, double_sources=False,double_sources_positions_ratios=[0,0],verbosity=0,save=None):
+    def __init__(self, image,oversampling,size_natural_resolution, simulation_00=False, double_sources=False,double_sources_positions_ratios=[0,0],verbosity=0,save=None):
         
         self.image=image
         self.oversampling=oversampling
         self.size_natural_resolution=size_natural_resolution
-        self.zero_modification=zero_modification
+        self.simulation_00=simulation_00
         self.double_sources=double_sources
         self.double_sources_positions_ratios=double_sources_positions_ratios
         self.verbosity=verbosity
@@ -2560,7 +2600,7 @@ class Psf_position(object):
         
         return res
 
-    def find_single_realization_min_cut(self, input_image,oversampling,size_natural_resolution,sci_image,var_image,mask_image,v_flux, zero_modification=False,
+    def find_single_realization_min_cut(self, input_image,oversampling,size_natural_resolution,sci_image,var_image,mask_image,v_flux, simulation_00=False,
                                         double_sources=None,double_sources_positions_ratios=[0,0],verbosity=0):
     
         """
@@ -2573,10 +2613,12 @@ class Psf_position(object):
         @param sci_image_0                                                scientific image
         @param var_image_0                                                variance image
         @param v_flux                                                     flux normalization
-        @param zero_modification                                          do not move the center, for making good comparisons between images
+        @param simulation_00                                              do not move the center, for making good comparisons between images
         @param double_sources                                             are there double sources avaliable in the image ?
         @param double_sources_positions_ratios                            tuple describing init guess for the relation between secondary and primary souces (offset, ratio)
-        @param verbosity                                                  verbosity of the alrogithm
+        @param verbosity                                                  verbosity of the algorithm
+        
+        returns model image in the size of the science image and centered to the science image
         """
         
         self.sci_image=sci_image
@@ -2584,12 +2626,12 @@ class Psf_position(object):
         self.mask_image=mask_image
         self.v_flux=v_flux
         
-        if zero_modification is not False:
+        # if you are just asking for simulated image at (0,0) there is no possibility to create double sources
+        if simulation_00 is 1:
             double_souces=None
             
         if double_sources is None:
             double_sources_positions_ratios=[0,0]
-        
         
         shape_of_input_img=input_image.shape[0]
         shape_of_sci_image=sci_image.shape[0]
@@ -2600,46 +2642,45 @@ class Psf_position(object):
         self.shape_of_input_img=shape_of_input_img
         self.shape_of_sci_image=shape_of_sci_image
         
-        
+        # depending on if there is a second source in the image split here
+        # double_sources is always None when using simulated images
         if double_sources==None:
-
-            # create one complete realization with default parameters - estimate centorids and use that knowledge to put fitting limits in the next step
-            centroid_of_sci_image=find_centroid_of_flux(sci_image)
-            initial_complete_realization=self.create_complete_realization([0,0,-double_sources_positions_ratios[0]*self.oversampling,double_sources_positions_ratios[1]],return_full_result=True)[-1]
-            centroid_of_initial_complete_realization=find_centroid_of_flux(initial_complete_realization)
-
-            #determine offset between the initial guess and the data
-            offset_initial_and_sci=np.array(find_centroid_of_flux(initial_complete_realization))-np.array(find_centroid_of_flux(sci_image))
+            # if simulation_00 is on just run the realization set at 0
+            if simulation_00 is 1:
+                if verbosity==1:
+                    print('simulation_00 is set to 1 - I am just returing the image at (0,0) coordinates ')                
+                
+                # return the solution with x and y is zero
+                mean_res,single_realization_primary_renormalized,single_realization_secondary_renormalized,complete_realization_renormalized \
+                =self.create_complete_realization([0,0], return_full_result=True)          
             
-            if verbosity==1:
-                print('offset_initial_and_sci: '+str(offset_initial_and_sci))
-            
-            if self.save==1:
-                np.save(TESTING_FINAL_IMAGES_FOLDER+'sci_image',sci_image) 
-                np.save(TESTING_FINAL_IMAGES_FOLDER+'initial_complete_realization',initial_complete_realization) 
-
-            if zero_modification is not False:
+            # if you are fitting an actual image go through the full process
+            else:
+                # create one complete realization with default parameters - estimate centorids and use that knowledge to put fitting limits in the next step
+                centroid_of_sci_image=find_centroid_of_flux(sci_image)
+                initial_complete_realization=self.create_complete_realization([0,0,-double_sources_positions_ratios[0]*self.oversampling,double_sources_positions_ratios[1]],return_full_result=True)[-1]
+                centroid_of_initial_complete_realization=find_centroid_of_flux(initial_complete_realization)
+    
+                #determine offset between the initial guess and the data
+                offset_initial_and_sci=np.array(find_centroid_of_flux(initial_complete_realization))-np.array(find_centroid_of_flux(sci_image))
+                
+                if verbosity==1:
+                    print('offset_initial_and_sci: '+str(offset_initial_and_sci))
+                
+                if self.save==1:
+                    np.save(TESTING_FINAL_IMAGES_FOLDER+'initial_complete_realization',initial_complete_realization) 
+    
+                # search for the best center using scipy ``shgo'' algorithm
                 # set the limits for the fitting procedure
                 y_2sources_limits=[(offset_initial_and_sci[1]-2)*self.oversampling,(offset_initial_and_sci[1]+2)*self.oversampling]
                 x_2sources_limits=[(offset_initial_and_sci[0]-1)*self.oversampling,(offset_initial_and_sci[0]+1)*self.oversampling]
-                
                 # search for best positioning
                 primary_position_and_ratio=scipy.optimize.shgo(self.create_complete_realization,bounds=\
                                                                          [(x_2sources_limits[0],x_2sources_limits[1]),(y_2sources_limits[0],y_2sources_limits[1])],n=10,sampling_method='sobol',\
                                                                          options={'ftol':1e-3,'maxev':10})
-            else:
-                pass
-        
-            
-            if zero_modification is False:
-                if verbosity==1:
-                    print('zero_modification is set to False')                
-                
-                # return the solution with x and y is zero
-                mean_res,single_realization_primary_renormalized,single_realization_secondary_renormalized,complete_realization_renormalized \
-                =self.create_complete_realization([0,0], return_full_result=True)   
-            else:
-                # return the best result
+    
+
+                # return the best result, based on the result of the conducted search
                 mean_res,single_realization_primary_renormalized,single_realization_secondary_renormalized,complete_realization_renormalized \
                 =self.create_complete_realization(primary_position_and_ratio.x, return_full_result=True)
             
@@ -2649,8 +2690,9 @@ class Psf_position(object):
                 np.save(TESTING_FINAL_IMAGES_FOLDER+'complete_realization_renormalized',complete_realization_renormalized)     
     
             if self.verbosity==1:
-                print('We are fitting for only one source')
-                print('One source fitting result is '+str(primary_position_and_ratio.x))   
+                    if simulation_00 is not 1:
+                        print('We are fitting for only one source')
+                        print('One source fitting result is '+str(primary_position_and_ratio.x))   
             
             return complete_realization_renormalized
         else:          
@@ -2734,6 +2776,7 @@ class Psf_position(object):
         else:    
             secondary_offset_axis_1=primary_offset_axis_1
             secondary_offset_axis_0=x[2]+primary_offset_axis_0
+            
            
         # offset from x positions
         primary_offset_axis_1_floor=int(np.floor(primary_offset_axis_1)+center_position-shape_of_sci_image/2*oversampling)
@@ -2789,6 +2832,7 @@ class Psf_position(object):
                                                                        primary_offset_axis_1_floor:primary_offset_axis_1_floor+oversampling*shape_of_sci_image]
             input_img_single_realization_before_downsampling_primary_ceiling_ceiling=image[primary_offset_axis_0_ceiling:primary_offset_axis_0_ceiling+oversampling*shape_of_sci_image,\
                                                                        primary_offset_axis_1_ceiling:primary_offset_axis_1_ceiling+oversampling*shape_of_sci_image]
+        
         
         # construct bilinear interpolation from these 4 images
         input_img_single_realization_before_downsampling_primary=self.bilinear_interpolation(primary_offset_axis_0_mod_from_floor,primary_offset_axis_1_mod_from_floor,\
@@ -2884,7 +2928,7 @@ class Psf_position(object):
             return chi_2_almost_multi_values,\
             single_primary_realization_renormalized,single_secondary_realization_renormalized,complete_realization_renormalized  
             
-            #does not include mask...
+            #old code that did not include mask...
             #return np.mean((sci_image-complete_realization_renormalized)**2/var_image),\
             #single_primary_realization_renormalized,single_secondary_realization_renormalized,complete_realization_renormalized   
 
