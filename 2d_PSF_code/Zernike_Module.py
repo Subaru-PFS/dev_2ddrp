@@ -42,6 +42,7 @@ Feb 18, 2020: 0.26a -> 0.26b mask image going through subpixel interpolation
 Feb 19, 2020: 0.26b -> 0.26c normalization of sci image takes into account mask
 Mar 1, 2020: 0.26c -> 0.27 apodization scales with the size of input images
 Mar 4, 2020: 0.27 -> 0.28 (re-)introduced custom size of pupil image
+Mar 6, 2020: 0.28 -> 0.28b refactored cut_square function (making it much faster)
 
 @author: Neven Caplar
 @contact: ncaplar@princeton.edu
@@ -106,7 +107,7 @@ __all__ = ['PupilFactory', 'Pupil','ZernikeFitter_PFS','LN_PFS_single','LNP_PFS'
            'sky_scale','sky_size','create_x','remove_pupil_parameters_from_all_parameters',\
            'resize','_interval_overlap']
 
-__version__ = "0.28"
+__version__ = "0.28b"
 
 ############################################################
 # name your directory where you want to have files!
@@ -165,7 +166,8 @@ class PupilFactory(object):
         self.frd_sigma=frd_sigma
         self.frd_lorentz_factor=frd_lorentz_factor
         self.det_vert=det_vert
-        u = (np.arange(npix, dtype=np.float64) - (npix - 1)/2) * self.pupilScale
+        
+        u = (np.arange(npix, dtype=np.float32) - (npix - 1)/2) * self.pupilScale
         self.u, self.v = np.meshgrid(u, u)
 
 
@@ -230,7 +232,7 @@ class PupilFactory(object):
         pupil.illuminated[r2 > r**2*b**2/(b**2*(np.cos(theta))**2+r**2*(np.sin(theta))**2)] = False
 
 
-    def _cutSquare(self,pupil, p0, r,angle,det_vert):
+    def _cutSquare_slow(self,pupil, p0, r,angle,det_vert):
         """Cut out the interior of a circular region from a Pupil.
 
         @param[in,out] pupil  Pupil to modify in place
@@ -247,6 +249,7 @@ class PupilFactory(object):
         if det_vert is None:
             det_vert=1
         
+        print('r'+str(r))
         
         x21 = -r/2*det_vert*1
         x22 = +r/2*det_vert*1
@@ -254,6 +257,9 @@ class PupilFactory(object):
         y22 = +r/2*1
 
         angleRad = angle
+        print('p0'+str(p0))
+        print('angleRad'+str(angleRad))
+        
         pupil_illuminated_only1[np.logical_and(((self.u-p0[0])*np.cos(-angle)+(self.v-p0[1])*np.sin(-angleRad)<x22) & \
                           ((self.u-p0[0])*np.cos(-angleRad)+(self.v-p0[1])*np.sin(-angleRad)>x21),\
                           ((self.v-p0[1])*np.cos(-angleRad)-(self.u-p0[0])*np.sin(-angleRad)<y22) & \
@@ -350,7 +356,127 @@ class PupilFactory(object):
         
         if self.verbosity==1:
             print('Time for cutting out the square is '+str(time_end_single_square-time_start_single_square))    
-      
+  
+    def _cutSquare(self,pupil, p0, r,angle,det_vert):
+        """Cut out the interior of a circular region from a Pupil.
+
+        @param[in,out] pupil  Pupil to modify in place
+        @param[in] p0         2-tuple indicating region center
+        @param[in] r          half lenght of the length of square side
+        @param[in] angle      angle that the camera is rotated
+        """
+        pupil_illuminated_only1=np.ones_like(pupil.illuminated)
+        
+        time_start_single_square=time.time()
+        
+        ###########################################################
+        # Central square
+        if det_vert is None:
+            det_vert=1
+        
+        x21 = -r/2*det_vert*1
+        x22 = +r/2*det_vert*1
+        y21 = -r/2*1
+        y22 = +r/2*1
+        i_max=self.npix/2-0.5
+        i_min=-i_max
+        
+        i_y_max=int(np.round((x22+p0[1])/self.pupilScale - (i_min)))
+        i_y_min=int(np.round((x21+p0[1])/self.pupilScale - (i_min)))
+        i_x_max=int(np.round((y22+p0[0])/self.pupilScale - (i_min)))
+        i_x_min=int(np.round((y21+p0[0])/self.pupilScale - (i_min)))
+        
+
+        assert angle==np.pi/2
+        angleRad = angle
+
+        pupil_illuminated_only0_in_only1=np.zeros((i_y_max-i_y_min,i_x_max-i_x_min))
+        
+        
+        u0=self.u[i_y_min:i_y_max,i_x_min:i_x_max]
+        v0=self.v[i_y_min:i_y_max,i_x_min:i_x_max]
+            
+        f=0.2
+        ###########################################################
+        # Lower right corner
+        x21 = -r/2
+        x22 = +r/2
+        y21 = -r/2*det_vert
+        y22 = +r/2*det_vert
+        
+        
+        angleRad21=-np.pi/4 
+        triangle21=[[p0[0]+x22,p0[1]+y21],[p0[0]+x22,p0[1]+y21-y21*f],[p0[0]+x22-x22*f,p0[1]+y21]]
+
+        p21=triangle21[0]
+        y22=(triangle21[1][1]-triangle21[0][1])/np.sqrt(2)
+        y21=0
+        x21=(triangle21[2][0]-triangle21[0][0])/np.sqrt(2)
+        x22=-(triangle21[2][0]-triangle21[0][0])/np.sqrt(2)
+
+        pupil_illuminated_only0_in_only1[((v0-p21[1])*np.cos(-angleRad21)-(u0-p21[0])*np.sin(-angleRad21)<y22)  ] = True
+    
+        ###########################################################
+        # Upper left corner
+        x21 = -r/2*1
+        x22 = +r/2*1
+        y21 = -r/2*det_vert
+        y22 = +r/2*det_vert
+        angleRad12=-np.pi/4   
+        triangle12=[[p0[0]+x21,p0[1]+y22],[p0[0]+x21,p0[1]+y22-y22*f],[p0[0]+x21-x21*f,p0[1]+y22]]
+ 
+        p21=triangle12[0]
+        y22=0
+        y21=(triangle12[1][1]-triangle12[0][1])/np.sqrt(2)
+        x21=-(triangle12[2][0]-triangle12[0][0])/np.sqrt(2)
+        x22=+(triangle12[2][0]-triangle12[0][0])/np.sqrt(2)
+
+        pupil_illuminated_only0_in_only1[ ((v0-p21[1])*np.cos(-angleRad21)-(u0-p21[0])*np.sin(-angleRad21)>y21)] = True
+        
+        ###########################################################
+        # Upper right corner
+        x21 = -r/2*1
+        x22 = +r/2*1
+        y21 = -r/2*det_vert
+        y22 = +r/2*det_vert
+        angleRad12=np.pi/4   
+        triangle22=[[p0[0]+x22,p0[1]+y22],[p0[0]+x22,p0[1]+y22-y22*f],[p0[0]+x22-x22*f,p0[1]+y22]]
+ 
+        p21=triangle22[0]
+        y22=-0
+        y21=+(triangle22[1][1]-triangle22[0][1])/np.sqrt(2)
+        x21=+(triangle22[2][0]-triangle22[0][0])/np.sqrt(2)
+        x22=-(triangle22[2][0]-triangle22[0][0])/np.sqrt(2)
+
+        pupil_illuminated_only0_in_only1[((u0-p21[0])*np.cos(-angleRad21)+(v0-p21[1])*np.sin(-angleRad21)>x21) ] = True  
+
+        ###########################################################
+        # Lower right corner
+        x21 = -r/2*1
+        x22 = +r/2*1
+        y21 = -r/2*det_vert
+        y22 = +r/2*det_vert
+        angleRad12=np.pi/4   
+        triangle11=[[p0[0]+x21,p0[1]+y21],[p0[0]+x21,p0[1]+y21-y21*f],[p0[0]+x21-x21*f,p0[1]+y21]]
+ 
+        p21=triangle11[0]
+        y22=-(triangle22[1][1]-triangle22[0][1])/np.sqrt(2)
+        y21=0
+        x21=+(triangle22[2][0]-triangle22[0][0])/np.sqrt(2)
+        x22=-(triangle22[2][0]-triangle22[0][0])/np.sqrt(2)
+
+        pupil_illuminated_only0_in_only1[((u0-p21[0])*np.cos(-angleRad21)+(v0-p21[1])*np.sin(-angleRad21)<x22) ] = True  
+        
+        
+        pupil_illuminated_only1[i_y_min:i_y_max,i_x_min:i_x_max]=pupil_illuminated_only0_in_only1
+        
+        pupil.illuminated=pupil.illuminated*pupil_illuminated_only1
+        time_end_single_square=time.time()
+        
+        if self.verbosity==1:
+            print('Time for cutting out the square is '+str(time_end_single_square-time_start_single_square))    
+
+    
     def _cutRay(self, pupil, p0, angle, thickness,angleunit=None):
         """Cut out a ray from a Pupil.
 
@@ -563,7 +689,7 @@ class ZernikeFitter_PFS(object):
         self.flux=flux    
             
         if jacobian is None:
-            jacobian = np.eye(2, dtype=np.float64)
+            jacobian = np.eye(2, dtype=np.float32)
         else:
             self.jacobian = jacobian
         
@@ -902,7 +1028,7 @@ class ZernikeFitter_PFS(object):
             pixelScale = self.pixelScale
             
         if jacobian is None:
-            jacobian = np.eye(2, dtype=np.float64)
+            jacobian = np.eye(2, dtype=np.float32)
         else:
             jacobian = self.jacobian          
             
@@ -1315,7 +1441,7 @@ class ZernikeFitter_PFS(object):
             screens_fake_0 = galsim.PhaseScreenList(optics_screen_fake_0)  
         
         # create array with pixels=1 if the area is illuminated and 0 if it is obscured
-        ilum=np.array(aper.illuminated, dtype=np.float64)
+        ilum=np.array(aper.illuminated, dtype=np.float32)
         assert np.sum(ilum)>0, str(self.pupil_parameters)
         
         # padding to get exact multiple when we are in focus
@@ -1384,7 +1510,7 @@ class ZernikeFitter_PFS(object):
         wf = screens.wavefront(u, v, None, 0)
         if self.save==1:
             wf_full = screens.wavefront(u_manual, v_manual, None, 0)
-        wf_grid = np.zeros_like(r_ilum, dtype=np.float64)
+        wf_grid = np.zeros_like(r_ilum, dtype=np.float32)
         wf_grid[r_ilum] = (wf/self.wavelength)
         wf_grid_rot=wf_grid
         
@@ -1572,20 +1698,18 @@ class LN_PFS_single(object):
         self.verbosity=verbosity
         self.double_sources=double_sources
         self.double_sources_positions_ratios=double_sources_positions_ratios
-        self.npix_value=npix
 
         # if npix is not specified automatically scale the image
         # this will create images which will have different pupil size for different sizes of science image
         # and this will influence the results
         if npix is None:
-            if dithering is None:
-                npix_value=int(math.ceil(int(1024*sci_image.shape[0]/(20*4)))*2)
+            if dithering is None or dithering is 1:
+                npix=int(math.ceil(int(1024*sci_image.shape[0]/(20*4)))*2)
             else:
-                    npix_value=int(math.ceil(int(1024*sci_image.shape[0]/(20*4*self.dithering)))*2)
-        
-        # the pinnacle of coding right here, returning the self.value right back
-        npix_value=self.npix_value
-        
+                npix=int(math.ceil(int(1024*sci_image.shape[0]/(20*4*self.dithering)))*2)
+        else:
+            self.npix=npix
+        print('npix_value:'+str(npix))        
         if verbosity==1:
             print('Science image shape is: '+str(sci_image.shape))
             print('Top left pixel value of the science image is: '+str(sci_image[0][0]))
@@ -1599,7 +1723,7 @@ class LN_PFS_single(object):
             print('supplied extra Zernike parameters (beyond zmax): '+str(extraZernike))
         
         if pupil_parameters is None:
-            single_image_analysis=ZernikeFitter_PFS(sci_image,var_image,image_mask=mask_image,npix=npix_value,dithering=dithering,save=save,\
+            single_image_analysis=ZernikeFitter_PFS(sci_image,var_image,image_mask=mask_image,npix=npix,dithering=dithering,save=save,\
                                                     pupil_parameters=pupil_parameters,use_pupil_parameters=use_pupil_parameters,
                                                     use_optPSF=use_optPSF,zmaxInit=zmax,extraZernike=extraZernike,
                                                     pupilExplicit=pupilExplicit,simulation_00=simulation_00,verbosity=verbosity,double_sources=double_sources,double_sources_positions_ratios=double_sources_positions_ratios)  
@@ -1607,7 +1731,7 @@ class LN_PFS_single(object):
             self.single_image_analysis=single_image_analysis
         else:
 
-            single_image_analysis=ZernikeFitter_PFS(sci_image,var_image,image_mask=mask_image,npix=npix_value,dithering=dithering,save=save,\
+            single_image_analysis=ZernikeFitter_PFS(sci_image,var_image,image_mask=mask_image,npix=npix,dithering=dithering,save=save,\
                                                     pupil_parameters=pupil_parameters,use_pupil_parameters=use_pupil_parameters,
                                                     extraZernike=extraZernike,simulation_00=simulation_00,verbosity=verbosity,double_sources=double_sources,double_sources_positions_ratios=double_sources_positions_ratios)  
             single_image_analysis.initParams(zmax,hscFracInit=pupil_parameters[0],strutFracInit=pupil_parameters[1],
@@ -3361,7 +3485,7 @@ def create_parInit(allparameters_proposal,multi=None,pupil_parameters=None,allpa
 
 
         # uncomment in order to troubleshoot and show many parameters generated for each parameter
-
+        """
         for i in [globalparameters_flat_0,globalparameters_flat_1,globalparameters_flat_2,globalparameters_flat_3,
                                                    globalparameters_flat_4,globalparameters_flat_5,globalparameters_flat_6,globalparameters_flat_7,
                                                   globalparameters_flat_8,globalparameters_flat_9,globalparameters_flat_10,
@@ -3370,7 +3494,7 @@ def create_parInit(allparameters_proposal,multi=None,pupil_parameters=None,allpa
                                                    globalparameters_flat_17,globalparameters_flat_18,globalparameters_flat_19,
                                                    globalparameters_flat_20,globalparameters_flat_21,globalparameters_flat_22]:
             print(str(i[0])+': '+str(len(i)))
-
+        """
         if pupil_parameters is None:
             globalparameters_flat=np.column_stack((globalparameters_flat_0,globalparameters_flat_1,globalparameters_flat_2,globalparameters_flat_3,
                                                    globalparameters_flat_4,globalparameters_flat_5,globalparameters_flat_6,globalparameters_flat_7,
