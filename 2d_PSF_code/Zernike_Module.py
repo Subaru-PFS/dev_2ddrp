@@ -43,6 +43,7 @@ Feb 19, 2020: 0.26b -> 0.26c normalization of sci image takes into account mask
 Mar 1, 2020: 0.26c -> 0.27 apodization scales with the size of input images
 Mar 4, 2020: 0.27 -> 0.28 (re-)introduced custom size of pupil image
 Mar 6, 2020: 0.28 -> 0.28b refactored cut_square function (making it much faster)
+Mar 8, 2020: 0.28b -> 0.28c set limit in grating factor to 120000 in generating code
 
 @author: Neven Caplar
 @contact: ncaplar@princeton.edu
@@ -1943,7 +1944,7 @@ class LN_PFS_single(object):
         if globalparameters[17]<1200:
             print('globalparameters[17] outside limits') if test_print == 1 else False 
             return -np.inf
-        if globalparameters[17]>200000:
+        if globalparameters[17]>120000:
             print('globalparameters[17] outside limits') if test_print == 1 else False 
             return -np.inf  
             
