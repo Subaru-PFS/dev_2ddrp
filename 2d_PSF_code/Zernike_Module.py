@@ -44,6 +44,7 @@ Mar 1, 2020: 0.26c -> 0.27 apodization scales with the size of input images
 Mar 4, 2020: 0.27 -> 0.28 (re-)introduced custom size of pupil image
 Mar 6, 2020: 0.28 -> 0.28b refactored cut_square function (making it much faster)
 Mar 8, 2020: 0.28b -> 0.28c set limit in grating factor to 120000 in generating code
+Apr 1, 2020: 0.28c -> 0.28d svd_invert function
 
 @author: Neven Caplar
 @contact: ncaplar@princeton.edu
@@ -100,6 +101,9 @@ from matplotlib.colors import LogNorm
 
 # needed for resizing routines
 from typing import Tuple, Iterable
+
+# for svd_invert function
+from scipy.linalg import svd
 ########################################
 
 __all__ = ['PupilFactory', 'Pupil','ZernikeFitter_PFS','LN_PFS_single','LNP_PFS',\
@@ -636,9 +640,14 @@ class PFSPupilFactory(PupilFactory):
 
 class ZernikeFitter_PFS(object):
     
-    """!Class to create  donut images in PFS
-    The model is constructed using FFT, and consists of the convolution of
-    an OpticalPSF and an input fiber image.  The OpticalPSF part includes the
+    """!
+    
+    Class to create  donut images in PFS
+    
+    Despite its name, it does not actually ``fit'' the paramters describing the donuts
+    
+    The findla image and consists of the convolution of
+    an OpticalPSF (constructed using FFT), an input fiber image and other convolutions. The OpticalPSF part includes the
     specification of an arbitrary number of zernike wavefront aberrations. 
     
     This code uses lmfit to initalize the parameters.
@@ -1645,6 +1654,19 @@ class ZernikeFitter_PFS(object):
 
 
 class LN_PFS_single(object):
+    
+    """!
+    
+    Class to compute likelihood of the donut image, given the sci and var image
+    Also the prinicpal way to get the images via ``return_Image'' option 
+    
+    model = LN_PFS_single(sci_image,var_image,pupil_parameters=pupil_parameters,use_pupil_parameters=None,zmax=zmax,save=1)    
+    def model_return(allparameters_proposal):
+        return model(allparameters_proposal,return_Image=True)
+    
+    
+    
+    """
         
     def __init__(self,sci_image,var_image,mask_image=None,dithering=None,save=None,verbosity=None,
                  pupil_parameters=None,use_pupil_parameters=None,use_optPSF=None,
@@ -1744,14 +1766,17 @@ class LN_PFS_single(object):
 
     def create_chi_2_almost(self,modelImg,sci_image,var_image,mask_image):
         """
-        return array with 3 values
+        @param sci_image    model image
+        @param sci_image    scientific image 
+        @param var_image    variance image        
+        @param mask_image   mask image  
+        
+        returns array with 3 values
         1. normal chi**2
         2. what is 'instrinsic' chi**2, i.e., just sum((scientific image)**2/variance)
         3. 'Q' value = sum(abs(model - scientific image))/sum(scientific image)
         
-        @param sci_image    model 
-        @param sci_image    scientific image 
-        @param var_image    variance image
+
         """ 
         inverted_mask=~mask_image.astype(bool)
         
@@ -2068,7 +2093,7 @@ class LNP_PFS(object):
 
 class PFSLikelihoodModule(object):
     """
-    PFSLikelihoodModule object for calculating a likelihood for cosmoHammer.ParticleSwarmOptimizer
+    PFSLikelihoodModule class for calculating a likelihood for cosmoHammer.ParticleSwarmOptimizer
     """
 
     def __init__(self,model):
@@ -3175,7 +3200,39 @@ class Psf_position(object):
 # 'free' (not inside a class) definitions below
 # ***********************   
 
-    
+def svd_invert(matrix,threshold):
+    '''
+    :param matrix:
+    :param threshold:
+    :return:SCD-inverted matrix
+    '''
+    # print 'MATRIX:',matrix
+    u,ws,v = svd(matrix,full_matrices=True)
+
+    #invw = inv(np.identity(len(ws))*ws)
+    #return ws
+
+    ww = np.max(ws)
+    n = len(ws)
+    invw = np.identity(n)
+    ncount = 0
+
+    for i in range(n):
+        if ws[i] < ww*threshold:
+            # log.info('SVD_INVERT: Value %i=%.2e rejected (threshold=%.2e).'%(i,ws[i],ww*threshold))
+            invw[i][i]= 0.
+            ncount+=1
+        else:
+            # print 'WS[%4i] %15.9f'%(i,ws[i])
+            invw[i][i] = 1./ws[i]
+
+    # log.info('%i singular values rejected in inversion'%ncount)
+
+    inv_matrix = np.dot(u , np.dot( invw, v))
+
+    return inv_matrix
+
+
 
 def find_centroid_of_flux(image):
     """
@@ -3771,4 +3828,36 @@ def resize(array: np.ndarray,
     product = np.tensordot(output, weights, [[axis], [-1]])
     output = np.moveaxis(product, -1, axis)
   return output
+
+def svd_invert(matrix,threshold):
+    '''
+    :param matrix:
+    :param threshold:
+    :return:SCD-inverted matrix
+    '''
+    # print 'MATRIX:',matrix
+    u,ws,v = svd(matrix,full_matrices=True)
+
+    #invw = inv(np.identity(len(ws))*ws)
+    #return ws
+
+    ww = np.max(ws)
+    n = len(ws)
+    invw = np.identity(n)
+    ncount = 0
+
+    for i in range(n):
+        if ws[i] < ww*threshold:
+            # log.info('SVD_INVERT: Value %i=%.2e rejected (threshold=%.2e).'%(i,ws[i],ww*threshold))
+            invw[i][i]= 0.
+            ncount+=1
+        else:
+            # print 'WS[%4i] %15.9f'%(i,ws[i])
+            invw[i][i] = 1./ws[i]
+
+    # log.info('%i singular values rejected in inversion'%ncount)
+
+    inv_matrix = np.dot(u , np.dot( invw, v))
+
+    return inv_matrix
 
