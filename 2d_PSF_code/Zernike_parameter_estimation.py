@@ -5,6 +5,7 @@ Created on Mon Mar 30 2020
 @contact: ncaplar@princeton.edu
 
 Mar 31, 2020: ? -> 0.28 added argparser and extra Zernike
+Apr 7, 200: 0.28 -> 0.28 added /tigress/ncaplar/Result_DirectAndInt_FinalResults/' to the output path of the final product
 
 
 """
@@ -1159,8 +1160,8 @@ else:
             
             if np.sum(number_of_non_decreses)==3:
                 # need to put in save here as well, right?
-                np.save(NAME_OF_allparameters,allparameters_proposal_after_iteration)
-                np.save(NAME_OF_final_optpsf,final_optpsf_image)
+                np.save('/tigress/ncaplar/Result_DirectAndInt_FinalResults/'+NAME_OF_allparameters,allparameters_proposal_after_iteration)
+                np.save('/tigress/ncaplar/Result_DirectAndInt_FinalResults/'+NAME_OF_final_optpsf,final_optpsf_image)
                 sys.exit(0)
         '''
         if IM_final/IM_start <1.05 :
@@ -1185,8 +1186,8 @@ else:
         print('did_chi_2_improve (1 for yes, 0 for no): '+str(did_chi_2_improve))
         
         if iteration_number==9: 
-            np.save(NAME_OF_allparameters,allparameters_proposal_after_iteration)
-            np.save(NAME_OF_final_optpsf,final_optpsf_image)
+            np.save('/tigress/ncaplar/Result_DirectAndInt_FinalResults/'+NAME_OF_allparameters,allparameters_proposal_after_iteration)
+            np.save('/tigress/ncaplar/Result_DirectAndInt_FinalResults/'+NAME_OF_final_optpsf,final_optpsf_image)
 
     print('Time when total script finished was: '+time.ctime())     
     time_end=time.time()   
