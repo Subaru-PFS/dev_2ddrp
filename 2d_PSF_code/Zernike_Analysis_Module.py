@@ -68,7 +68,7 @@ from typing import Tuple, Iterable
 
 __all__ = ['Zernike_Analysis','Zernike_result_analysis','create_mask','resize']
 
-__version__ = "0.23"
+__version__ = "0.24"
 
 ############################################################
 # name your directory where you want to have files!
@@ -533,7 +533,7 @@ class Zernike_Analysis(object):
         if custom_mask is None:
             pass
         else:
-            plt.imshow(custom_mask,origin='lower',alpha=0.2)
+            plt.imshow(custom_mask,origin='lower',alpha=0.25)
         
         plt.title('Residual (data - model)')
         plt.grid(False)
@@ -553,6 +553,12 @@ class Zernike_Analysis(object):
         plt.title('chi map')
         plt.tight_layout(pad=0.0, w_pad=1.8, h_pad=-10.0)
         print('chi**2 reduced is: '+str(np.sum((res_iapetus-sci_image)**2/((var_image.shape[0]*var_image.shape[1])*var_image))))
+        if custom_mask is None:
+            pass
+        else:
+            print('chi**2 reduced within mask area is: '+str(np.mean((res_iapetus[custom_mask]-sci_image[custom_mask])**2/(var_image[custom_mask]))))
+        
+        
         print('Abs of residual divided by total flux is: '+str(np.sum(np.abs((res_iapetus-sci_image)))/np.sum((res_iapetus))))
         print('Abs of residual divided by largest value of a flux in the image is: '+str(np.max(np.abs((res_iapetus-sci_image)/np.max(res_iapetus)))))
   
