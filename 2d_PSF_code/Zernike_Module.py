@@ -46,6 +46,7 @@ Mar 6, 2020: 0.28 -> 0.28b refactored cut_square function (making it much faster
 Mar 8, 2020: 0.28b -> 0.28c set limit in grating factor to 120000 in generating code
 Apr 1, 2020: 0.28c -> 0.28d svd_invert function
 
+
 @author: Neven Caplar
 @contact: ncaplar@princeton.edu
 @web: www.ncaplar.com
@@ -112,7 +113,7 @@ __all__ = ['PupilFactory', 'Pupil','ZernikeFitter_PFS','LN_PFS_single','LNP_PFS'
            'sky_scale','sky_size','create_x','remove_pupil_parameters_from_all_parameters',\
            'resize','_interval_overlap']
 
-__version__ = "0.28b"
+__version__ = "0.28d"
 
 ############################################################
 # name your directory where you want to have files!
@@ -1258,10 +1259,13 @@ class ZernikeFitter_PFS(object):
             optPsf_cut_grating_convolved_simulation_cut_odd=optPsf_cut_grating_convolved_simulation_cut_odd/np.sum(optPsf_cut_grating_convolved_simulation_cut_odd)
             np.save(TESTING_FINAL_IMAGES_FOLDER+'optPsf_cut_grating_convolved_simulation_cut_odd',optPsf_cut_grating_convolved_simulation_cut_odd)
             
+            # still create some sort of optPsf_cut_fiber_convolved_downsampled in order to be consistent
+            
         else:
+            
             pass
-
-        
+            
+            
         # the algorithm  finds (or at least should find) the best downsampling combination automatically 
         if self.verbosity==1:
             print('are we invoking double sources (1 if yes): '+str(self.double_sources)) 
@@ -1278,6 +1282,9 @@ class ZernikeFitter_PFS(object):
                                                                                v_flux=v['flux'],simulation_00=self.simulation_00,
                                                                                double_sources=self.double_sources,double_sources_positions_ratios=self.double_sources_positions_ratios,
                                                                                verbosity=self.verbosity)
+
+        
+
         time_end_single=time.time()
         if self.verbosity==1:
             print('Time for single_Psf_position protocol is '+str(time_end_single-time_start_single))
