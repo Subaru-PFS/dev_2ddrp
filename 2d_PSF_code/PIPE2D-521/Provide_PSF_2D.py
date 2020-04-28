@@ -62,58 +62,80 @@ def provide_PSF_2D(x=None,y=None,PSF_version=None):
     distances_of_y_requested_position_from_avaliable=\
     y-positions_of_simulation_in_acceptable_x_range[:,2]
     
-    # ! change here on April 22, 2020!
-    #    separate the distances into distances which are for the spots above the requested position and below the requested position
-    distances_of_y_requested_position_from_avaliable_which_are_above_the_spot=\
-    distances_of_y_requested_position_from_avaliable[distances_of_y_requested_position_from_avaliable<0]
-    distances_of_y_requested_position_from_avaliable_which_are_below_the_spot=\
-    distances_of_y_requested_position_from_avaliable[distances_of_y_requested_position_from_avaliable>0]
-    
-    #    if there are no sources above, do not do interpolation and select the nearest source
-    if len(distances_of_y_requested_position_from_avaliable_which_are_above_the_spot)==0:
-        index_of_1st_closest_above_simulated_psf=-99 
-    else:
-        index_of_1st_closest_above_simulated_psf=\
-        np.where(distances_of_y_requested_position_from_avaliable==\
-                 np.max(distances_of_y_requested_position_from_avaliable_which_are_above_the_spot))[0][0]    
-
-    #    if there are no sources below, do not do interpolation and select the nearest source
-    if len(distances_of_y_requested_position_from_avaliable_which_are_below_the_spot)==0:
-        index_of_1st_closest_below_simulated_psf=-99
-    else:
-        index_of_1st_closest_below_simulated_psf=\
-        np.where(distances_of_y_requested_position_from_avaliable==\
-                 np.min(distances_of_y_requested_position_from_avaliable_which_are_below_the_spot))[0][0]       
-
-    if index_of_1st_closest_below_simulated_psf==-99:
-        index_of_1st_closest_below_simulated_psf=index_of_1st_closest_above_simulated_psf
-    if index_of_1st_closest_above_simulated_psf==-99:
-        index_of_1st_closest_above_simulated_psf=index_of_1st_closest_below_simulated_psf
-    # ! end of change here on April 22, 2020
-    
-    # where are these 2 closest PSF in the initial table
-    index_of_1st_closest_simulated_psf_in_positions_of_simulation=\
-    np.where(np.sum(positions_of_simulation,axis=1)==\
-             np.sum(positions_of_simulation_in_acceptable_x_range[index_of_1st_closest_above_simulated_psf]))[0][0]
-    index_of_2nd_closest_simulated_psf_in_positions_of_simulation=\
-    np.where(np.sum(positions_of_simulation,axis=1)==\
-             np.sum(positions_of_simulation_in_acceptable_x_range[index_of_1st_closest_below_simulated_psf]))[0][0]
-
-
-
-    # extract the 2 simulated PSFs
-    first_array_simulation=\
-    array_of_simulation[index_of_1st_closest_simulated_psf_in_positions_of_simulation]
-    second_array_simulation=\
-    array_of_simulation[index_of_2nd_closest_simulated_psf_in_positions_of_simulation]
+    # if you request for a spot exactly at the position of a input from the array
+    if np.min(np.abs(distances_of_y_requested_position_from_avaliable))==0:
+        index_of_simulated_psf=\
+        np.where(distances_of_y_requested_position_from_avaliable==0)[0][0]   
         
-    # distance of each PSF from the proposed position
+        y1_distance=0
+        y2_distance=0
+        
+        
+        # where are that exact PSF in the initial table
+        index_of_1st_closest_simulated_psf_in_positions_of_simulation=\
+        np.where(np.sum(positions_of_simulation,axis=1)==\
+                 np.sum(positions_of_simulation_in_acceptable_x_range[index_of_simulated_psf]))[0][0]
+        print(index_of_1st_closest_simulated_psf_in_positions_of_simulation)
+            # extract the 2 simulated PSFs
+        first_array_simulation=\
+        array_of_simulation[index_of_1st_closest_simulated_psf_in_positions_of_simulation]
+        second_array_simulation=\
+        array_of_simulation[index_of_1st_closest_simulated_psf_in_positions_of_simulation]
+        
+    else:
+        # ! change here on April 22, 2020!
+        # separate the distances into distances which are for the spots above the requested position and below the requested position
+        distances_of_y_requested_position_from_avaliable_which_are_above_the_spot=distances_of_y_requested_position_from_avaliable[distances_of_y_requested_position_from_avaliable<0]
+        distances_of_y_requested_position_from_avaliable_which_are_below_the_spot=distances_of_y_requested_position_from_avaliable[distances_of_y_requested_position_from_avaliable>0]
 
-    y1_distance=\
-    y-positions_of_simulation[index_of_1st_closest_simulated_psf_in_positions_of_simulation][2]
-    y2_distance=\
-    y-positions_of_simulation[index_of_2nd_closest_simulated_psf_in_positions_of_simulation][2]
-    
+        # if there are no sources above, do not do interpolation and select the nearest source
+        if len(distances_of_y_requested_position_from_avaliable_which_are_above_the_spot)==0:
+            index_of_1st_closest_above_simulated_psf=-99 
+        else:
+            index_of_1st_closest_above_simulated_psf=\
+            np.where(distances_of_y_requested_position_from_avaliable==\
+                     np.max(distances_of_y_requested_position_from_avaliable_which_are_above_the_spot))[0][0]    
+
+        # if there are no sources below, do not do interpolation and select the nearest source
+        if len(distances_of_y_requested_position_from_avaliable_which_are_below_the_spot)==0:
+            index_of_1st_closest_below_simulated_psf=-99
+        else:
+            index_of_1st_closest_below_simulated_psf=\
+            np.where(distances_of_y_requested_position_from_avaliable==\
+                     np.min(distances_of_y_requested_position_from_avaliable_which_are_below_the_spot))[0][0]       
+
+        if index_of_1st_closest_below_simulated_psf==-99:
+            index_of_1st_closest_below_simulated_psf=index_of_1st_closest_above_simulated_psf
+        if index_of_1st_closest_above_simulated_psf==-99:
+            index_of_1st_closest_above_simulated_psf=index_of_1st_closest_below_simulated_psf
+        # ! end of change here on April 22, 2020
+
+        # where are these 2 closest PSF in the initial table
+        index_of_1st_closest_simulated_psf_in_positions_of_simulation=\
+        np.where(np.sum(positions_of_simulation,axis=1)==\
+                 np.sum(positions_of_simulation_in_acceptable_x_range[index_of_1st_closest_above_simulated_psf]))[0][0]
+        index_of_2nd_closest_simulated_psf_in_positions_of_simulation=\
+        np.where(np.sum(positions_of_simulation,axis=1)==\
+                 np.sum(positions_of_simulation_in_acceptable_x_range[index_of_1st_closest_below_simulated_psf]))[0][0]
+
+
+
+        # extract the 2 simulated PSFs
+        first_array_simulation=\
+        array_of_simulation[index_of_1st_closest_simulated_psf_in_positions_of_simulation]
+        second_array_simulation=\
+        array_of_simulation[index_of_2nd_closest_simulated_psf_in_positions_of_simulation]
+
+        #print('1st:'+str(positions_of_simulation[index_of_1st_closest_simulated_psf_in_positions_of_simulation]),\
+        #      '2nd:'+str(positions_of_simulation[index_of_2nd_closest_simulated_psf_in_positions_of_simulation]))
+
+        # distance of each PSF from the proposed position
+        #print(positions_of_simulation[index_of_1st_closest_simulated_psf_in_positions_of_simulation],positions_of_simulation[index_of_2nd_closest_simulated_psf_in_positions_of_simulation])
+        y1_distance=\
+        y-positions_of_simulation[index_of_1st_closest_simulated_psf_in_positions_of_simulation][2]
+        y2_distance=\
+        y-positions_of_simulation[index_of_2nd_closest_simulated_psf_in_positions_of_simulation][2]
+
     # ! change here on April 22, 2020!
     #       if you requested psf at the exact position of existing PSF use that one OR
     #       if you are outside of the range covered by spots, use the last avaliable image
