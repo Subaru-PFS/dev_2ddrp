@@ -4,7 +4,8 @@ First created on Mon Aug 13 10:01:03 2018
 Versions
 Oct 31, 2019: 0.22 -> 0.22b introduced verbosity
 Mar 10, 2020: 0.22b -> 0.23 if std too small, disregard error calculation
-Apr 1, 2020: 0.23 -> 0.24 added options to create_basic_comparison_plot
+Apr 01, 2020: 0.23 -> 0.24 added options to create_basic_comparison_plot
+Apr 29, 2020: 0.24 -> 0.24 added check for image for both side of defocus in create_solution
 
 @author: Neven Caplar
 @contact: ncaplar@princeton.edu
@@ -1354,6 +1355,9 @@ class Zernike_result_analysis(object):
         
         
         results_of_fit_single=results_of_fit_single[np.abs(results_of_fit_single['z4'])>0]
+        len_of_negative_defocus=len(results_of_fit_single[np.abs(results_of_fit_single['z4'])<-1.5])
+        len_of_positive_defocus=len(results_of_fit_single[np.abs(results_of_fit_single['z4'])>1.5])
+        
         err_results_of_fit_single=err_results_of_fit_single[np.abs(err_results_of_fit_single['z4'])>0]
         err_results_of_fit_single_lower=err_results_of_fit_single_lower[np.abs(err_results_of_fit_single_lower['z4'])>0]
         err_results_of_fit_single_upper=err_results_of_fit_single_upper[np.abs(err_results_of_fit_single_upper['z4'])>0]    
@@ -1363,8 +1367,13 @@ class Zernike_result_analysis(object):
         results_of_fit_single_near_focus=results_of_fit_single[np.abs(index_arr)<=0.5]    
         results_of_fit_single_near_focus=results_of_fit_single_near_focus[np.abs(results_of_fit_single_near_focus['z4'])>0]
 
-        # if you have more than 7 observations and have at least one observation near focus go forward, else return zeroes
-        if len(results_of_fit_single)<=7 or len(results_of_fit_single_near_focus)==0:
+
+        # Do not analyze if :
+        # 1.if you have less than 7 observations
+        # 2. if you have no observations near focus
+        # 3. if you do not have at least 2 observations from each side of defocus
+        # else return zeroes
+        if len(results_of_fit_single)<=7 or len(results_of_fit_single_near_focus)==0 or len_of_negative_defocus<=2 or len_of_positive_defocus<=2:
             if zMax==22:
                 solution_at_0=np.full(31+11,0)
                 solution_at_05_0_05=[]
