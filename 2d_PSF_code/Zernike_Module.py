@@ -1,7 +1,15 @@
 """
 First created on Mon Aug 13 10:01:03 2018
 
-Versions
+Main code for the creation of the image for Zernike analysis;
+Other moduls avaliable are:
+    Zernike_Cutting_Module
+    Zernike_Analysis_Module
+
+    
+    
+
+Versions:
 Oct 31, 2018; 0.1 -> 0.11 fixed FRD effect
 Nov 1, 2018; 0.11 -> 0.12 added correct edges to the detector; fixed wrong behavior for misaligment 
 Nov 2, 2018; 0.12 -> 0.13 added lorentzian wings to the illumination of the pupil
@@ -45,6 +53,7 @@ Mar 4, 2020: 0.27 -> 0.28 (re-)introduced custom size of pupil image
 Mar 6, 2020: 0.28 -> 0.28b refactored cut_square function (making it much faster)
 Mar 8, 2020: 0.28b -> 0.28c set limit in grating factor to 120000 in generating code
 Apr 1, 2020: 0.28c -> 0.28d svd_invert function
+May 6, 2020: 0.28d -> 0.28e clarified and expanded comments in postprocessing part
 
 
 @author: Neven Caplar
@@ -113,7 +122,7 @@ __all__ = ['PupilFactory', 'Pupil','ZernikeFitter_PFS','LN_PFS_single','LNP_PFS'
            'sky_scale','sky_size','create_x','remove_pupil_parameters_from_all_parameters',\
            'resize','_interval_overlap']
 
-__version__ = "0.28d"
+__version__ = "0.28e"
 
 ############################################################
 # name your directory where you want to have files!
@@ -714,7 +723,7 @@ class ZernikeFitter_PFS(object):
         # This is size of the pixel in arcsec for PFS red arm in focus
         # calculated with http://www.wilmslowastro.com/software/formulae.htm
         # pixel size in microns/focal length in mm x 206.3
-        # pixel size =15 microns, focal length = 149.2 mm (138 aperature x1.1 f number)
+        # pixel size = 15 microns, focal length = 149.2 mm (138 aperature x 1.1 f number)
         if pixelScale is None:
             pixelScale=20.76
             self.pixelScale=pixelScale
@@ -750,14 +759,15 @@ class ZernikeFitter_PFS(object):
         else:
             self.radiometricEffectArray_Image=radiometricEffectArray_Image  
                 
-        # when creating pupils it will have size of npix pixels
+        # effective size of pixels, which can be differ from physical size of pixels due to dithering
         if dithering is None:
             dithering=1
             self.dithering=dithering
-            self.pixelScale=self.pixelScale/dithering
+            # effective pixel scale is the same as physical pixel scale
+            self.pixelScale_effective=self.pixelScale/dithering
         else:
             self.dithering=dithering         
-            self.pixelScale=self.pixelScale/dithering         
+            self.pixelScale_effective=self.pixelScale/dithering         
             
         
         if save in (None,0):
@@ -1104,31 +1114,36 @@ class ZernikeFitter_PFS(object):
         v = params.valuesdict()
         
        # how much is my generated image oversampled compared to final image
-        oversampling_original=(self.pixelScale)/self.scale_ModelImage_PFS_naturalResolution
+        oversampling_original=(self.pixelScale_effective)/self.scale_ModelImage_PFS_naturalResolution
         
         if self.verbosity==1:
             print('optPsf.shape: '+str(optPsf.shape))
             print('oversampling_original: ' +str(oversampling_original))
 
         
-        # determine the size, so that from the hughe generated large image we cut the central portion (1.4 times larger than the size of actual image)
+        # determine the size, so that from the huge generated image we can cut out only the central portion (1.4 times larger than the size of actual image)
         size_of_central_cut=int(oversampling_original*self.image.shape[0]*1.4)
         assert size_of_central_cut<optPsf.shape[0]
         if self.verbosity==1:
             print('size_of_central_cut: '+str(size_of_central_cut))
             
-        # cut part which you need image 
-        # set oversampling to 1 so you are not resizing and dx=0 and dy=0 so that you are not moving around, i.e., you are cutting the central region
+        # cut part which you need to form the final image 
+        # set oversampling to 1 so you are not resizingthe image  and dx=0 and dy=0 so that you are not moving around, i.e., you are cutting the central region
         optPsf_cut=Psf_position.cut_Centroid_of_natural_resolution_image(image=optPsf,size_natural_resolution=size_of_central_cut+1,oversampling=1,dx=0,dy=0)
         if self.verbosity==1:
             print('optPsf_cut.shape'+str(optPsf_cut.shape))
 
-        # we want to reduce oversampling by roughly the factor of 4 to make things easier
-        oversampling=np.round(oversampling_original/4)
+        # we want to reduce oversampling to be roughly around 10 to make things computationaly easier
+        # if oversamplign_original is smaller than 20 (in case of dithered images), make res coarser by factor of 2
+        # otherwise do it by 4
+        if oversampling_original< 20:
+            oversampling=np.round(oversampling_original/2)
+        else:
+            oversampling=np.round(oversampling_original/4)
         if self.verbosity==1:
             print('oversampling:' +str(oversampling))
         
-        # what is the size of the images after you resize to the new oversampled ratio
+        # what will be the size of the image after you resize it to the from ``oversampling_original'' to ``oversampling'' ratio
         size_of_optPsf_cut_downsampled=np.round(size_of_central_cut/(oversampling_original/oversampling))
         if self.verbosity==1:
             print('optPsf_cut.shape[0]'+str(optPsf_cut.shape[0]))
@@ -1147,7 +1162,8 @@ class ZernikeFitter_PFS(object):
         mid_point_of_optPsf_cut_downsampled=int(optPsf_cut_downsampled.shape[0]/2)
         
         # gives the size of one pixel in optPsf_downsampled in microns
-        # one pixel is 15 microns
+        # one physical pixel is 15 microns
+        # effective size is 15 / dithering
         size_of_pixels_in_optPsf_cut_downsampled=(15/self.dithering)/oversampling
         
         # size of the created optical PSF images in microns
@@ -1199,9 +1215,9 @@ class ZernikeFitter_PFS(object):
         #########        #########        #########        #########        #########         #########        #########        #########        #########        #########
         # 2. convolution with fiber
 
-
         # create tophat2d
-        fiber = astropy.convolution.Tophat2DKernel(oversampling*1*v['fiber_r']*self.dithering,mode='oversample').array
+        # physical quantities do not change with dithering, so multiply with self.dithering (applies also to steps 3 and 4)
+        fiber = astropy.convolution.Tophat2DKernel(oversampling*v['fiber_r']*self.dithering,mode='oversample').array
         # create array with zeros with size of the current image, which we will fill with fiber array in the middle
         fiber_padded=np.zeros_like(optPsf_cut_downsampled_scattered)
         mid_point_of_optPsf_cut_downsampled=int(optPsf_cut_downsampled.shape[0]/2)
@@ -1239,14 +1255,15 @@ class ZernikeFitter_PFS(object):
         grating_kernel=grating_kernel/np.sum(grating_kernel)
         
         # I should implement custom_fft function (custom_fftconvolve), as above
-        # This is 1D convolution so it would need a bit of work, and I see that behavioru is fine
+        # This is 1D convolution so it would need a bit of work, and I see that behavior is fine
         optPsf_cut_grating_convolved=scipy.signal.fftconvolve(optPsf_cut_pixel_response_convolved, grating_kernel, mode='same')
         
         #########        #########        #########        #########        #########         #########        #########        #########        #########        #########   
         # 5. centering
         # This is the part which creates the final image
         
-        # if you have requsted a simulated image without movement, `simulation_00' will not be `None' and go into this small loop below
+        # if you have requsted a simulated image without movement, `simulation_00' will not be `None' and the code goes into the small if statment below
+        # otherwise the statment is skipped an the code does not create image with optical center at (0,0)
         if self.verbosity==1:
             print('simulation_00 parameter:' +str(self.simulation_00))
         if self.simulation_00 is not None:
@@ -1271,8 +1288,10 @@ class ZernikeFitter_PFS(object):
             print('are we invoking double sources (1 if yes): '+str(self.double_sources)) 
             print('double source position/ratio is:' +str(self.double_sources_positions_ratios))
             
-        # initialize the class which does the centering - the separation between the class and the main function in the class, ``find_single_realization_min_cut'', is a bit blurry and unsatisfactory
-        single_Psf_position=Psf_position(optPsf_cut_grating_convolved, int(round(oversampling)),shape[0] ,double_sources=self.double_sources,double_sources_positions_ratios=self.double_sources_positions_ratios,
+        # initialize the class which does the centering - the separation between the class and the main function in the class, 
+        # ``find_single_realization_min_cut'', is a bit blurry and unsatisfactory
+        single_Psf_position=Psf_position(optPsf_cut_grating_convolved, int(round(oversampling)),shape[0] ,
+                                         double_sources=self.double_sources,double_sources_positions_ratios=self.double_sources_positions_ratios,
                                                                                verbosity=self.verbosity)
        
         #  run the code for centering
@@ -2152,7 +2171,7 @@ class Zernike_Analysis(object):
             arc=''
 
         if dataset==0:
-            STAMPS_FOLDER="/Users/nevencaplar/Documents/PFS/Data_Nov_14/Stamps_cleaned/"
+            STAMPS_FOLDER="/Users/nevencaplar/Documents/PFS/ReducedData/Data_Nov_14/Stamps_cleaned"
             if arc is not None:         
                 if arc=="HgAr":
                     single_number_focus=8603
@@ -2717,8 +2736,6 @@ class Zernike_Analysis(object):
 class Psf_position(object):
     """
     Class that deals with positining the PSF model in respect to the data
-    
-    
     """
 
     def __init__(self, image,oversampling,size_natural_resolution, simulation_00=False, double_sources=False,double_sources_positions_ratios=[0,0],verbosity=0,save=None):

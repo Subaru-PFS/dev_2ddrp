@@ -1,11 +1,13 @@
 """
 First created on Mon Aug 13 10:01:03 2018
 
-Versions
+Module used for analysis of the image created from Zernike analysis
+
+Versions:
 Oct 31, 2019: 0.22 -> 0.22b introduced verbosity
 Mar 10, 2020: 0.22b -> 0.23 if std too small, disregard error calculation
 Apr 01, 2020: 0.23 -> 0.24 added options to create_basic_comparison_plot
-Apr 29, 2020: 0.24 -> 0.24 added check for image for both side of defocus in create_solution
+Apr 29, 2020: 0.24 -> 0.24a added check for image for both side of defocus in create_solution
 
 @author: Neven Caplar
 @contact: ncaplar@princeton.edu
@@ -69,7 +71,7 @@ from typing import Tuple, Iterable
 
 __all__ = ['Zernike_Analysis','Zernike_result_analysis','create_mask','resize']
 
-__version__ = "0.24"
+__version__ = "0.24a"
 
 ############################################################
 # name your directory where you want to have files!
