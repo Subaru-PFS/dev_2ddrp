@@ -115,7 +115,8 @@ class Zernike_Analysis(object):
                 elif arc=="Ne":
                     single_number_focus=8693  
 
-        if dataset==1:   
+        if dataset==1:  
+            # F/3.2 stop 
             STAMPS_FOLDER="/Users/nevencaplar/Documents/PFS/ReducedData/Data_Feb_5/Stamps_cleaned/"
             if arc is not None:         
                 if arc=="HgAr":
@@ -124,6 +125,7 @@ class Zernike_Analysis(object):
                     single_number_focus=11748+607  
  
         if dataset==2:
+            # F/2.8 stop
             STAMPS_FOLDER="/Users/nevencaplar/Documents/PFS/ReducedData/Data_May_28/Stamps_cleaned/"
             if arc is not None:         
                 if arc=="HgAr":
@@ -134,6 +136,7 @@ class Zernike_Analysis(object):
                     single_number_focus=17310+54  
                 
         if dataset==3:  
+            # F/2.5 stop
             STAMPS_FOLDER="/Users/nevencaplar/Documents/PFS/ReducedData/Data_Jun_25/Stamps_cleaned/"
             if arc is not None:         
                 if arc=="HgAr":
@@ -142,6 +145,7 @@ class Zernike_Analysis(object):
                     single_number_focus=19472  
                     
         if dataset==4 or dataset==5:  
+            # F/2.8 stop
             STAMPS_FOLDER="/Users/nevencaplar/Documents/PFS/ReducedData/Data_Aug_14/Stamps_cleaned/"
             if arc is not None:         
                 if arc=="HgAr":
