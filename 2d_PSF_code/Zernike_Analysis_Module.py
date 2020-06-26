@@ -8,6 +8,8 @@ Oct 31, 2019: 0.22 -> 0.22b introduced verbosity
 Mar 10, 2020: 0.22b -> 0.23 if std too small, disregard error calculation
 Apr 01, 2020: 0.23 -> 0.24 added options to create_basic_comparison_plot
 Apr 29, 2020: 0.24 -> 0.24a added check for image for both side of defocus in create_solution
+Jun 17, 2020: 0.24a -> 0.24b cleaned the STAMPS_FOLDER specification
+Jun 25, 2020: 0.24b -> 0.25 improved create_res_data
 
 @author: Neven Caplar
 @contact: ncaplar@princeton.edu
@@ -30,6 +32,8 @@ np.seterr(divide='ignore', invalid='ignore')
 #print(np.__config__)
 from multiprocessing import current_process
 from functools import lru_cache
+
+from tqdm import tqdm
 #import pyfftw
 #import pandas as pd
 
@@ -71,7 +75,7 @@ from typing import Tuple, Iterable
 
 __all__ = ['Zernike_Analysis','Zernike_result_analysis','create_mask','resize']
 
-__version__ = "0.24a"
+__version__ = "0.24b"
 
 ############################################################
 # name your directory where you want to have files!
@@ -96,8 +100,10 @@ class Zernike_Analysis(object):
         if arc is None:
             arc=''
         
-        
-        
+        if dataset==0:
+            STAMPS_FOLDER="/Users/nevencaplar/Documents/PFS/Data_Nov_14/Stamps_cleaned/"  
+        if dataset==1:
+            STAMPS_FOLDER="/Users/nevencaplar/Documents/PFS/ReducedData/Data_Feb_5/Stamps_cleaned/"    
         if dataset==2:
             STAMPS_FOLDER="/Users/nevencaplar/Documents/PFS/ReducedData/Data_May_28/Stamps_cleaned/"
         if dataset==3:
@@ -108,7 +114,6 @@ class Zernike_Analysis(object):
         
         
         if dataset==0:
-            STAMPS_FOLDER="/Users/nevencaplar/Documents/PFS/Data_Nov_14/Stamps_cleaned/"
             if arc is not None:         
                 if arc=="HgAr":
                     single_number_focus=8603
@@ -117,7 +122,6 @@ class Zernike_Analysis(object):
 
         if dataset==1:  
             # F/3.2 stop 
-            STAMPS_FOLDER="/Users/nevencaplar/Documents/PFS/ReducedData/Data_Feb_5/Stamps_cleaned/"
             if arc is not None:         
                 if arc=="HgAr":
                     single_number_focus=11748
@@ -126,7 +130,6 @@ class Zernike_Analysis(object):
  
         if dataset==2:
             # F/2.8 stop
-            STAMPS_FOLDER="/Users/nevencaplar/Documents/PFS/ReducedData/Data_May_28/Stamps_cleaned/"
             if arc is not None:         
                 if arc=="HgAr":
                     single_number_focus=17017+54
@@ -137,7 +140,6 @@ class Zernike_Analysis(object):
                 
         if dataset==3:  
             # F/2.5 stop
-            STAMPS_FOLDER="/Users/nevencaplar/Documents/PFS/ReducedData/Data_Jun_25/Stamps_cleaned/"
             if arc is not None:         
                 if arc=="HgAr":
                     single_number_focus=19238+54
@@ -146,7 +148,6 @@ class Zernike_Analysis(object):
                     
         if dataset==4 or dataset==5:  
             # F/2.8 stop
-            STAMPS_FOLDER="/Users/nevencaplar/Documents/PFS/ReducedData/Data_Aug_14/Stamps_cleaned/"
             if arc is not None:         
                 if arc=="HgAr":
                     single_number_focus=21346+54
@@ -1756,32 +1757,34 @@ def create_mask(FFTTest_fiber_and_pixel_convolved_downsampled_40,semi=None):
     return [center_square,horizontal_cross,vertical_cross,diagonal_cross,total_mask]
 
 
-def create_res_data(FFTTest_fiber_and_pixel_convolved_downsampled_40,mask=None,custom_cent=None,size_pixel=None,custom_cent_specified=None):
+def create_res_data(FFTTest_fiber_and_pixel_convolved_downsampled_40,mask=None,custom_cent=None,size_pixel=None):
     """!given the small science image, create radial profile in microns
     
     @param FFTTest_fiber_and_pixel_convolved_downsampled_40     science data stamps
-    @param mask                                                 mask to cover science data [default: no mask]
-    @param custom_cent                                          should you create new center using the function ``find_centroid_of_flux'' [default:No]
-    @param size_pixel                                           pixel size in the image, in microns [default:7.5]
+    @param mask                                                 mask to cover science data [default: None]
+    @param custom_cent                                          if None create new center using the function ``find_centroid_of_flux'' [default:None]
+                                                                otherwise pass a list with [x_center, y_center]
+    @param size_pixel                                           pixel size in the image, in microns [default:1, dithered=7.5, normal operation=15]
      """     
      
     xs_uniform=find_centroid_of_flux(np.ones(FFTTest_fiber_and_pixel_convolved_downsampled_40.shape))[0] 
     ys_uniform=find_centroid_of_flux(np.ones(FFTTest_fiber_and_pixel_convolved_downsampled_40.shape))[1]
     
+    print('uniform values are:' +str([xs_uniform,ys_uniform]))
+    
+    # changed in 0.25 
     if size_pixel is None:
-        size_pixel=7.5
+        size_pixel=1
     
     image_shape=np.array(FFTTest_fiber_and_pixel_convolved_downsampled_40.shape)
+
     if custom_cent is None:
-        xs0=0
-        ys0=0
+        xs0=(find_centroid_of_flux(FFTTest_fiber_and_pixel_convolved_downsampled_40)[0]-xs_uniform)*size_pixel
+        ys0=(find_centroid_of_flux(FFTTest_fiber_and_pixel_convolved_downsampled_40)[1]-ys_uniform)*size_pixel
+        print('center deduced  (in respect to the center of image) at:' +str([xs0,ys0]))
     else:
-        if custom_cent_specified is None:
-            xs0=(find_centroid_of_flux(FFTTest_fiber_and_pixel_convolved_downsampled_40)[0]-xs_uniform)*size_pixel
-            ys0=(find_centroid_of_flux(FFTTest_fiber_and_pixel_convolved_downsampled_40)[1]-ys_uniform)*size_pixel
-            print([xs0,ys0])
-        else:
-            xs0,ys0=custom_cent_specified
+        xs0,ys0=custom_cent-xs_uniform
+        print('center specified (in respect to the center of image) at:' +str([xs0,ys0]))
             
     pointsx = np.linspace(-(int(image_shape[0]*size_pixel)-size_pixel)/2,(int(image_shape[0]*size_pixel)-size_pixel)/2,num=int(image_shape[0]))
     pointsy = np.linspace(-(int(image_shape[0]*size_pixel)-size_pixel)/2,(int(image_shape[0]*size_pixel)-size_pixel)/2,num=int(image_shape[0]))
@@ -1794,7 +1797,7 @@ def create_res_data(FFTTest_fiber_and_pixel_convolved_downsampled_40,mask=None,c
     distances=range(int(image_shape[0]/2*size_pixel*1.2))
 
     res_test_data=[]
-    for r in distances:
+    for r in tqdm(distances):
         pixels_upper_limit=(mask*FFTTest_fiber_and_pixel_convolved_downsampled_40)[r0<(r+size_pixel)]
         pixels_lower_limit=(mask*FFTTest_fiber_and_pixel_convolved_downsampled_40)[r0<(r)]
         
