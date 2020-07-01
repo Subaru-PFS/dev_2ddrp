@@ -54,7 +54,7 @@ Mar 6, 2020: 0.28 -> 0.28b refactored cut_square function (making it much faster
 Mar 8, 2020: 0.28b -> 0.28c set limit in grating factor to 120000 in generating code
 Apr 1, 2020: 0.28c -> 0.28d svd_invert function
 May 6, 2020: 0.28d -> 0.28e clarified and expanded comments in postprocessing part
-
+Jun 28, 2020: 0.28e -> 0.29 added multi analysis
 
 @author: Neven Caplar
 @contact: ncaplar@princeton.edu
@@ -116,13 +116,13 @@ from typing import Tuple, Iterable
 from scipy.linalg import svd
 ########################################
 
-__all__ = ['PupilFactory', 'Pupil','ZernikeFitter_PFS','LN_PFS_single','LNP_PFS',\
+__all__ = ['PupilFactory', 'Pupil','ZernikeFitter_PFS','LN_PFS_multi_same_spot','LN_PFS_single','LNP_PFS',\
            'find_centroid_of_flux','create_parInit',\
            'Zernike_Analysis','PFSPupilFactory','custom_fftconvolve','stepK','maxK',\
-           'sky_scale','sky_size','create_x','remove_pupil_parameters_from_all_parameters',\
+           'sky_scale','sky_size','remove_pupil_parameters_from_all_parameters',\
            'resize','_interval_overlap']
 
-__version__ = "0.28e"
+__version__ = "0.29"
 
 ############################################################
 # name your directory where you want to have files!
@@ -254,6 +254,7 @@ class PupilFactory(object):
         @param[in] p0         2-tuple indicating region center
         @param[in] r          half lenght of the length of square side
         @param[in] angle      angle that the camera is rotated
+        @param[in] det_vert
         """
         pupil_illuminated_only1=np.ones_like(pupil.illuminated)
         
@@ -535,12 +536,26 @@ class PupilFactory(object):
 class PFSPupilFactory(PupilFactory):
     """!Pupil obscuration function factory for PFS 
     """
-    def __init__(self, pupilSize, npix,input_angle,hscFrac,strutFrac,slitFrac,slitFrac_dy,x_fiber,y_fiber,effective_ilum_radius,frd_sigma,frd_lorentz_factor,det_vert,slitHolder_frac_dx,verbosity=None):
+    def __init__(self, pupilSize, npix,input_angle,hscFrac,strutFrac,slitFrac,slitFrac_dy,\
+                 x_fiber,y_fiber,effective_ilum_radius,frd_sigma,frd_lorentz_factor,det_vert,slitHolder_frac_dx,verbosity=None):
         """!Construct a PupilFactory.
 
-        @param[in] visitInfo  VisitInfo object for a particular exposure.
-        @param[in] pupilSize  Size in meters of constructed Pupils.
-        @param[in] npix       Constructed Pupils will be npix x npix.
+
+        @param[in] pupilSize               Size in meters of constructed Pupils.
+        @param[in] npix                    Constructed Pupils will be npix x npix.
+        @param[in] input_angle
+        @param[in] hscFrac        
+        @param[in] strutFrac
+        @param[in] slitFrac
+        @param[in] slitFrac_dy
+        @param[in] x_fiber
+        @param[in] y_fiber        
+        @param[in] effective_ilum_radius
+        @param[in] frd_sigma
+        @param[in] frd_lorentz_factor        
+        @param[in] det_vert
+        @param[in] slitHolder_frac_dx
+        @param[in] verbosity    
         """
         
         self.verbosity=verbosity
@@ -579,7 +594,7 @@ class PFSPupilFactory(PupilFactory):
         @returns      Pupil
         """
         if self.verbosity==1:
-            print('Entering getPupil')
+            print('Entering getPupil (function inside PFSPupilFactory)')
             
         # called subaruRadius as it was taken from the code fitting pupil for HSC on Subaru
         subaruRadius = (self.pupilSize/2)*1
@@ -656,7 +671,7 @@ class ZernikeFitter_PFS(object):
     
     Despite its name, it does not actually ``fit'' the paramters describing the donuts
     
-    The findla image and consists of the convolution of
+    The final image and consists of the convolution of
     an OpticalPSF (constructed using FFT), an input fiber image and other convolutions. The OpticalPSF part includes the
     specification of an arbitrary number of zernike wavefront aberrations. 
     
@@ -664,7 +679,7 @@ class ZernikeFitter_PFS(object):
     """
 
     def __init__(self,image=None,image_var=None,image_mask=None,pixelScale=None,wavelength=None,
-                 jacobian=None,diam_sic=None,npix=None,pupilExplicit=None,
+                 diam_sic=None,npix=None,pupilExplicit=None,
                  wf_full_Image=None,radiometricEffectArray_Image=None,
                  ilum_Image=None,dithering=None,save=None,
                  pupil_parameters=None,use_pupil_parameters=None,use_optPSF=None,
@@ -675,13 +690,7 @@ class ZernikeFitter_PFS(object):
         @param image        image to analyze
         @param image_var    variance image
         @param pixelScale   pixel scale in arcseconds 
-        @param wavelength   wavelenght 
-        @param jacobian     An optional 2x2 Jacobian distortion matrix to apply
-                            to the forward model.  Note that this is relative to
-                            the pixelScale above.  Default is the identity matrix.
-        @param diam_sic     diameter of the exit pupil 
-        @param npix         number of pixels describing the pupil
-        @param pupilExplicit if you want to pass explicit image of the exit pupil instead of creating one within the class
+
         """
         
         # if you do not pass the image that you wish to compare, the model will default to creating 41x41 image
@@ -708,11 +717,6 @@ class ZernikeFitter_PFS(object):
         flux = float(np.sum(image))
         self.flux=flux    
             
-        if jacobian is None:
-            jacobian = np.eye(2, dtype=np.float32)
-        else:
-            self.jacobian = jacobian
-        
         # if you do not pass the value for wavelength it will default to 794 nm, which is roughly in the middle of the red detector
         if wavelength is None:
             wavelength=794
@@ -1023,16 +1027,21 @@ class ZernikeFitter_PFS(object):
         self.z_array=z_array
 
 
-    def constructModelImage_PFS_naturalResolution(self,params=None,shape=None,pixelScale=None,jacobian=None,use_optPSF=None,extraZernike=None,hashvalue=None):
-        """Construct model image from parameters
-        @param params      lmfit.Parameters object or python dictionary with
-                           param values to use, or None to use self.params
-        @param shape       (nx, ny) shape for model image, or None to use
-                           the shape of self.maskedImage
-        @param pixelScale  pixel scale in arcseconds to use for model image,
-                           or None to use self.pixelScale.
+    def constructModelImage_PFS_naturalResolution(self,params=None,shape=None,pixelScale=None,use_optPSF=None,extraZernike=None,return_intermediate_images=False):
+        """Construct model image given the set of parameters
+        uses _getOptPsf_naturalResolution and optPsf_postprocessing
+        
+        @param params                                         lmfit.Parameters object or python dictionary with
+                                                              param values to use, or None to use self.params
+        @param shape                                          (nx, ny) shape for model image, or None to use
+                                                              the shape of self.maskedImage
+        @param pixelScale                                     pixel scale in arcseconds to use for model image,
+                                                              or None to use self.pixelScale.
+        @param use_optPSF                                     use previously generated optical PSF and conduct only postprocessing
+        @param extraZernike                                   Zernike beyond z22
+        @param return_intermediate_images                     return intermediate images created during the run
 
-        @returns           numpy array image with the same flux as the input image
+        @returns                                               numpy array image with the same flux as the input image
         """
         
         if self.verbosity==1:
@@ -1047,20 +1056,13 @@ class ZernikeFitter_PFS(object):
 
         if pixelScale is None:
             pixelScale = self.pixelScale
-            
-        if jacobian is None:
-            jacobian = np.eye(2, dtype=np.float32)
-        else:
-            jacobian = self.jacobian          
+                  
             
         try:
-            v = params.valuesdict()
+            parameter_values = params.valuesdict()
         except AttributeError:
-            v = params
-            
-        if hashvalue is None:
-            hashvalue = 0
-            
+            parameter_values = params
+
         use_optPSF=self.use_optPSF
 
         if extraZernike is None:
@@ -1073,33 +1075,47 @@ class ZernikeFitter_PFS(object):
         # This give image in nyquist resolution
         # if not explicitly stated to the full procedure
         if use_optPSF is None:
-            optPsf=self._getOptPsf_naturalResolution(v)
+            if return_intermediate_images==False:
+                optPsf=self._getOptPsf_naturalResolution(parameter_values,return_intermediate_images=return_intermediate_images)
+            else:
+                optPsf,ilum,wf_grid_rot=self._getOptPsf_naturalResolution(parameter_values,return_intermediate_images=return_intermediate_images)    
         else:
             #if first iteration still generate image
             if self.optPsf is None:
-                optPsf=self._getOptPsf_naturalResolution(v)
+                if return_intermediate_images==False:
+                    optPsf=self._getOptPsf_naturalResolution(parameter_values,return_intermediate_images=return_intermediate_images)
+                else:
+                    optPsf,ilum,wf_grid_rot=self._getOptPsf_naturalResolution(parameter_values,return_intermediate_images=return_intermediate_images)   
                 self.optPsf=optPsf
             else:
                 optPsf=self.optPsf
+
+
+
                 
-        optPsf_cut_fiber_convolved_downsampled=self.optPsf_postprocessing(optPsf)
+        # at the moment, no difference in optPsf_postprocessing depending on return_intermediate_images
+        optPsf_cut_fiber_convolved_downsampled=self._optPsf_postprocessing(optPsf,return_intermediate_images=return_intermediate_images)
 
         if self.save==1:
-
             if socket.gethostname()=='IapetusUSA':
                 np.save(TESTING_FINAL_IMAGES_FOLDER+'optPsf',optPsf)
                 np.save(TESTING_FINAL_IMAGES_FOLDER+'optPsf_cut_fiber_convolved_downsampled',optPsf_cut_fiber_convolved_downsampled) 
             else:                 
                 pass    
-
+        
+        if return_intermediate_images==False:
+            return optPsf_cut_fiber_convolved_downsampled
+        if return_intermediate_images==True:
+            return optPsf_cut_fiber_convolved_downsampled,ilum,wf_grid_rot    
+        
         if self.verbosity==1:
             print('Finished with constructModelImage_PFS_naturalResolution')
-            print(' ')
-
-        return optPsf_cut_fiber_convolved_downsampled
-    
-    def optPsf_postprocessing(self,optPsf):
-
+            print(' ')   
+            
+            
+    def _optPsf_postprocessing(self,optPsf,return_intermediate_images=False):
+        
+        time_start_single=time.time()
         if self.verbosity==1:
             print(' ')
             print('Entering optPsf_postprocessing')
@@ -1293,7 +1309,9 @@ class ZernikeFitter_PFS(object):
         single_Psf_position=Psf_position(optPsf_cut_grating_convolved, int(round(oversampling)),shape[0] ,
                                          double_sources=self.double_sources,double_sources_positions_ratios=self.double_sources_positions_ratios,
                                                                                verbosity=self.verbosity)
-       
+        time_end_single=time.time()
+        if self.verbosity==1:
+            print('Time for postprocessing up to single_Psf_position protocol is '+str(time_end_single-time_start_single))        
         #  run the code for centering
         time_start_single=time.time()
         optPsf_cut_fiber_convolved_downsampled=single_Psf_position.find_single_realization_min_cut(optPsf_cut_grating_convolved,
@@ -1331,7 +1349,12 @@ class ZernikeFitter_PFS(object):
             print('Finished with optPsf_postprocessing')
             print(' ')
         
-        return optPsf_cut_fiber_convolved_downsampled
+        # at the moment, the output is the same but there is a possibility to add intermediate outputs
+        if return_intermediate_images==False:
+            return optPsf_cut_fiber_convolved_downsampled
+        if return_intermediate_images==True:
+            return optPsf_cut_fiber_convolved_downsampled
+            
     
     
     @lru_cache(maxsize=3)
@@ -1339,7 +1362,7 @@ class ZernikeFitter_PFS(object):
         
         if self.verbosity==1:
             print(' ')
-            print('Entering _get_Pupil')        
+            print('Entering _get_Pupil (function inside ZernikeFitter_PFS)')        
         
         diam_sic=self.diam_sic
         npix=self.npix
@@ -1363,25 +1386,31 @@ class ZernikeFitter_PFS(object):
         
         if self.verbosity==1:
             print('Finished with _get_Pupil')    
-            print(' ')
         
         return pupil
         
     
-    def _getOptPsf_naturalResolution(self,params):
+    def _getOptPsf_naturalResolution(self,params,return_intermediate_images=False):
         
-        """ !returns optical PSF
+        """ !returns optical PSF, given the initialized parameters 
+        called by constructModelImage_PFS_naturalResolution
         
-         @param params       parameters
+         @param params                                       parameters
+         @param return_intermediate_images
         """
 
         if self.verbosity==1:
             print(' ')
             print('Entering _getOptPsf_naturalResolution')       
        
+        
+        ################################################################################
+        # pupil and illumination of the pupil
+        ################################################################################
+        time_start_single_1=time.time()
         if self.verbosity==1:
             print('use_pupil_parameters: '+str(self.use_pupil_parameters))
-            print('pupil_parameters if you use_pupil_parameters: '+str(self.pupil_parameters))
+            print('pupil_parameters if you are explicity passing use_pupil_parameters: '+str(self.pupil_parameters))
 
         # parmeters ``i'' just to precision in the construction of ``pupil_parameters'' array
         i=4    
@@ -1402,13 +1431,183 @@ class ZernikeFitter_PFS(object):
             print(['x_fiber','y_fiber','effective_ilum_radius','frd_sigma','frd_lorentz_factor','det_vert','slitHolder_frac_dx'])
             print('pupil_parameters: '+str(self.pupil_parameters))
             
-        time_start_single=time.time()
-        pupil=self._get_Pupil(tuple(pupil_parameters))
-        time_end_single=time.time()
+        time_start_single_2=time.time()
+
+
+      
+
+
+        # initialize galsim.Aperature class
+        # the output will be the size of pupil.illuminated
+        # if you are passing explicit pupil model ... 
+        if self.pupilExplicit is None:
+            
+            pupil=self._get_Pupil(tuple(pupil_parameters))
+            
+            aper = galsim.Aperture(
+                diam = pupil.size,
+                pupil_plane_im = pupil.illuminated.astype(np.float32),
+                pupil_plane_scale = pupil.scale,
+                pupil_plane_size = None) 
+        else:
+
+            if self.verbosity==1: 
+                print('Using provided pupil and skipping _get_Pupil function')
+            aper = galsim.Aperture(
+                diam = self.diam_sic,
+                pupil_plane_im = self.pupilExplicit.astype(np.float32),
+                pupil_plane_scale = self.diam_sic/self.npix,
+                pupil_plane_size = None)   
+            
+
+
+        if self.verbosity==1:    
+            if self.pupilExplicit is None:
+                print('Requested pupil size is (pupil.size) [m]: '+str(pupil.size))
+                print('One pixel has size of (pupil.scale) [m]: '+str(pupil.scale))
+                print('Requested pupil has so many pixels (pupil_plane_im): '+str(pupil.illuminated.astype(np.int16).shape))
+            else:
+                print('Supplied pupil size is (diam_sic) [m]: '+str(self.diam_sic))
+                print('One pixel has size of (diam_sic/npix) [m]: '+str(self.diam_sic/self.npix))
+                print('Requested pupil has so many pixels (pupilExplicit): '+str(self.pupilExplicit.shape))
+            
+
+        time_end_single_2=time.time()            
         if self.verbosity==1:
-            print('Time for single pupil calculation is '+str(time_end_single-time_start_single))
+            print('Time for _get_Pupil function is '+str(time_end_single_2-time_start_single_2))   
+   
+        time_start_single_3=time.time()          
+        # create array with pixels=1 if the area is illuminated and 0 if it is obscured
+        ilum=np.array(aper.illuminated, dtype=np.float32)
+        assert np.sum(ilum)>0, str(self.pupil_parameters)
+        
+        # padding to get exact multiple when we are in focus
+        # focus recognized by the fact that ilum is 1024 pixels large
+        # deprecated as I always use same size of the pupil, for all amounts of defocus
+        if len(ilum)==1024:
+            ilum_padded=np.zeros((1158,1158))
+            ilum_padded[67:67+1024,67:67+1024]=ilum
+            ilum=ilum_padded
+                   
+        # gives size of the illuminated image
+        lower_limit_of_ilum=int(ilum.shape[0]/2-self.npix/2)
+        higher_limit_of_ilum=int(ilum.shape[0]/2+self.npix/2)
+        if self.verbosity==1: 
+            print('lower_limit_of_ilum: ' +str(lower_limit_of_ilum))
+            print('higher_limit_of_ilum: ' +str(higher_limit_of_ilum))
+        
+        #what am I doing here?
+        if self.pupilExplicit is None:
+            ilum[lower_limit_of_ilum:higher_limit_of_ilum,lower_limit_of_ilum:higher_limit_of_ilum]=ilum[lower_limit_of_ilum:higher_limit_of_ilum,lower_limit_of_ilum:higher_limit_of_ilum]*pupil.illuminated
+        else:
+            ilum[lower_limit_of_ilum:higher_limit_of_ilum,lower_limit_of_ilum:higher_limit_of_ilum]=ilum[lower_limit_of_ilum:higher_limit_of_ilum,lower_limit_of_ilum:higher_limit_of_ilum]*self.pupilExplicit.astype(np.float32)
 
 
+        if self.verbosity==1: 
+            print('Size after padding zeros to 2x size and extra padding to get size suitable for FFT: '+str(ilum.shape))
+               
+        # maximum extent of pupil image in units of radius of the pupil, needed for next step
+        size_of_ilum_in_units_of_radius=ilum.shape[0]/self.npix
+        
+        if self.verbosity==1:  
+            print('size_of_ilum_in_units_of_radius: '+str(size_of_ilum_in_units_of_radius))
+            
+        if self.verbosity==1: 
+            print('radiometric parameters are: ')     
+            print('x_ilum,y_ilum,radiometricEffect,radiometricExponent'+str([params['x_ilum'],params['y_ilum'],params['radiometricEffect'],params['radiometricExponent']]))    
+
+
+        # do not caculate the ``radiometric effect (difference between entrance and exit pupil) if paramters are too small to make any difference
+        # if that is the case just declare the ``ilum_radiometric'' to be the same as ilum
+        # i.e., the illumination of the exit pupil is the same as the illumination of the entrance pupil
+        if params['radiometricExponent']<0.01 or params['radiometricEffect']<0.01:
+            if self.verbosity==1:  
+                print('skiping ``radiometric effect\'\' ')
+            ilum_radiometric=ilum
+        else:
+            # add the change of flux between the entrance and exit pupil
+            # end product is radiometricEffectArray
+            points = np.linspace(-size_of_ilum_in_units_of_radius, size_of_ilum_in_units_of_radius,num=ilum.shape[0])
+            xs, ys = np.meshgrid(points, points)
+            _radius_coordinate = np.sqrt((xs-params['x_ilum']*params['dxFocal'])** 2 + (ys-params['y_ilum']*params['dyFocal'])** 2)
+            
+        
+            # change in v_0.14
+            # ilumination to which radiometric effet has been applied, describing difference betwen entrance and exit pupil
+            radiometricEffectArray=(1+params['radiometricEffect']*_radius_coordinate**2)**(-params['radiometricExponent'])
+            ilum_radiometric=np.nan_to_num(radiometricEffectArray*ilum,0) 
+     
+        # this is where you can introduce some apodization in the pupil image by using the line below
+        # the apodization sigma is set to that in focus it is at 0.75
+        # for larger images, scale according to the size of the input image which is to be FFT-ed
+        # 0.75 is an arbitrary number
+        apodization_sigma=((len(ilum_radiometric))/1158)**0.875*0.75
+        #apodization_sigma=0.75
+        time_start_single_4=time.time()
+        
+        # old code where I applied Gaussian to the whole ilum image
+        #ilum_radiometric_apodized = gaussian_filter(ilum_radiometric, sigma=apodization_sigma)
+        
+        # cut out central region, apply Gaussian on the center region and return to the full size image
+        # done to spped up the calculation
+        ilum_radiometric_center_region=ilum_radiometric[(lower_limit_of_ilum-int(np.ceil(3*apodization_sigma))):(higher_limit_of_ilum+int(np.ceil(3*apodization_sigma))),\
+                                        (lower_limit_of_ilum-int(np.ceil(3*apodization_sigma))):(higher_limit_of_ilum+int(np.ceil(3*apodization_sigma)))]
+        
+        ilum_radiometric_center_region_apodized=gaussian_filter(ilum_radiometric_center_region, sigma=apodization_sigma)
+        
+        ilum_radiometric_apodized=np.copy(ilum_radiometric)
+        ilum_radiometric_apodized[(lower_limit_of_ilum-int(np.ceil(3*apodization_sigma))):(higher_limit_of_ilum+int(np.ceil(3*apodization_sigma))),\
+                                        (lower_limit_of_ilum-int(np.ceil(3*apodization_sigma))):(higher_limit_of_ilum+int(np.ceil(3*apodization_sigma)))]=ilum_radiometric_center_region_apodized        
+        
+        time_end_single_4=time.time()
+        if self.verbosity==1:
+            print('Time to apodize the pupil: '+str(time_end_single_4-time_start_single_4))  
+                
+        # put pixels for which amplitude is less than 0.01 to 0
+        r_ilum_pre=np.copy(ilum_radiometric_apodized)
+        r_ilum_pre[ilum_radiometric_apodized>0.01]=1
+        r_ilum_pre[ilum_radiometric_apodized<0.01]=0
+        ilum_radiometric_apodized_bool=r_ilum_pre.astype(bool)
+        
+        # manual creation of aper.u and aper.v (mimicking steps which were automatically done in galsim)
+        # this gives position information about each point in the exit pupil so we can apply wavefront to it
+
+    
+        #aperu_manual=[]
+        #for i in range(len(ilum_radiometric_apodized_bool)):
+        #    aperu_manual.append(np.linspace(-diam_sic*(size_of_ilum_in_units_of_radius/2),diam_sic*(size_of_ilum_in_units_of_radius/2),len(ilum_radiometric_apodized_bool), endpoint=True))
+        single_line_aperu_manual=np.linspace(-diam_sic*(size_of_ilum_in_units_of_radius/2),diam_sic*(size_of_ilum_in_units_of_radius/2),len(ilum_radiometric_apodized_bool), endpoint=True)
+        aperu_manual=np.tile(single_line_aperu_manual, len(single_line_aperu_manual)).reshape(len(single_line_aperu_manual),len(single_line_aperu_manual))
+
+        
+        # full grid
+        #u_manual=np.array(aperu_manual)
+        u_manual=aperu_manual
+        v_manual=np.transpose(aperu_manual)     
+        
+        # select only parts of the grid that are actually illuminated        
+        u=u_manual[ilum_radiometric_apodized_bool]
+        v=v_manual[ilum_radiometric_apodized_bool]
+        
+        time_end_single_3=time.time()
+        if self.verbosity==1:
+            print('Time for postprocessing pupil after _get_Pupil '+str(time_end_single_3-time_start_single_3))      
+            
+        time_end_single_1=time.time()
+        if self.verbosity==1:
+            print('Time for pupil and illumination calculation is '+str(time_end_single_1-time_start_single_1)) 
+
+        ################################################################################
+        # wavefront
+        ################################################################################
+        # create wavefront across the exit pupil   
+        
+        time_start_single=time.time()
+        if self.verbosity==1:  
+            print('')    
+            print('Starting creation of wavefront')    
+   
+        
         aberrations_init=[0.0,0,0.0,0.0]
         aberrations = aberrations_init
         # list of aberrations where we set z4, z11, z22 etc. to 0 do study behaviour of non-focus terms
@@ -1419,37 +1618,8 @@ class ZernikeFitter_PFS(object):
                 aberrations_0.append(0)
             else:
                 aberrations_0.append(params['z{}'.format(i)]) 
-            
-        if self.verbosity==1:    
-            print('Supplied pupil size is (pupil.size) [m]: '+str(pupil.size))
-            print('One pixel has size of (pupil.scale) [m]: '+str(pupil.scale))
-            print('Supplied pupil has so many pixels (pupil_plane_im): '+str(pupil.illuminated.astype(np.int16).shape))
-   
-        
-        # initialize galsim.Aperature class
-        # the output will be the size of pupil.illuminated
-        
-        if self.pupilExplicit is None:
-            aper = galsim.Aperture(
-                diam = pupil.size,
-                pupil_plane_im = pupil.illuminated.astype(np.float32),
-                pupil_plane_scale = pupil.scale,
-                pupil_plane_size = None) 
-        else:
-            if self.verbosity==1: 
-                print('Using provided pupil')
-            aper = galsim.Aperture(
-                diam =  pupil.size,
-                pupil_plane_im = self.pupilExplicit.astype(np.float32),
-                pupil_plane_scale = pupil.scale,
-                pupil_plane_size = None)         
         
         
-        
-        
-        if self.verbosity==1:   
-            print('Starting creation of wavefront')    
-        # create wavefront across the exit pupil      
         if self.extraZernike==None:
             pass
         else:
@@ -1459,9 +1629,9 @@ class ZernikeFitter_PFS(object):
         if self.verbosity==1:   
             print('diam_sic: '+str(diam_sic))
             print('aberrations: '+str(aberrations))
-            print('aberrations 0 '+str(aberrations_0))
+            print('aberrations moved to z4=0: '+str(aberrations_0))
             print('aberrations extra: '+str(self.extraZernike))
-            print('self.wavelength: '+str(self.wavelength))
+            print('wavelength [nm]: '+str(self.wavelength))
         
         if self.extraZernike==None:
             optics_screen = galsim.phase_screens.OpticalScreen(diam=diam_sic,aberrations=aberrations,lam_0=self.wavelength)
@@ -1476,78 +1646,19 @@ class ZernikeFitter_PFS(object):
             # only create fake with abberations 0 if we are going to save i.e., if we presenting the results
             screens_fake_0 = galsim.PhaseScreenList(optics_screen_fake_0)  
         
-        # create array with pixels=1 if the area is illuminated and 0 if it is obscured
-        ilum=np.array(aper.illuminated, dtype=np.float32)
-        assert np.sum(ilum)>0, str(self.pupil_parameters)
-        
-        # padding to get exact multiple when we are in focus
-        # focus recognized by the fact that ilum is 1024 pixels large
-        if len(ilum)==1024:
-            ilum_padded=np.zeros((1158,1158))
-            ilum_padded[67:67+1024,67:67+1024]=ilum
-            ilum=ilum_padded
-                   
-        # gives size of the illuminated image
-        lower_limit_of_ilum=int(ilum.shape[0]/2-pupil.illuminated.shape[0]/2)
-        higher_limit_of_ilum=int(ilum.shape[0]/2+pupil.illuminated.shape[0]/2)
-        if self.verbosity==1: 
-            print('lower_limit_of_ilum: ' +str(lower_limit_of_ilum))
-            print('higher_limit_of_ilum: ' +str(higher_limit_of_ilum))
-        ilum[lower_limit_of_ilum:higher_limit_of_ilum,lower_limit_of_ilum:higher_limit_of_ilum]=ilum[lower_limit_of_ilum:higher_limit_of_ilum,lower_limit_of_ilum:higher_limit_of_ilum]*pupil.illuminated
+        time_end_single=time.time()
 
-        if self.verbosity==1: 
-            print('Size after padding zeros to 2x size and extra padding to get size suitable for FFT: '+str(ilum.shape))
-               
-        # maximum extent of pupil image in units of radius of the pupil, needed for next step
-        size_of_ilum_in_units_of_radius=ilum.shape[0]/pupil.illuminated.astype(np.int16).shape[0]
+        ################################################################################
+        # combining pupil illumination and wavefront
+        ################################################################################        
         
-        if self.verbosity==1:  
-            print('size_of_ilum_in_units_of_radius: '+str(size_of_ilum_in_units_of_radius))
-        
-        # add the change of flux between the entrance and exit pupil
-        # end product is radiometricEffectArray
-        points = np.linspace(-size_of_ilum_in_units_of_radius, size_of_ilum_in_units_of_radius,num=ilum.shape[0])
-        xs, ys = np.meshgrid(points, points)
-        r = np.sqrt((xs-params['x_ilum']*params['dxFocal'])** 2 + (ys-params['y_ilum']*params['dyFocal'])** 2)
-        
-        # change in v_0.14
-        radiometricEffectArray=(1+params['radiometricEffect']*r**2)**(-params['radiometricExponent'])
-        ilum_radiometric=np.nan_to_num(radiometricEffectArray*ilum,0) 
-     
-        # this is where you can introduce some apodization in the pupil image by using the line below
-        # the apodization sigma is set to that in focus it is at 0.75
-        # for larger images, scale according to the size of the input image which is to be FFT-ed
-        # 0.75 is an arbitrary number
-        apodization_sigma=((len(ilum_radiometric))/1158)**0.875*0.75
-        #apodization_sigma=0.75
-        r = gaussian_filter(ilum_radiometric, sigma=apodization_sigma)
-        
-        # put pixels for which amplitude is less than 0.01 to 0
-        r_ilum_pre=np.copy(r)
-        r_ilum_pre[r>0.01]=1
-        r_ilum_pre[r<0.01]=0
-        r_ilum=r_ilum_pre.astype(bool)
-        
-        # manual creation of aper.u and aper.v (mimicking steps which were automatically done in galsim)
-        # this gives position informaition about each point in the exit pupil so we can apply wavefront to it
-        aperu_manual=[]
-        for i in range(len(r_ilum)):
-            aperu_manual.append(np.linspace(-diam_sic*(size_of_ilum_in_units_of_radius/2),diam_sic*(size_of_ilum_in_units_of_radius/2),len(r_ilum), endpoint=True))
-
-        # full grid
-        u_manual=np.array(aperu_manual)
-        v_manual=np.transpose(aperu_manual)     
-        
-        # select only parts of the grid that are actually illuminated        
-        u=u_manual[r_ilum]
-        v=v_manual[r_ilum]
 
         # apply wavefront to the array describing illumination
         wf = screens.wavefront(u, v, None, 0)
         if self.save==1:
             wf_full = screens.wavefront(u_manual, v_manual, None, 0)
-        wf_grid = np.zeros_like(r_ilum, dtype=np.float32)
-        wf_grid[r_ilum] = (wf/self.wavelength)
+        wf_grid = np.zeros_like(ilum_radiometric_apodized_bool, dtype=np.float32)
+        wf_grid[ilum_radiometric_apodized_bool] = (wf/self.wavelength)
         wf_grid_rot=wf_grid
         
         if self.save==1:
@@ -1556,9 +1667,14 @@ class ZernikeFitter_PFS(object):
         
         
         # exponential of the wavefront
-        expwf_grid = np.zeros_like(r_ilum, dtype=np.complex128)
-        expwf_grid[r_ilum] = r[r_ilum]*np.exp(2j*np.pi * wf_grid_rot[r_ilum])
+        expwf_grid = np.zeros_like(ilum_radiometric_apodized_bool, dtype=np.complex128)
+        expwf_grid[ilum_radiometric_apodized_bool] =ilum_radiometric_apodized[ilum_radiometric_apodized_bool]*np.exp(2j*np.pi * wf_grid_rot[ilum_radiometric_apodized_bool])
         
+        if self.verbosity==1:
+            print('Time for wavefront and wavefront/pupil combining is '+str(time_end_single-time_start_single)) 
+        ################################################################################
+        # FFT
+        ################################################################################    
 
         ######################################################################
         # Different implementations of the Fourier code
@@ -1591,13 +1707,13 @@ class ZernikeFitter_PFS(object):
         if self.save==1:
             if socket.gethostname()=='IapetusUSA':
                 np.save(TESTING_PUPIL_IMAGES_FOLDER+'aperilluminated',aper.illuminated)  
-                np.save(TESTING_PUPIL_IMAGES_FOLDER+'radiometricEffectArray',radiometricEffectArray)     
+                # dont save as we do not generate this array in vast majority of cases (status on July 1, 2020)
+                #np.save(TESTING_PUPIL_IMAGES_FOLDER+'radiometricEffectArray',radiometricEffectArray)     
                 np.save(TESTING_PUPIL_IMAGES_FOLDER+'ilum',ilum)   
-                np.save(TESTING_PUPIL_IMAGES_FOLDER+'r_ilum',r_ilum)
                 np.save(TESTING_PUPIL_IMAGES_FOLDER+'ilum_radiometric',ilum_radiometric) 
-                np.save(TESTING_PUPIL_IMAGES_FOLDER+'r_resize',r) 
-    
-                
+                np.save(TESTING_PUPIL_IMAGES_FOLDER+'ilum_radiometric_apodized',ilum_radiometric_apodized) 
+                np.save(TESTING_PUPIL_IMAGES_FOLDER+'ilum_radiometric_apodized_bool',ilum_radiometric_apodized_bool)
+
                 np.save(TESTING_WAVEFRONT_IMAGES_FOLDER+'u_manual',u_manual) 
                 np.save(TESTING_WAVEFRONT_IMAGES_FOLDER+'v_manual',v_manual) 
                 np.save(TESTING_WAVEFRONT_IMAGES_FOLDER+'u',u) 
@@ -1613,7 +1729,11 @@ class ZernikeFitter_PFS(object):
             print('Finished with _getOptPsf_naturalResolution')  
             print(' ')
         
-        return img_apod
+        if return_intermediate_images==False:
+            return img_apod
+        if return_intermediate_images==True:
+            # return the image, pupil, illumination applied to the pupil
+            return img_apod,ilum[lower_limit_of_ilum:higher_limit_of_ilum,lower_limit_of_ilum:higher_limit_of_ilum],wf_grid_rot
 
 
 
@@ -1679,6 +1799,272 @@ class ZernikeFitter_PFS(object):
         return 206265 *np.arctan(0.015/((-1.178009972058799 - 0.00328027941176467* x)*(656.0581848529348 + 0.7485514705882259* x)))
 
 
+class LN_PFS_multi_same_spot(object):
+ 
+    """!
+    
+    Class to compute likelihood of the multiple donut images, of th same spot taken at different defocuses
+    
+    model = LN_PFS_single(sci_image,var_image,pupil_parameters=pupil_parameters,use_pupil_parameters=None,zmax=zmax,save=1)    
+    def model_return(allparameters_proposal):
+        return model(allparameters_proposal,return_Image=True)
+    
+    
+    
+    """
+    
+    
+    def __init__(self,list_of_sci_images,list_of_var_images,list_of_mask_images=None,dithering=None,save=None,verbosity=None,
+             pupil_parameters=None,use_pupil_parameters=None,use_optPSF=None,
+             zmax=None,extraZernike=None,pupilExplicit=None,simulation_00=None,
+             double_sources=None,double_sources_positions_ratios=None,npix=None,list_of_defocuses=None): 
+
+                
+        if verbosity is None:
+            verbosity=0
+                
+        if use_pupil_parameters is not None:
+            assert pupil_parameters is not None
+            
+        if double_sources is not None:      
+            assert np.sum(np.abs(double_sources_positions_ratios))>0    
+
+        if zmax is None:
+            zmax=11
+                      
+        if zmax==11:
+            self.columns=['z4','z5','z6','z7','z8','z9','z10','z11',
+                          'hscFrac','strutFrac','dxFocal','dyFocal','slitFrac','slitFrac_dy',
+                          'radiometricEffect','radiometricExponent','x_ilum','y_ilum',
+                          'x_fiber','y_fiber','effective_ilum_radius','frd_sigma','frd_lorentz_factor','det_vert','slitHolder_frac_dx',
+                          'grating_lines','scattering_slope','scattering_amplitude',
+                          'pixel_effect','fiber_r','flux']         
+        if zmax==22:
+            self.columns=['z4','z5','z6','z7','z8','z9','z10','z11',
+                          'z12','z13','z14','z15','z16','z17','z18','z19','z20','z21','z22', 
+              'hscFrac','strutFrac','dxFocal','dyFocal','slitFrac','slitFrac_dy',
+              'radiometricEffect','radiometricExponent','x_ilum','y_ilum',
+              'x_fiber','y_fiber','effective_ilum_radius','frd_sigma','frd_lorentz_factor','det_vert','slitHolder_frac_dx',
+              'grating_lines','scattering_slope','scattering_amplitude',
+              'pixel_effect','fiber_r','flux']    
+        
+        self.list_of_sci_images=list_of_sci_images
+        self.list_of_var_images=list_of_var_images
+        
+        if list_of_mask_images is None:
+            list_of_mask_images=[]
+            for i in range(len(list_of_sci_images)):
+                mask_image=np.zeros(list_of_sci_images[i].shape)
+                list_of_mask_images.append(mask_image)
+                
+        
+        self.list_of_mask_images=list_of_mask_images
+        
+        
+        #self.mask_image=mask_image
+        #self.sci_image=sci_image
+        #self.var_image=var_image
+        self.dithering=dithering
+        self.save=save
+        self.pupil_parameters=pupil_parameters
+        self.use_pupil_parameters=use_pupil_parameters
+        self.use_optPSF=use_optPSF
+        self.pupilExplicit=pupilExplicit
+        self.simulation_00=simulation_00      
+        self.zmax=zmax
+        self.extraZernike=extraZernike
+        self.verbosity=verbosity
+        self.double_sources=double_sources
+        self.double_sources_positions_ratios=double_sources_positions_ratios
+        self.npix=npix
+        
+        
+    def create_list_of_allparameters(self,allparameters_parametrizations,list_of_defocuses=None):
+        """
+        given the parametrizations, create list_of_allparameters to be used in analysis of single images
+        
+        """
+        
+        
+        
+        list_of_allparameters=[]
+        
+        # if this is only a single image, just return the input
+        if list_of_defocuses==None:
+            return allparameters_parametrizations
+        else:
+            list_of_defocuses_int=self.transform_list_of_defocuses_from_str_to_float(list_of_defocuses)
+            #print(list_of_defocuses_int)
+            # go through the list of defocuses, and create the allparameters array for each defocus
+            for i in range(len(list_of_defocuses)):
+                list_of_allparameters.append(self.create_allparameters_single(list_of_defocuses_int[i],allparameters_parametrizations,self.zmax))
+                
+            return list_of_allparameters
+            
+            
+    def value_at_defocus(self,mm,a,b=None):
+        """
+        transform parameters of linear fit to a value at a given defocus (in mm) 
+        
+        @param mm                     slit defocus in mm
+        @param a                      linear parameter
+        @param b                      contstant offset
+        
+        """
+        
+        if b==None:
+            return a
+        else:
+            return a*mm+b 
+        
+    def create_allparameters_single(self,mm,array_of_polyfit_1_parameterizations,zmax=None):
+        """
+        transfroms linear fits as a function of defocus of parametrizations into form acceptable for creating single images 
+        workhorse function used by create_list_of_allparameters
+        
+        @param mm [float]                               defocus of the slit
+        @param array_of_polyfit_1_parameterizations     parametrs describing linear fit for the parameters as a function of focus
+        @param zmax                                     largerst Zernike used
+        
+        """
+        
+        if zmax==None:
+            zmax=11
+        
+        #for single case, up to z11
+        if zmax==11:
+            z_parametrizations=array_of_polyfit_1_parameterizations[:8]
+            g_parametrizations=array_of_polyfit_1_parameterizations[8:]
+            
+            
+            allparameters_proposal_single=np.zeros((8+len(g_parametrizations)))
+            
+            for i in range(0,8,1):
+                allparameters_proposal_single[i]=self.value_at_defocus(mm,z_parametrizations[i][0],z_parametrizations[i][1])      
+        
+            for i in range(len(g_parametrizations)):
+                allparameters_proposal_single[i+8]=g_parametrizations[i][1] 
+                
+        if zmax==22:
+            z_parametrizations=array_of_polyfit_1_parameterizations[:19]
+            g_parametrizations=array_of_polyfit_1_parameterizations[19:]
+            
+            
+            allparameters_proposal_single=np.zeros((19+len(g_parametrizations)))
+            for i in range(0,19,1):
+                #print(str([i,mm,z_parametrizations[i]]))
+                allparameters_proposal_single[i]=self.value_at_defocus(mm,z_parametrizations[i][0],z_parametrizations[i][1])      
+        
+            for i in range(len(g_parametrizations)):
+                allparameters_proposal_single[19+i]=g_parametrizations[i][1] 
+            
+        return allparameters_proposal_single           
+    
+    def transform_list_of_defocuses_from_str_to_float(self,list_of_defocuses):
+        """
+        transfroms list of defocuses from strings to float values
+
+        
+        @param list_of_defocuses                        list of defocuses in string form (e.g., [m4,m25,0,p15,p4])
+        
+        """        
+        
+        list_of_defocuses_float=[]
+        for i in range(len(list_of_defocuses)):
+            if list_of_defocuses[i][0]=='0':
+                list_of_defocuses_float.append(0)
+            else:
+                if list_of_defocuses[i][0]=='m':
+                    sign=-1
+                if list_of_defocuses[i][0]=='p':
+                    sign=+1
+                if len(list_of_defocuses[i])==2:
+                    list_of_defocuses_float.append(sign*float(list_of_defocuses[i][1:]))
+                else:
+                    list_of_defocuses_float.append(sign*float(list_of_defocuses[i][1:])/10)
+                    
+        return list_of_defocuses_float
+            
+    
+    def create_resonable_allparameters_parametrizations(self,array_of_allparameters,list_of_defocuses_input,list_of_defocuses_output,zmax):
+        """
+        given parameters for single defocus images and their defocuses, create parameterizations for multi-image fit across various defocuses
+        inverse of function `create_list_of_allparameters`
+        
+        @param array_of_allparameters                        array with parameters of defocus
+        @param list_of_defocuses_input                       list of strings at which defocuses are the data from array_of_allparameters
+        @param list_of_defocuses_output                      list of strings at which defocuses the results will be returned
+        @param zmax                                          largest Zernike order considered (has to be same for input and output) 
+        """           
+        
+        
+        list_of_defocuses_int=self.transform_list_of_defocuses_from_str_to_float(list_of_defocuses_input)
+        
+        list_of_polyfit_1_parameter=[]
+        for i in range(array_of_allparameters.shape[1]-2):
+            polyfit_1_parameter=np.polyfit(x=list_of_defocuses_int,y=array_of_allparameters[:,i],deg=1)
+            list_of_polyfit_1_parameter.append(polyfit_1_parameter)
+            
+        array_of_polyfit_1_parameterizations=np.array(list_of_polyfit_1_parameter)        
+        
+        #list_of_defocuses_output_int=self.transform_list_of_defocuses_from_str_to_float(list_of_defocuses_input)
+        #list_of_allparameters=[]
+        #for i in list_of_defocuses_output_int:
+        #    allparameters_proposal_single=self.create_allparameters_single(i,array_of_polyfit_1_parameterizations,zmax=self.zmax)
+        #    list_of_allparameters.append(allparameters_proposal_single)
+            
+        return array_of_polyfit_1_parameterizations
+        
+
+    def lnlike_Neven_multi_same_spot(self,list_of_allparameters,return_Images=False):
+        
+        list_of_single_res=[]
+        
+        assert len(self.list_of_sci_images)==len(list_of_allparameters)
+        
+        for i in range(len(list_of_allparameters)):
+            
+            
+            
+
+            
+            # if the first image, do the full analysis, generate new pupil and illumination
+            if i==0:
+                model_single=LN_PFS_single(self.list_of_sci_images[i],self.list_of_var_images[i],self.list_of_mask_images[i],dithering=self.dithering,save=self.save,verbosity=self.verbosity,
+                pupil_parameters=self.pupil_parameters,use_pupil_parameters=self.use_pupil_parameters,use_optPSF=self.use_optPSF,
+                zmax=self.zmax,extraZernike=self.extraZernike,pupilExplicit=self.pupilExplicit,simulation_00=self.simulation_00,
+                double_sources=self.double_sources,double_sources_positions_ratios=self.double_sources_positions_ratios,npix=self.npix)
+
+                res_single_with_intermediate_images=model_single(list_of_allparameters[i],return_Image=True,return_intermediate_images=True)
+                
+                likelihood_result=res_single_with_intermediate_images[0]
+                pupil_explicit_0=res_single_with_intermediate_images[3]
+                list_of_single_res.append(likelihood_result)
+            else:
+                
+                
+                model_single=LN_PFS_single(self.list_of_sci_images[i],self.list_of_var_images[i],self.list_of_mask_images[i],dithering=self.dithering,save=self.save,verbosity=self.verbosity,
+                pupil_parameters=self.pupil_parameters,use_pupil_parameters=self.use_pupil_parameters,use_optPSF=self.use_optPSF,
+                zmax=self.zmax,extraZernike=self.extraZernike,pupilExplicit=pupil_explicit_0,simulation_00=self.simulation_00,
+                double_sources=self.double_sources,double_sources_positions_ratios=self.double_sources_positions_ratios,npix=self.npix)
+                
+                res_single_without_intermediate_images=model_single(list_of_allparameters[i],return_Image=False)
+                list_of_single_res.append(res_single_without_intermediate_images)
+
+        
+        array_of_single_res=np.array(list_of_single_res)
+        if self.verbosity==1:
+            print('chi2 returned per individual image are: '+str(array_of_single_res))
+        mean_res_of_multi_same_spot=np.mean(array_of_single_res)
+        
+        return mean_res_of_multi_same_spot
+        
+            
+
+    def __call__(self, list_of_allparameters,return_Images=False):
+        return self.lnlike_Neven_multi_same_spot(list_of_allparameters,return_Images=return_Images)
+
+
 class LN_PFS_single(object):
     
     """!
@@ -1699,8 +2085,24 @@ class LN_PFS_single(object):
                  zmax=None,extraZernike=None,pupilExplicit=None,simulation_00=None,
                  double_sources=None,double_sources_positions_ratios=None,npix=None):    
         """
-        @param sci_image           science image 
-        @param var_image           variance image
+        @param sci_image           science image, 2d array
+        @param var_image           variance image, 2d array,same size as sci_image
+        @param mask_image          mask image, 2d array,same size as sci_image
+        @param dithering           dithering, 1=normal, 2=two times higher resolution, 3=not supported
+        @param save                save intermediate result in the process (set value at 1 for saving)
+        @param verbosity           verbosity of the process (set value at 1 for full output)
+        @param pupil_parameters
+        @param use_pupil_parameters
+        @param use_optPSF
+        @param zmax                largest Zernike order used (11 or 22)
+        @param extraZernike        array consistingin of higher order zernike (if using higher order than 22)
+        @param pupilExplicit
+        @param simulation_00       resulting image will be centered with optical center in the center of the image 
+                                   and not fitted acorrding to the sci_image
+        @param double_sources      1 if there are other secondary sources in the image
+        @param double_sources_positions_ratios / arrray with parameters describing relative position\
+                                                 and relative flux of the secondary source(s)
+        @param npxi                size of the pupil
         """        
                 
         if verbosity is None:
@@ -1758,7 +2160,8 @@ class LN_PFS_single(object):
                 npix=int(math.ceil(int(1024*sci_image.shape[0]/(20*4*self.dithering)))*2)
         else:
             self.npix=npix
-        print('npix_value:'+str(npix))        
+            
+   
         if verbosity==1:
             print('Science image shape is: '+str(sci_image.shape))
             print('Top left pixel value of the science image is: '+str(sci_image[0][0]))
@@ -1826,11 +2229,12 @@ class LN_PFS_single(object):
         
         return [np.sum(res),chi2_intrinsic,Qvalue]
     
-    def lnlike_Neven(self,allparameters,return_Image=False):
+    def lnlike_Neven(self,allparameters,return_Image=False,return_intermediate_images=False):
         """
         report likelihood given the parameters of the model
         give -np.inf if outside of the parameters range specified below 
         """ 
+        time_lnlike_start=time.time()
         
         if self.verbosity==1:
             print('')
@@ -2056,42 +2460,48 @@ class LN_PFS_single(object):
             if self.verbosity==1:
                 print('No extra Zernike (beyond zmax)')
                 
-        if extra_Zernike_parameters is None:
-            hash_name=np.abs(hash(tuple(allparameters))) 
-        else:
-            hash_name=np.abs(hash(tuple(allparameters))) 
 
-        # this try statment avoid code crashing when code tries to analyze weird combination of parameters which fail to produce an image    
-        try:   
-
-            modelImg = self.single_image_analysis.constructModelImage_PFS_naturalResolution(self.single_image_analysis.params,extraZernike=extra_Zernike_parameters,hashvalue=hash_name)  
+        # this try statment avoids code crashing when code tries to analyze weird combination of parameters which fail to produce an image    
+        try:
+            if return_intermediate_images==False:
+                modelImg = self.single_image_analysis.constructModelImage_PFS_naturalResolution(self.single_image_analysis.params,\
+                                                                                            extraZernike=extra_Zernike_parameters,return_intermediate_images=return_intermediate_images)  
+            if return_intermediate_images==True:
+                modelImg,ilum,wf_grid_rot = self.single_image_analysis.constructModelImage_PFS_naturalResolution(self.single_image_analysis.params,\
+                                                                                            extraZernike=extra_Zernike_parameters,return_intermediate_images=return_intermediate_images)                  
         except IndexError:
             return -np.inf
         
         chi_2_almost_multi_values=self.create_chi_2_almost(modelImg,self.sci_image,self.var_image,self.mask_image)
         chi_2_almost=chi_2_almost_multi_values[0]
         
+        # old, wrongly defined, result
         #res=-(1/2)*(chi_2_almost+np.log(2*np.pi*np.sum(self.var_image)))
         
+        
+        # res stand for result 
         res=-(1/2)*(chi_2_almost+np.sum(np.log(2*np.pi*self.var_image)))
 
+        time_lnlike_end=time.time()  
         if self.verbosity==True:
             print('Finished with lnlike_Neven')
+            print('Time for lnlike function is: '+str(time_lnlike_end-time_lnlike_start) +str(' seconds'))    
             print(' ')
-            
+  
+                    
         if return_Image==False:
             return res
         else:
-            return res,modelImg,allparameters
-
+            if return_intermediate_images==False:
+                return res,modelImg,allparameters
+            if return_intermediate_images==True:
+                return res,modelImg,allparameters,ilum,wf_grid_rot
+            
+   
+            
     def create_x(self,zparameters,globalparameters):
         """
-        given the parameters move them in into array
-        for a routine which fits at only one defocus this is superfluous bit of code 
-        but I am keeping it here for compability with the code that fits many images at different defocus value.
-        There the code moves parameters related to wavefront (zparameters) according to specified defocus and
-        globalparameters stay the same
-        
+        Given the zparameters and globalparameters separtly, this code moves them in a single array     
         
         @param zparameters        Zernike coefficents
         @param globalparameters   other parameters describing the system
@@ -2099,16 +2509,16 @@ class LN_PFS_single(object):
         x=np.zeros((len(zparameters)+len(globalparameters)))
         for i in range(len(zparameters)):
             x[i]=zparameters[i]     
-
-
+    
+    
         for i in range(len(globalparameters)):
             x[int(len(zparameters)/1)+i]=globalparameters[i]      
         
     
         return x
-     
-    def __call__(self, allparameters,return_Image=False):
-        return self.lnlike_Neven(allparameters,return_Image=return_Image)
+
+    def __call__(self, allparameters,return_Image=False,return_intermediate_images=False):
+        return self.lnlike_Neven(allparameters,return_Image=return_Image,return_intermediate_images=return_intermediate_images)
 
 class LNP_PFS(object):
     def __init__(self,  image=None,image_var=None):
@@ -3698,36 +4108,7 @@ def sky_size(pupil_plane_scale, lam, scale_unit=galsim.arcsec):
     """
     return (lam*1e-9) / pupil_plane_scale * galsim.radians/scale_unit
 
-def value_at_defocus(mm,a,b=None):
-    if b==None:
-        return a
-    else:
-        return a*mm+b 
-    
-def create_x(mm,parameters):
-    """
-    transfrom multi analysis variable into single analysis variables
-    only for z11
-    
-    @param mm     defocu at LAM
-    @param parameters multi parameters
-    
-    """
-    #for single case, up to z11
-    
-    zparameters=parameters[:16]
-    globalparameters=parameters[16:]
-    
-    
-    x=np.zeros((8+len(globalparameters)))
-    for i in range(0,8,1):
-        x[i]=value_at_defocus(mm,zparameters[i*2],zparameters[i*2+1])      
 
-    for i in range(len(globalparameters)):
-        x[int(len(zparameters)/2)+i]=globalparameters[i] 
-    
-
-    return x
 
 def remove_pupil_parameters_from_all_parameters(parameters):
     lenpar=len(parameters)
