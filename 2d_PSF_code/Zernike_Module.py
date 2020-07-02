@@ -55,6 +55,7 @@ Mar 8, 2020: 0.28b -> 0.28c set limit in grating factor to 120000 in generating 
 Apr 1, 2020: 0.28c -> 0.28d svd_invert function
 May 6, 2020: 0.28d -> 0.28e clarified and expanded comments in postprocessing part
 Jun 28, 2020: 0.28e -> 0.29 added multi analysis
+Jul 02, 2020: 0.29 -> 0.3 added internal fitting for flux
 
 @author: Neven Caplar
 @contact: ncaplar@princeton.edu
@@ -1817,7 +1818,7 @@ class LN_PFS_multi_same_spot(object):
     def __init__(self,list_of_sci_images,list_of_var_images,list_of_mask_images=None,dithering=None,save=None,verbosity=None,
              pupil_parameters=None,use_pupil_parameters=None,use_optPSF=None,
              zmax=None,extraZernike=None,pupilExplicit=None,simulation_00=None,
-             double_sources=None,double_sources_positions_ratios=None,npix=None,list_of_defocuses=None): 
+             double_sources=None,double_sources_positions_ratios=None,npix=None,list_of_defocuses=None,fit_for_flux=True): 
 
                 
         if verbosity is None:
@@ -1877,6 +1878,7 @@ class LN_PFS_multi_same_spot(object):
         self.double_sources=double_sources
         self.double_sources_positions_ratios=double_sources_positions_ratios
         self.npix=npix
+        self.fit_for_flux=fit_for_flux
         
         
     def create_list_of_allparameters(self,allparameters_parametrizations,list_of_defocuses=None):
@@ -2016,16 +2018,20 @@ class LN_PFS_multi_same_spot(object):
         return array_of_polyfit_1_parameterizations
         
 
-    def lnlike_Neven_multi_same_spot(self,list_of_allparameters,return_Images=False):
+    def lnlike_Neven_multi_same_spot(self,list_of_allparameters_input,return_Images=False):
         
         list_of_single_res=[]
+        
+        list_of_allparameters=np.copy(list_of_allparameters_input)
         
         assert len(self.list_of_sci_images)==len(list_of_allparameters)
         
         for i in range(len(list_of_allparameters)):
             
-            
-            
+            if self.verbosity==1:
+                print('################################')
+                print('analyzing image '+str(i+1)+' out of '+str(len(list_of_allparameters)))
+                print(' ')           
 
             
             # if the first image, do the full analysis, generate new pupil and illumination
@@ -2033,7 +2039,7 @@ class LN_PFS_multi_same_spot(object):
                 model_single=LN_PFS_single(self.list_of_sci_images[i],self.list_of_var_images[i],self.list_of_mask_images[i],dithering=self.dithering,save=self.save,verbosity=self.verbosity,
                 pupil_parameters=self.pupil_parameters,use_pupil_parameters=self.use_pupil_parameters,use_optPSF=self.use_optPSF,
                 zmax=self.zmax,extraZernike=self.extraZernike,pupilExplicit=self.pupilExplicit,simulation_00=self.simulation_00,
-                double_sources=self.double_sources,double_sources_positions_ratios=self.double_sources_positions_ratios,npix=self.npix)
+                double_sources=self.double_sources,double_sources_positions_ratios=self.double_sources_positions_ratios,npix=self.npix,fit_for_flux=self.fit_for_flux)
 
                 res_single_with_intermediate_images=model_single(list_of_allparameters[i],return_Image=True,return_intermediate_images=True)
                 
@@ -2046,7 +2052,7 @@ class LN_PFS_multi_same_spot(object):
                 model_single=LN_PFS_single(self.list_of_sci_images[i],self.list_of_var_images[i],self.list_of_mask_images[i],dithering=self.dithering,save=self.save,verbosity=self.verbosity,
                 pupil_parameters=self.pupil_parameters,use_pupil_parameters=self.use_pupil_parameters,use_optPSF=self.use_optPSF,
                 zmax=self.zmax,extraZernike=self.extraZernike,pupilExplicit=pupil_explicit_0,simulation_00=self.simulation_00,
-                double_sources=self.double_sources,double_sources_positions_ratios=self.double_sources_positions_ratios,npix=self.npix)
+                double_sources=self.double_sources,double_sources_positions_ratios=self.double_sources_positions_ratios,npix=self.npix,fit_for_flux=self.fit_for_flux)
                 
                 res_single_without_intermediate_images=model_single(list_of_allparameters[i],return_Image=False)
                 list_of_single_res.append(res_single_without_intermediate_images)
@@ -2083,7 +2089,7 @@ class LN_PFS_single(object):
     def __init__(self,sci_image,var_image,mask_image=None,dithering=None,save=None,verbosity=None,
                  pupil_parameters=None,use_pupil_parameters=None,use_optPSF=None,
                  zmax=None,extraZernike=None,pupilExplicit=None,simulation_00=None,
-                 double_sources=None,double_sources_positions_ratios=None,npix=None):    
+                 double_sources=None,double_sources_positions_ratios=None,npix=None,fit_for_flux=None):    
         """
         @param sci_image           science image, 2d array
         @param var_image           variance image, 2d array,same size as sci_image
@@ -2149,6 +2155,7 @@ class LN_PFS_single(object):
         self.verbosity=verbosity
         self.double_sources=double_sources
         self.double_sources_positions_ratios=double_sources_positions_ratios
+        self.fit_for_flux=fit_for_flux
 
         # if npix is not specified automatically scale the image
         # this will create images which will have different pupil size for different sizes of science image
@@ -2186,6 +2193,7 @@ class LN_PFS_single(object):
             single_image_analysis=ZernikeFitter_PFS(sci_image,var_image,image_mask=mask_image,npix=npix,dithering=dithering,save=save,\
                                                     pupil_parameters=pupil_parameters,use_pupil_parameters=use_pupil_parameters,
                                                     extraZernike=extraZernike,simulation_00=simulation_00,verbosity=verbosity,double_sources=double_sources,double_sources_positions_ratios=double_sources_positions_ratios)  
+           
             single_image_analysis.initParams(zmax,hscFracInit=pupil_parameters[0],strutFracInit=pupil_parameters[1],
                    focalPlanePositionInit=(pupil_parameters[2],pupil_parameters[3]),slitFracInit=pupil_parameters[4],
                   slitFrac_dy_Init=pupil_parameters[5],x_fiberInit=pupil_parameters[6],y_fiberInit=pupil_parameters[7],
@@ -2249,8 +2257,10 @@ class LN_PFS_single(object):
                         
         zparameters=allparameters[0:self.zmax-3]
         globalparameters=allparameters[len(zparameters):]
-        #print(zparameters)
-        #print(globalparameters)
+        
+        if self.fit_for_flux==True:
+            globalparameters=np.concatenate((globalparameters,np.array([1])))
+
         
 
 
@@ -2258,7 +2268,7 @@ class LN_PFS_single(object):
         test_print=0
         if self.verbosity==1:
             test_print=1
-        #When running big fits these are limits which ensure that the code does not wander off in totally nonphyical region
+        #When running big fits these are limits which ensure that the code does not wander off in totally non physical region
 
         # hsc frac
         if globalparameters[0]<=0.6 or globalparameters[0]>0.8:
@@ -2436,17 +2446,20 @@ class LN_PFS_single(object):
             return -np.inf  
         
         # flux
-        if globalparameters[22]<0.98:
-            print('globalparameters[22] outside limits') if test_print == 1 else False 
-            return -np.inf
-        if globalparameters[22]>1.02:
-            print('globalparameters[22] outside limits') if test_print == 1 else False 
-            return -np.inf      
+        if self.fit_for_flux==True:
+            globalparameters[22]=1
+        else:          
+            if globalparameters[22]<0.98:
+                print('globalparameters[22] outside limits') if test_print == 1 else False 
+                return -np.inf
+            if globalparameters[22]>1.02:
+                print('globalparameters[22] outside limits') if test_print == 1 else False 
+                return -np.inf      
 
-        x=self.create_x(zparameters,globalparameters)
+
+        x=self.create_x(zparameters,globalparameters)       
         for i in range(len(self.columns)):
-            self.single_image_analysis.params[self.columns[i]].set(x[i])
-
+            self.single_image_analysis.params[self.columns[i]].set(x[i]) 
 
         
         if len(allparameters)>len(self.columns):
@@ -2471,6 +2484,28 @@ class LN_PFS_single(object):
                                                                                             extraZernike=extra_Zernike_parameters,return_intermediate_images=return_intermediate_images)                  
         except IndexError:
             return -np.inf
+        
+        
+        if self.fit_for_flux==True:
+            if self.verbosity==1:
+                print('Internally fitting for flux; disregarding passed value for flux')
+                
+            def find_flux_fit(flux_fit):
+                return self.create_chi_2_almost(flux_fit*modelImg,self.sci_image,self.var_image,self.mask_image)[0]     
+            
+            flux_fitting_result = scipy.optimize.shgo(find_flux_fit,bounds=[(0.98,1.02)])
+            flux=flux_fitting_result.x[0]
+            allparameters[-1]=flux
+            modelImg=modelImg*flux
+            if self.verbosity==1:
+                print('Internally fitting for flux; multiplyting all values in the model by '+str(flux))
+        else:
+            pass
+
+
+           
+
+        
         
         chi_2_almost_multi_values=self.create_chi_2_almost(modelImg,self.sci_image,self.var_image,self.mask_image)
         chi_2_almost=chi_2_almost_multi_values[0]
@@ -3701,76 +3736,99 @@ def create_parInit(allparameters_proposal,multi=None,pupil_parameters=None,allpa
     
     """!given the suggested parametrs create array with randomized starting values to supply to fitting code
     
-    @param allparameters_proposal    array contaning suggested starting values for a model 
-    @param multi                     (not working) when you want to analyze more images at once
-    @param pupil_parameters          fixed parameters describign the pupil
-    @param allparameters_proposal_err error on proposed parameters
-    @param stronger                 factors which increases all errors
-    @param use_optPFS               fix all parameters that give pure optical PSF, except z4 (allowing change in ['z4', 'scattering_slope', 'scattering_amplitude', 'pixel_effect', 'fiber_r', 'flux'])
+    @param allparameters_proposal            array contaning suggested starting values for a model 
+    @param multi                             (not working) when you want to analyze more images at once
+    @param pupil_parameters                  fix parameters describing the pupil
+    @param allparameters_proposal_err        uncertantity on proposed parameters
+    @param stronger                          factors which increases all uncertanties by a constant value
+    @param use_optPFS                        fix all parameters that give pure optical PSF, except z4 (allowing change in ['z4', 'scattering_slope', 'scattering_amplitude', 'pixel_effect', 'fiber_r', 'flux'])
+    @param deduced_scattering_slope     
+    @param zmax     
+    
     """ 
+    
+    if multi==True:
+        allparameters_proposal
+    
+    
+    # if you are passing explicit estimate for uncertantity of parameters, make sure length is the same as of the parameters
     if allparameters_proposal_err is not None:
         assert len(allparameters_proposal)==len(allparameters_proposal_err)
+        
+    # default value for multiplying all uncertantity values (making them stronger) is 1     
     if stronger is None:
         stronger=1
-
-     # fixed scattering slope at number deduced from larger defocused image
+        
+    # default value, if none is passes is set at 11
     if zmax is None:
         zmax=11
-
+        
+    # if you are passing fixed scattering slope at number deduced from larger defocused image
+    # does not work with multi!!!!
     if zmax==11:   
         if deduced_scattering_slope is not None:
             allparameters_proposal[26]=np.abs(deduced_scattering_slope)
-    else:
+    if zmax==22:
         if deduced_scattering_slope is not None:
             allparameters_proposal[26+11]=np.abs(deduced_scattering_slope)
+    
     
     if zmax==11:
         if allparameters_proposal_err is None:
             if multi is None:
-                allparameters_proposal_err=np.array([2,0.25,0.25,0.25,0.25,0.25,0.25,0.25,
+                # 8 values describing z4-z11
+                allparameters_proposal_err=stronger*np.array([2,0.25,0.25,0.25,0.25,0.25,0.25,0.25,
                                         0.1,0.02,0.1,0.1,0.1,0.1,
                                         0.3,1,0.1,0.1,
                                         0.15,0.15,0.1,
                                         0.07,0.2,0.05,0.4,
                                         30000,0.5,0.01,
                                         0.1,0.05,0.01])
-                if stronger is not None:
-                    allparameters_proposal_err=stronger*allparameters_proposal_err
                 # fixed scattering slope at number deduced from larger defocused image
                 if deduced_scattering_slope is not None:
                     allparameters_proposal_err[26]=0
             else:
-                allparameters_proposal_err=[2,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,
+                # 16 values describing z4-z11
+                allparameters_proposal_err=stronger*np.array([2,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,
                                         0.1,0.1,0.1,0.1,0.05,0.1,
                                         0.2, 0.4,0.1,0.1,
                                         0.1,0.1,0.02,0.02,0.5,0.2,0.1,
                                         30000,0.5,0.01,
-                                        0.1,0.05,0.01]        
-    else:
+                                        0.1,0.05,0.01]   )     
+    if zmax==22:
         if allparameters_proposal_err is None:
             if multi is None:
-                # updated Jul 29 2019
-                allparameters_proposal_err=np.array([2,0.25,0.25,0.25,0.25,0.25,0.25,0.25,
+                # 19 values describing z4-z22
+                # smaller values for z12-z22
+                #['z4','z5','z6','z7','z8','z9','z10','z11',
+                #          'z12','z13','z14','z15','z16','z17','z18','z19','z20','z21','z22', 
+                #'hscFrac','strutFrac','dxFocal','dyFocal','slitFrac','slitFrac_dy',
+                #'radiometricEffect','radiometricExponent','x_ilum','y_ilum',
+                #'x_fiber','y_fiber','effective_ilum_radius',
+                #'frd_sigma','frd_lorentz_factor','det_vert','slitHolder_frac_dx',
+                #'grating_lines','scattering_slope','scattering_amplitude',
+                #'pixel_effect','fiber_r','flux']    
+
+                allparameters_proposal_err=stronger*np.array([2,0.25,0.25,0.25,0.25,0.25,0.25,0.25,
                                                      0.15,0.15,0.15,0.15,0.15,0.15,0.15,0.15,0.15,0.15,0.15,
-                                        0.08,0.03,0.1,0.1,0.016,0.05,
-                                        0.3,1,0.1,0.1,
-                                        0.15,0.15,0.1,
-                                        0.1,0.64,0.05,0.2,
-                                        60000,0.95,0.014,
-                                        0.2,0.14,0.015])
-                if stronger is not None:
-                    allparameters_proposal_err=stronger*allparameters_proposal_err
+                                                     0.08,0.03,0.1,0.1,0.016,0.05,
+                                                     0.3,1,0.1,0.1,
+                                                     0.15,0.15,0.1,
+                                                     0.1,0.64,0.05,0.2,
+                                                     60000,0.95,0.014,
+                                                     0.2,0.14,0.015])
                 # fixed scattering slope at number deduced from larger defocused image
                 if deduced_scattering_slope is not None:
                     allparameters_proposal_err[26+11]=0
             else:
-                print('not implemented')
-                allparameters_proposal_err=[2,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,
-                                        0.1,0.1,0.1,0.1,0.05,0.1,
-                                        0.2, 0.4,0.1,0.1,
-                                        0.1,0.1,0.02,0.02,0.5,0.2,0.1,
-                                        30000,0.5,0.01,
-                                        0.1,0.05,0.01]         
+                allparameters_proposal_err=stronger*np.array([2,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,
+                                                     0.15,0.15,0.15,0.15,0.15,0.15,0.15,0.15,0.15,0.15,0.15,0.15,0.15,0.15,0.15,0.15,0.15,0.15,0.15,0.15,0.15,0.15,
+                                                     0.08,0.03,0.1,0.1,0.016,0.05,
+                                                     0.3,1,0.1,0.1,
+                                                     0.15,0.15,0.1,
+                                                     0.1,0.64,0.05,0.2,
+                                                     60000,0.95,0.014,
+                                                     0.2,0.14,0.015])        
     
     
     if pupil_parameters is None:
@@ -3795,7 +3853,7 @@ def create_parInit(allparameters_proposal,multi=None,pupil_parameters=None,allpa
             zparameters_flatten_err=allparameters_proposal_err[0:8*2]
             globalparameters_flatten=allparameters_proposal[8*2:]
             globalparameters_flatten_err=allparameters_proposal_err[8*2:]
-    else:
+    if zmax==22:
         if multi is None:
             zparameters_flatten=allparameters_proposal[0:8+11]
             zparameters_flatten_err=allparameters_proposal_err[0:8+11]
@@ -3835,7 +3893,7 @@ def create_parInit(allparameters_proposal,multi=None,pupil_parameters=None,allpa
                         zparameters_flat=np.column_stack((zparameters_flat,zparameters_flat_single_par))
             except NameError:
                 print('NameError!')        
-    else:
+    if zmax==22:
         if multi is None:
             try: 
                 for i in range(8+11):
@@ -3852,6 +3910,10 @@ def create_parInit(allparameters_proposal,multi=None,pupil_parameters=None,allpa
         else:
             try: 
                 for i in range((8+11)*2):
+                    print(i)
+                    print(zparameters_flatten[i])
+                    print(zparameters_flatten_err[i])
+                    print(nwalkers)
                     zparameters_flat_single_par=np.concatenate(([zparameters_flatten[i]],np.random.normal(zparameters_flatten[i],zparameters_flatten_err[i],nwalkers-1)))
                     if i==0:
                         zparameters_flat=zparameters_flat_single_par
@@ -4013,6 +4075,7 @@ def create_parInit(allparameters_proposal,multi=None,pupil_parameters=None,allpa
     parInit=allparameters.reshape(nwalkers,number_of_par) 
     
     
+    # hm..... relic of some older code, needs cleaning
     if use_optPSF is not None:
         if zmax==11:
             for i in range(1,25):
