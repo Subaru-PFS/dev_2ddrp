@@ -10,6 +10,7 @@ Apr 01, 2020: 0.23 -> 0.24 added options to create_basic_comparison_plot
 Apr 29, 2020: 0.24 -> 0.24a added check for image for both side of defocus in create_solution
 Jun 17, 2020: 0.24a -> 0.24b cleaned the STAMPS_FOLDER specification
 Jun 25, 2020: 0.24b -> 0.25 improved create_res_data
+Jul 03, 2020: 0.25 -> 0.26 included multi analysis
 
 @author: Neven Caplar
 @contact: ncaplar@princeton.edu
@@ -58,6 +59,9 @@ import skimage.transform
 import scipy.optimize as optimize
 from scipy.ndimage.filters import gaussian_filter
 
+# pickle
+import pickle
+
 #lmfit
 import lmfit
 
@@ -75,7 +79,7 @@ from typing import Tuple, Iterable
 
 __all__ = ['Zernike_Analysis','Zernike_result_analysis','create_mask','resize']
 
-__version__ = "0.24b"
+__version__ = "0.26"
 
 ############################################################
 # name your directory where you want to have files!
@@ -92,14 +96,45 @@ class Zernike_Analysis(object):
     Class for analysing results of the cluster run
     """
 
-    def __init__(self, date,obs,single_number,eps,arc=None,dataset=None):
+    def __init__(self, date,obs,single_number,eps,arc=None,dataset=None,multi_var=False,list_of_defocuses=None,verbosity=1):
         """!
 
-        @param[in]
+        @param[in] date                                           date
+        @param[in] obs                                            date
+        @param[in] single_number                                  date
+        @param[in] eps                                            date
+        @param[in] arc                                            date
+        @param[in] dataset                                        date        
+        @param[in] multi_var                                      date
+        @param[in] list_of_defocuses                              date           
+        
         """
+        
+        
+        ############
+        #initializing 
+        ###########
         if arc is None:
             arc=''
+            
+
+        self.date=date
+        self.obs=obs
+
         
+        self.single_number=single_number
+        self.eps=eps
+        self.arc=arc
+        self.multi_var=multi_var
+        self.list_of_defocuses=list_of_defocuses 
+        
+        method='P'
+        self.method=method
+        self.verbosity=verbosity
+        
+            
+        #############
+        # where are poststamps of spots located
         if dataset==0:
             STAMPS_FOLDER="/Users/nevencaplar/Documents/PFS/Data_Nov_14/Stamps_cleaned/"  
         if dataset==1:
@@ -112,7 +147,7 @@ class Zernike_Analysis(object):
             STAMPS_FOLDER="/Users/nevencaplar/Documents/PFS/ReducedData/Data_Aug_14/Stamps_cleaned/"    
 
         
-        
+        # which observation numbers associated with each dataset
         if dataset==0:
             if arc is not None:         
                 if arc=="HgAr":
@@ -125,52 +160,218 @@ class Zernike_Analysis(object):
             if arc is not None:         
                 if arc=="HgAr":
                     single_number_focus=11748
+                    obs_possibilites=np.array([11796,11790,11784,11778,11772,11766,11760,11754,11748,11748,11694,11700,11706,11712,11718,11724,11730,11736])
+
                 elif arc=="Ne":
                     single_number_focus=11748+607  
+                    obs_possibilites=np.array([12403,12397,12391,12385,12379,12373,12367,12361,12355,12355,12349,12343,12337,12331,12325,12319,12313,12307])
  
         if dataset==2:
             # F/2.8 stop
             if arc is not None:         
                 if arc=="HgAr":
                     single_number_focus=17017+54
+                    obs_possibilites=np.array([17023,17023+6,17023+12,17023+18,17023+24,17023+30,17023+36,17023+42,17023+48,17023+48,\
+                               17023+54,17023+60,17023+66,17023+72,17023+78,17023+84,17023+90,17023+96,17023+48])
                 if arc=="Ne":
                     single_number_focus=16292  
+                    obs_possibilites=np.array([16238+6,16238+12,16238+18,16238+24,16238+30,16238+36,16238+42,16238+48,16238+54,16238+54,\
+                               16238+60,16238+66,16238+72,16238+78,16238+84,16238+90,16238+96,16238+102,16238+54])
                 if arc=="Kr":
                     single_number_focus=17310+54  
+                    obs_possibilites=np.array([17310+6,17310+12,17310+18,17310+24,17310+30,17310+36,17310+42,17310+48,17310+54,17310+54,\
+                                    17310+60,17310+66,17310+72,17310+78,17310+84,17310+90,17310+96,17310+102,17310+54])
                 
         if dataset==3:  
             # F/2.5 stop
             if arc is not None:         
                 if arc=="HgAr":
                     single_number_focus=19238+54
+                    obs_possibilites=np.array([19238,19238+6,19238+12,19238+18,19238+24,19238+30,19238+36,19238+42,19238+48,19238+48,\
+                                   19238+54,19238+60,19238+66,19238+72,19238+78,19238+84,19238+90,19238+96,19238+48])
                 elif arc=="Ne":
                     single_number_focus=19472  
+                    obs_possibilites=np.array([19472+6,19472+12,19472+18,19472+24,19472+30,19472+36,19472+42,19472+48,19472+54,19472+54,\
+                                  19472+60,19472+66,19472+72,19472+78,19472+84,19472+90,19472+96,19472+102,19472+54]) 
                     
-        if dataset==4 or dataset==5:  
-            # F/2.8 stop
+        if dataset==4: 
+            # F/2.8 stop, July LAM data, full defocus
             if arc is not None:         
                 if arc=="HgAr":
                     single_number_focus=21346+54
+                    obs_possibilites=np.array([21346+6,21346+12,21346+18,21346+24,21346+30,21346+36,21346+42,21346+48,21346+54,21346+54,\
+                                   21346+60,21346+66,21346+72,21346+78,21346+84,21346+90,21346+96,21346+102,21346+48])
                 if arc=="Ne":
                     single_number_focus=21550+54  
+                    obs_possibilites=np.array([21550+6,21550+12,21550+18,21550+24,21550+30,21550+36,21550+42,21550+48,21550+54,21550+54,\
+                                   21550+60,21550+66,21550+72,21550+78,21550+84,21550+90,21550+96,21550+102,21550+54])
                 if str(arc)=="Kr":
-                    single_number_focus=21754+54                     
-                       
+                    single_number_focus=21754+54    
+                    obs_possibilites=np.array([21754+6,21754+12,21754+18,21754+24,21754+30,21754+36,21754+42,21754+48,21754+54,21754+54,\
+                                    21754+60,21754+66,21754+72,21754+78,21754+84,21754+90,21754+96,21754+102,21754+54])
+    
+        if dataset==5:
+            # F/2.8 stop, July LAM data, fine defocus
+            
+                if arc=='HgAr':
+                    obs_possibilites=np.arange(21280,21280+11*6,6)
+                if arc=='Ne':
+                    obs_possibilites=np.arange(21484,21484+11*6,6)
+                if arc=='Kr':
+                     obs_possibilites=np.arange(21688,21688+11*6,6)
+
+        #  if multi ??
+        if multi_var==True:
+            obs_multi=single_number_focus+48
+            self.obs_multi=obs_multi
+            obs_single=obs
+            self.obs_single=obs_single
+            
+
+        label=['m4','m35','m3','m25','m2','m15','m1','m05','0d','0','p05','p1','p15','p2','p25','p3','p35','p4','0p']
+        label_fine_defocus=['m05ff','m04ff','m03ff','m02ff','m01ff','0ff','p01ff','p02ff','p03ff','p04ff','p05ff']
+
+        if type(obs)==str:
+            labelInput=obs
+            obs=obs_possibilites[label.index(labelInput)]
+            
+        obs_int = int(obs)      
+        
+        
+
+        
+        
+        if dataset in [0,1,2,3,4]:
+            labelInput=label[list(obs_possibilites).index(obs_int)]
+        if dataset in [5]:
+            labelInput=label_fine_defocus[list(obs_possibilites).index(obs_int)]
+            
+        if multi_var==True:
+            print('labelInput: ' + str(labelInput))
+            index_of_single_image_in_list_of_images=self.list_of_defocuses.index(labelInput)
+            self.index_of_single_image_in_list_of_images=index_of_single_image_in_list_of_images
+            
+        list_of_obs=[]
+        if multi_var==True:
+
+            for labelInput in self.list_of_defocuses:
+                if dataset in [0,1,2,3,4]:
+                    obs_single=obs_possibilites[label.index(labelInput)]
+                if dataset in [5]:
+                    obs_single=obs_possibilites[label_fine_defocus.index(labelInput)]
+                    
+                list_of_obs.append(obs_single)
+        else:
+            list_of_obs.append(obs_single)
+
+
         ##########################
         # import data
-        if obs==8600:
-            print("Not implemented for December 2018 data")
-        else:
-            sci_image =np.load(STAMPS_FOLDER+'sci'+str(obs)+str(single_number)+str(arc)+'_Stacked.npy')
-            mask_image =np.load(STAMPS_FOLDER+'mask'+str(obs)+str(single_number)+str(arc)+'_Stacked.npy')
-            var_image =np.load(STAMPS_FOLDER+'var'+str(obs)+str(single_number)+str(arc)+'_Stacked.npy')
-            sci_image_focus_large =np.load(STAMPS_FOLDER+'sci'+str(single_number_focus)+str(single_number)+str(arc)+'_Stacked_large.npy')
-            var_image_focus_large =np.load(STAMPS_FOLDER+'var'+str(single_number_focus)+str(single_number)+str(arc)+'_Stacked_large.npy')   
+        ##########################
+       
+        
+        if multi_var==True:
+            list_of_sci_images=[]
+            list_of_mask_images=[]
+            list_of_var_images=[]
+            
+            if self.verbosity==1:
+                print('list_of_defocuses: ' +str(self.list_of_defocuses))
+                print('list_of_obs: ' +str(list_of_obs))
+            
+            
+            for obs_v in list_of_obs:
+                sci_image =np.load(STAMPS_FOLDER+'sci'+str(obs_v)+str(single_number)+str(arc)+'_Stacked.npy')
+                mask_image =np.load(STAMPS_FOLDER+'mask'+str(obs_v)+str(single_number)+str(arc)+'_Stacked.npy')
+                var_image =np.load(STAMPS_FOLDER+'var'+str(obs_v)+str(single_number)+str(arc)+'_Stacked.npy')
+                
+                list_of_sci_images.append(sci_image)
+                list_of_mask_images.append(mask_image)
+                list_of_var_images.append(var_image)     
+
+
+        sci_image =np.load(STAMPS_FOLDER+'sci'+str(obs)+str(single_number)+str(arc)+'_Stacked.npy')
+        mask_image =np.load(STAMPS_FOLDER+'mask'+str(obs)+str(single_number)+str(arc)+'_Stacked.npy')
+        var_image =np.load(STAMPS_FOLDER+'var'+str(obs)+str(single_number)+str(arc)+'_Stacked.npy')
+        sci_image_focus_large =np.load(STAMPS_FOLDER+'sci'+str(single_number_focus)+str(single_number)+str(arc)+'_Stacked_large.npy')
+        var_image_focus_large =np.load(STAMPS_FOLDER+'var'+str(single_number_focus)+str(single_number)+str(arc)+'_Stacked_large.npy')   
+                
+       
+        self.list_of_sci_images=list_of_sci_images
+        self.list_of_mask_images=list_of_mask_images
+        self.list_of_var_images=list_of_var_images
         
         
         self.sci_image=sci_image
         self.var_image=var_image
+        self.mask_image=mask_image
         self.STAMPS_FOLDER=STAMPS_FOLDER
+        
+        if dataset==1:
+            if arc=="HgAr":
+                finalArc=finalHgAr_Feb2019
+            elif arc=="Ne":
+                finalArc=finalNe_Feb2019    
+            else:
+                print("Not recognized arc-line")  
+                
+        if dataset==2: 
+            
+            with open('/Users/nevencaplar/Documents/PFS/ReducedData/Data_May_28/Dataframes/finalNe_May2019.pkl', 'rb') as f:
+                finalNe_May2019=pickle.load(f)  
+            with open('/Users/nevencaplar/Documents/PFS/ReducedData/Data_May_28/Dataframes/finalHgAr_May2019.pkl', 'rb') as f:
+                finalHgAr_May2019=pickle.load(f)  
+            with open('/Users/nevencaplar/Documents/PFS/ReducedData/Data_May_28/Dataframes/finalKr_May2019.pkl', 'rb') as f:
+                finalKr_May2019=pickle.load(f)  
+            
+            if arc=="HgAr":
+                finalArc=finalHgAr_May2019
+            elif arc=="Ne":
+                finalArc=finalNe_May2019    
+            elif arc=="Kr":
+                finalArc=finalKr_May2019    
+            else:
+                print("Not recognized arc-line")   
+                
+        if dataset==3:   
+            
+            with open('/Users/nevencaplar/Documents/PFS/ReducedData/Data_May_28/Dataframes/finalNe_May2019.pkl', 'rb') as f:
+                finalNe_May2019=pickle.load(f)  
+            with open('/Users/nevencaplar/Documents/PFS/ReducedData/Data_May_28/Dataframes/finalHgAr_May2019.pkl', 'rb') as f:
+                finalHgAr_May2019=pickle.load(f)  
+            with open('/Users/nevencaplar/Documents/PFS/ReducedData/Data_May_28/Dataframes/finalKr_May2019.pkl', 'rb') as f:
+                finalKr_May2019=pickle.load(f)  
+            
+            if arc=="HgAr":
+                finalArc=finalHgAr_May2019
+            elif arc=="Ne":
+                finalArc=finalNe_May2019    
+            else:
+                print("Not recognized arc-line")   
+                
+        if dataset==4 or dataset==5:   
+                
+            with open('/Users/nevencaplar/Documents/PFS/ReducedData/Data_May_28/Dataframes/finalHgAr_Feb2020', 'rb') as f:
+                finalHgAr_Feb2020_dataset=pickle.load(f)  
+            with open('/Users/nevencaplar/Documents/PFS/ReducedData/Data_May_28/Dataframes/finalNe_Feb2020', 'rb') as f:
+                finalNe_Feb2020_dataset=pickle.load(f)  
+            with open('/Users/nevencaplar/Documents/PFS/ReducedData/Data_May_28/Dataframes/finalKr_Feb2020', 'rb') as f:
+                finalKr_Feb2020_dataset=pickle.load(f)  
+            
+            
+            if arc=="HgAr":
+                finalArc=finalHgAr_Feb2020_dataset
+            elif arc=="Ne":
+                finalArc=finalNe_Feb2020_dataset    
+            elif arc=="Kr":
+                finalArc=finalKr_Feb2020_dataset    
+            else:
+                print("Not recognized arc-line")            
+
+        ##########################
+        # import column names
+        ##########################
+
         
         columns=['z4','z5','z6','z7','z8','z9','z10','z11',
                       'hscFrac','strutFrac','dxFocal','dyFocal','slitFrac','slitFrac_dy',
@@ -180,8 +381,26 @@ class Zernike_Analysis(object):
                       'grating_lines','scattering_radius','scattering_slope','scattering_amplitude',
                       'pixel_effect','fiber_r','flux']    
         
-        self.columns=columns
+            
+        columns22=['z4','z5','z6','z7','z8','z9','z10','z11',
+               'z12','z13','z14','z15','z16','z17','z18','z19','z20','z21','z22',
+              'hscFrac','strutFrac','dxFocal','dyFocal','slitFrac','slitFrac_dy',
+              'radiometricEffect','radiometricExponent','x_ilum','y_ilum',
+              'x_fiber','y_fiber','effective_radius_illumination',
+              'frd_sigma','frd_lorentz_factor','det_vert','slitHolder_frac_dx',
+              'grating_lines','scattering_slope','scattering_amplitude',
+              'pixel_effect','fiber_r','flux']  
         
+        columns22_analysis=columns22+['chi2','chi2max']
+        
+        self.columns=columns
+        self.columns22=columns22
+        self.columns22_analysis=columns22_analysis
+ 
+        ##########################
+        # where are results from Tiger placed
+        ##########################
+       
         RESULT_FOLDER='/Users/nevencaplar/Documents/PFS/TigerAnalysis/ResultsFromTiger/'+date+'/'
         if os.path.exists(RESULT_FOLDER):
             pass
@@ -198,15 +417,33 @@ class Zernike_Analysis(object):
         if not os.path.exists(IMAGES_FOLDER):
             os.makedirs(IMAGES_FOLDER)
         self.IMAGES_FOLDER=IMAGES_FOLDER
-
-        self.date=date
-        self.obs=obs
-        self.single_number=single_number
-        self.eps=eps
-        self.arc=arc
         
-        method='P'
-        self.method=method
+        if finalArc['close'].loc[int(single_number)]=='1':
+            double_sources=False
+        else:
+             double_sources=True           
+        
+        self.double_sources=double_sources
+        double_sources_positions_ratios=finalArc.loc[int(single_number)][['second_offset','second_ratio']].values
+        self.double_sources_positions_ratios=double_sources_positions_ratios
+        
+        if self.verbosity==1:
+            print('analyzing label: '+str(obs))
+        
+
+    def return_double_sources(self):
+        return self.double_sources,self.double_sources_positions_ratios
+    
+    def return_lists_of_images(self):
+        assert self.multi_var==True
+
+        return self.list_of_sci_images,self.list_of_var_images,self.list_of_mask_images
+    
+    def return_index_of_single_image_in_list_of_images(self):
+        return self.index_of_single_image_in_list_of_images
+
+    def return_columns(self):
+        return self.columns,self.columns22,self.columns22_analysis
     
     def create_likelihood(self):
         #chain_Emcee1=np.load(self.RESULT_FOLDER+'chain'+str(self.date)+'_Single_'+str(self.method)+'_'+str(self.obs)+str(self.single_number)+str(self.eps)+'Emcee1.npy')
@@ -215,7 +452,8 @@ class Zernike_Analysis(object):
         # get chain number 0, which is has lowest temperature
         #likechain0_Emcee1=likechain_Emcee1[0]
         #chain0_Emcee1=chain_Emcee1[0]
-
+        if self.multi_var==True:
+            self.obs=self.obs_multi
         #chain_Emcee2=np.load(self.RESULT_FOLDER+'chain'+str(self.date)+'_Single_'+str(self.method)+'_'+str(self.obs)+str(self.single_number)+str(self.eps)+'Emcee2.npy')
         likechain_Emcee2=np.load(self.RESULT_FOLDER+'likechain'+str(self.date)+'_Single_'+str(self.method)+'_'+str(self.obs)+str(self.single_number)+str(self.eps)+str(self.arc)+'Emcee2.npy')
        
@@ -278,7 +516,9 @@ class Zernike_Analysis(object):
 
     def len_of_chains(self):
 
-
+        if self.multi_var==True:
+            self.obs=self.obs_multi
+            
         chain_Emcee2=np.load(self.RESULT_FOLDER+'chain'+str(self.date)+'_Single_'+str(self.method)+'_'+str(self.obs)+str(self.single_number)+str(self.eps)+str(self.arc)+'Emcee2.npy')
         chain_Swarm1=np.load(self.RESULT_FOLDER+'chain'+str(self.date)+'_Single_'+str(self.method)+'_'+str(self.obs)+str(self.single_number)+str(self.eps)+str(self.arc)+'Swarm1.npy')       
         chain_Swarm2=np.load(self.RESULT_FOLDER+'chain'+str(self.date)+'_Single_'+str(self.method)+'_'+str(self.obs)+str(self.single_number)+str(self.eps)+str(self.arc)+'Swarm2.npy')
@@ -305,6 +545,8 @@ class Zernike_Analysis(object):
         
         #likechain0_Emcee2=likechain_Emcee2[0]
         #chain0_Emcee2=chain_Emcee2[0]        
+        if self.multi_var==True:
+            self.obs=self.obs_multi
         
         chain_Emcee3=np.load(self.RESULT_FOLDER+'chain'+str(self.date)+'_Single_'+str(self.method)+'_'+str(self.obs)+str(self.single_number)+str(self.eps)+str(self.arc)+'Emcee3.npy')
         likechain_Emcee3=np.load(self.RESULT_FOLDER+'likechain'+str(self.date)+'_Single_'+str(self.method)+'_'+str(self.obs)+str(self.single_number)+str(self.eps)+str(self.arc)+'Emcee3.npy')
@@ -320,7 +562,10 @@ class Zernike_Analysis(object):
     
     
     def create_chains_Emcee_2(self):
-        
+
+        if self.multi_var==True:
+            self.obs=self.obs_multi
+            
         chain_Emcee3=np.load(self.RESULT_FOLDER+'chain'+str(self.date)+'_Single_'+str(self.method)+'_'+str(self.obs)+str(self.single_number)+str(self.eps)+str(self.arc)+'Emcee3.npy')
         likechain_Emcee3=np.load(self.RESULT_FOLDER+'likechain'+str(self.date)+'_Single_'+str(self.method)+'_'+str(self.obs)+str(self.single_number)+str(self.eps)+str(self.arc)+'Emcee3.npy')
         
@@ -335,7 +580,11 @@ class Zernike_Analysis(object):
  
         
     def create_Emcee2_stack(self):
-    
+
+        if self.multi_var==True:
+            self.obs=self.obs_multi
+        
+        
         chain0_Emcee2=np.load(self.RESULT_FOLDER+'chain'+str(self.date)+'_Single_'+str(self.method)+'_'+str(self.obs)+str(self.single_number)+str(self.eps)+str(self.arc)+'Emcee3.npy')
         likechain0_Emcee2=np.load(self.RESULT_FOLDER+'likechain'+str(self.date)+'_Single_'+str(self.method)+'_'+str(self.obs)+str(self.single_number)+str(self.eps)+str(self.arc)+'Emcee3.npy')
         
@@ -357,7 +606,10 @@ class Zernike_Analysis(object):
     
     
     def create_chains_Emcee_1(self):
-        
+        if self.multi_var==True:
+            self.obs=self.obs_multi
+            
+            
         chain_Emcee3=np.load(self.RESULT_FOLDER+'chain'+str(self.date)+'_Single_'+str(self.method)+'_'+str(self.obs)+str(self.single_number)+str(self.eps)+str(self.arc)+'Emcee2.npy')
         likechain_Emcee3=np.load(self.RESULT_FOLDER+'likechain'+str(self.date)+'_Single_'+str(self.method)+'_'+str(self.obs)+str(self.single_number)+str(self.eps)+str(self.arc)+'Emcee2.npy')
         
@@ -372,6 +624,8 @@ class Zernike_Analysis(object):
     
     def create_chains_swarm_2(self):
               
+        if self.multi_var==True:
+            self.obs=self.obs_multi
         
         chain_Emcee3=np.load(self.RESULT_FOLDER+'chain'+str(self.date)+'_Single_'+str(self.method)+'_'+str(self.obs)+str(self.single_number)+str(self.eps)+str(self.arc)+'Swarm2.npy')
         likechain_Emcee3=np.load(self.RESULT_FOLDER+'likechain'+str(self.date)+'_Single_'+str(self.method)+'_'+str(self.obs)+str(self.single_number)+str(self.eps)+str(self.arc)+'Swarm2.npy')
@@ -386,6 +640,9 @@ class Zernike_Analysis(object):
         return chain0_Emcee3,likechain0_Emcee3      
 
     def create_chains_swarm_1(self):
+
+        if self.multi_var==True:
+            self.obs=self.obs_multi
               
         chain_Emcee3=np.load(self.RESULT_FOLDER+'chain'+str(self.date)+'_Single_'+str(self.method)+'_'+str(self.obs)+str(self.single_number)+str(self.eps)+str(self.arc)+'Swarm1.npy')
         likechain_Emcee3=np.load(self.RESULT_FOLDER+'likechain'+str(self.date)+'_Single_'+str(self.method)+'_'+str(self.obs)+str(self.single_number)+str(self.eps)+str(self.arc)+'Swarm1.npy')
@@ -398,6 +655,54 @@ class Zernike_Analysis(object):
         
         return chain0_Emcee3,likechain0_Emcee3        
 
+    def create_allparameters_single(self,mm,array_of_polyfit_1_parameterizations,zmax=None):
+        """
+        
+        copied from multi
+        
+        transfroms linear fits as a function of defocus of parametrizations into form acceptable for creating single images 
+        workhorse function used by create_list_of_allparameters
+        
+        @param mm [float]                               defocus of the slit
+        @param array_of_polyfit_1_parameterizations     parametrs describing linear fit for the parameters as a function of focus
+        @param zmax                                     largerst Zernike used
+        
+        """
+        
+        if zmax==None:
+            zmax=11
+        
+        #for single case, up to z11
+        if zmax==11:
+            z_parametrizations=array_of_polyfit_1_parameterizations[:8]
+            g_parametrizations=array_of_polyfit_1_parameterizations[8:]
+            
+            
+            allparameters_proposal_single=np.zeros((8+len(g_parametrizations)))
+            
+            for i in range(0,8,1):
+                allparameters_proposal_single[i]=self.value_at_defocus(mm,z_parametrizations[i][0],z_parametrizations[i][1])      
+        
+            for i in range(len(g_parametrizations)):
+                allparameters_proposal_single[i+8]=g_parametrizations[i][1] 
+                
+        if zmax==22:
+            z_parametrizations=array_of_polyfit_1_parameterizations[:19]
+            g_parametrizations=array_of_polyfit_1_parameterizations[19:]
+            
+            
+            allparameters_proposal_single=np.zeros((19+len(g_parametrizations)))
+            for i in range(0,19,1):
+                #print(str([i,mm,z_parametrizations[i]]))
+                allparameters_proposal_single[i]=self.value_at_defocus(mm,z_parametrizations[i][0],z_parametrizations[i][1])      
+        
+            for i in range(len(g_parametrizations)):
+                allparameters_proposal_single[19+i]=g_parametrizations[i][1] 
+            
+        return allparameters_proposal_single           
+        
+        
+        
     
     def entrance_exit_pupil_plot(self):
         
@@ -494,6 +799,57 @@ class Zernike_Analysis(object):
         plt.title('Laplacian')
         plt.imshow(laplace_of_wf,cmap=plt.get_cmap('hot'), vmin = -1,vmax = 1) 
         plt.colorbar()
+
+    def create_basic_data_image(self):     
+        
+        sci_image=self.sci_image
+        var_image=self.var_image
+        mask_image=self.mask_image
+        
+        
+        plt.figure(figsize=(30,8))
+        plt.subplot(131)
+        plt.imshow(sci_image,norm=LogNorm(),origin='lower',vmin=1,vmax=np.max(sci_image))
+        cbar=plt.colorbar(fraction=0.046, pad=0.04)
+        cbar.set_ticks([10,10**2,10**3,10**4,10**5])
+        
+        plt.subplot(132)
+        plt.imshow(var_image,norm=LogNorm(),origin='lower',vmin=1,vmax=np.max(sci_image))
+        cbar=plt.colorbar(fraction=0.046, pad=0.04)
+        cbar.set_ticks([10,10**2,10**3,10**4,10**5])
+        
+        plt.subplot(133)
+        plt.imshow(sci_image,norm=LogNorm(),origin='lower',vmin=1,vmax=np.max(sci_image))
+        cbar=plt.colorbar(fraction=0.046, pad=0.04)
+        plt.imshow(mask_image,origin='lower',vmin=0,vmax=np.max(mask_image),alpha=0.2)
+        cbar.set_ticks([10,10**2,10**3,10**4,10**5])
+
+
+    def create_fitting_evolution_plot(self):     
+        
+        minchain,like_min=self.create_likelihood()
+        len_of_chains=self.len_of_chains()
+        chain0_Emcee3,likechain0_Emcee3=self.create_chains()
+        
+        
+        size=chain0_Emcee3.shape[1]
+        matplotlib.rcParams.update({'font.size': 18})
+        plt.figure(figsize=(18,10))
+        plt.subplot(211)
+        plt.plot(np.linspace(1,len(like_min),len(like_min)),like_min,'blue',ls='-',marker='o')
+        plt.ylabel('likelihood')
+        plt.xlabel('steps')
+        plt.axvline(np.sum(len_of_chains[:1])+0.5,ls='--')
+        plt.axvline(np.sum(len_of_chains[:2])+0.5,ls='--')
+        plt.axvline(np.sum(len_of_chains[:3])+0.5,ls='--')
+        plt.subplot(212)
+        plt.plot(np.linspace(1,len(like_min),len(like_min)),np.log10(like_min),'blue',ls='-',marker='o')
+        plt.ylabel('log10(likelihood)')
+        plt.xlabel('steps')
+        plt.axvline(np.sum(len_of_chains[:1])+0.5,ls='--')
+        plt.axvline(np.sum(len_of_chains[:2])+0.5,ls='--')
+        plt.axvline(np.sum(len_of_chains[:3])+0.5,ls='--')
+
     
     def create_basic_comparison_plot(self,custom_image=None,custom_mask=None,use_max_chi_scaling=False): 
         
@@ -758,6 +1114,7 @@ class Zernike_Analysis(object):
         plt.legend(fontsize=15)    
 
     def create_corner_plots(self):
+        # this probably goes into result_analysis
         IMAGES_FOLDER='/Users/nevencaplar/Documents/PFS/Images/'+self.date+'/'
         if not os.path.exists(IMAGES_FOLDER):
             os.makedirs(IMAGES_FOLDER)
