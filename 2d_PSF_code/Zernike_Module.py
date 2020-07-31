@@ -60,6 +60,10 @@ Jul 02, 2020: 0.30 -> 0.30a lnlike_Neven_multi_same_spot can accept both 1d and 
 Jul 07, 2020: 0.30a -> 0.30b added threading time information
 Jul 09, 2020: 0.30b -> 0.30c expwf_grid changed to complex64 from complex128
 Jul 09, 2020: 0.30c -> 0.30d changed all float64 to float32
+Jul 16, 2020: 0.30d -> 0.31 moved all fft to scipy.signal.fftconvolve
+Jul 20, 2020: 0.31 -> 0.32 introduced renormalization_of_var_sum for multi_var analysis
+Jul 26, 2020: 0.32 -> 0.32a only changed last value of allparameters if len()==42
+
 
 @author: Neven Caplar
 @contact: ncaplar@princeton.edu
@@ -70,7 +74,7 @@ Jul 09, 2020: 0.30c -> 0.30d changed all float64 to float32
 from __future__ import absolute_import, division, print_function
 import os
 import time
-import sys
+#import sys
 import math
 import socket
 os.environ["MKL_NUM_THREADS"] = "1" 
@@ -107,8 +111,9 @@ from astropy.convolution import Gaussian2DKernel
 
 # scipy and skimage
 import scipy.misc
+import scipy.fftpack
 import skimage.transform
-import scipy.optimize as optimize
+#import scipy.optimize as optimize
 from scipy.ndimage.filters import gaussian_filter
 
 #lmfit
@@ -130,9 +135,9 @@ __all__ = ['PupilFactory', 'Pupil','ZernikeFitter_PFS','LN_PFS_multi_same_spot',
            'find_centroid_of_flux','create_parInit',\
            'Zernike_Analysis','PFSPupilFactory','custom_fftconvolve','stepK','maxK',\
            'sky_scale','sky_size','remove_pupil_parameters_from_all_parameters',\
-           'resize','_interval_overlap']
+           'resize','_interval_overlap','svd_invert']
 
-__version__ = "0.30d"
+__version__ = "0.32"
 
 
 
@@ -1157,7 +1162,7 @@ class ZernikeFitter_PFS(object):
         if self.verbosity==1:
             print('optPsf.shape: '+str(optPsf.shape))
             print('oversampling_original: ' +str(oversampling_original))
-            print('type(optPsf) '+str(type(optPsf[0][0])))
+            #print('type(optPsf) '+str(type(optPsf[0][0])))
 
         
         # determine the size, so that from the huge generated image we can cut out only the central portion (1.4 times larger than the size of actual image)
@@ -1187,7 +1192,7 @@ class ZernikeFitter_PFS(object):
         if self.verbosity==1:
             print('optPsf_cut.shape[0]'+str(optPsf_cut.shape[0]))
             print('size_of_optPsf_cut_downsampled: '+str(size_of_optPsf_cut_downsampled))
-            print('type(optPsf_cut) '+str(type(optPsf_cut[0][0])))
+            #print('type(optPsf_cut) '+str(type(optPsf_cut[0][0])))
                     
         # make sure that optPsf_cut_downsampled is an array which has an odd size - increase size by 1 if needed
         if (size_of_optPsf_cut_downsampled % 2) == 0:
@@ -1197,7 +1202,7 @@ class ZernikeFitter_PFS(object):
         
         if self.verbosity==1:        
             print('optPsf_cut_downsampled.shape: '+str(optPsf_cut_downsampled.shape))
-            print('type(optPsf_cut_downsampled) '+str(type(optPsf_cut_downsampled[0][0])))
+            #print('type(optPsf_cut_downsampled) '+str(type(optPsf_cut_downsampled[0][0])))
         
         # gives middle point of the image to used for calculations of scattered light 
         mid_point_of_optPsf_cut_downsampled=int(optPsf_cut_downsampled.shape[0]/2)
@@ -1235,13 +1240,14 @@ class ZernikeFitter_PFS(object):
         xs, ys = np.meshgrid(pointsx, pointsy)
         r0 = np.sqrt((xs-0)** 2 + (ys-0)** 2)+.01
 
+
         if self.verbosity==1:
             print('postprocessing parameters:')
             print(str(['grating_lines','scattering_slope','scattering_amplitude','pixel_effect','fiber_r']))
             print(str([v['grating_lines'],v['scattering_slope'],v['scattering_amplitude'],v['pixel_effect'],v['fiber_r']]))
             print('type(pointsx): '+str(type(pointsx[0])))
 
-        # creating scattere light code
+        # creating scattered light code
         scattered_light_kernel=(r0**(-v['scattering_slope']))
         
         # the line below from previous code where I terminated scattering radius dependece below certain radius which could have change (changed on Oct 04, 2018)
@@ -1253,14 +1259,17 @@ class ZernikeFitter_PFS(object):
         scattered_light_kernel=scattered_light_kernel*(v['scattering_amplitude'])/(10*np.max(scattered_light_kernel))
         
         # convolve the psf with the scattered light kernel to create scattered light component
-        scattered_light=custom_fftconvolve(optPsf_cut_downsampled,scattered_light_kernel)
-
+        #scattered_light=custom_fftconvolve(optPsf_cut_downsampled,scattered_light_kernel)
+        scattered_light=scipy.signal.fftconvolve(optPsf_cut_downsampled, scattered_light_kernel, mode='same')
+        
+        
+        #print('type(scattered_light[0][0])'+str(type(scattered_light[0][0])))
         # add back the scattering to the image
         optPsf_cut_downsampled_scattered=optPsf_cut_downsampled+scattered_light        
         
         if self.verbosity==1:
             print('optPsf_cut_downsampled_scattered.shape:' +str(optPsf_cut_downsampled_scattered.shape))
-            print('type(optPsf_cut_downsampled_scattered[0][0])'+str(type(optPsf_cut_downsampled_scattered[0][0])))
+            #print('type(optPsf_cut_downsampled_scattered[0][0])'+str(type(optPsf_cut_downsampled_scattered[0][0])))
         #########        #########        #########        #########        #########         #########        #########        #########        #########        #########
         # 2. convolution with fiber
 
@@ -1275,16 +1284,13 @@ class ZernikeFitter_PFS(object):
         fiber_padded[int(mid_point_of_optPsf_cut_downsampled-fiber_array_size/2)+1:int(mid_point_of_optPsf_cut_downsampled+fiber_array_size/2)+1,\
                      int(mid_point_of_optPsf_cut_downsampled-fiber_array_size/2)+1:int(mid_point_of_optPsf_cut_downsampled+fiber_array_size/2)+1]=fiber
 
-        if self.verbosity==1:
-            print('type(fiber[0][0])'+str(type(fiber[0][0])))
-            print('type(fiber_padded[0][0])'+str(type(fiber_padded[0][0])))
-                     
                      
         # legacy code for is the line below, followed by the currently used code
         #optPsf_fiber_convolved=scipy.signal.fftconvolve(optPsf_downsampled_scattered, fiber, mode = 'same') 
         
         # convolve with fiber 
-        optPsf_cut_fiber_convolved=custom_fftconvolve(optPsf_cut_downsampled_scattered,fiber_padded)
+        #optPsf_cut_fiber_convolved=custom_fftconvolve(optPsf_cut_downsampled_scattered,fiber_padded)
+        optPsf_cut_fiber_convolved=scipy.signal.fftconvolve(optPsf_cut_downsampled_scattered, fiber_padded, mode='same')
          
         #########        #########        #########        #########        #########         #########        #########        #########        #########        #########
         # 3. CCD difusion
@@ -1294,11 +1300,10 @@ class ZernikeFitter_PFS(object):
         # sigma is around 7 microns (Jim Gunn - private communication). This is controled in our code by @param 'pixel_effect'
         pixel_gauss=Gaussian2DKernel(oversampling*v['pixel_effect']*self.dithering).array.astype(np.float32)
         pixel_gauss_padded=np.pad(pixel_gauss,int((len(optPsf_cut_fiber_convolved)-len(pixel_gauss))/2),'constant',constant_values=0)
-        optPsf_cut_pixel_response_convolved=custom_fftconvolve(optPsf_cut_fiber_convolved, pixel_gauss_padded)
+        #optPsf_cut_pixel_response_convolved=custom_fftconvolve(optPsf_cut_fiber_convolved, pixel_gauss_padded)
+        optPsf_cut_pixel_response_convolved=scipy.signal.fftconvolve(optPsf_cut_fiber_convolved, pixel_gauss_padded, mode='same')
 
-        if self.verbosity==1:
 
-            print('type(optPsf_cut_pixel_response_convolved[0][0])'+str(type(optPsf_cut_pixel_response_convolved[0][0])))
 
       
         #########        #########        #########        #########        #########         #########        #########        #########        #########        #########        
@@ -1316,9 +1321,6 @@ class ZernikeFitter_PFS(object):
         # This is 1D convolution so it would need a bit of work, and I see that behavior is fine
         optPsf_cut_grating_convolved=scipy.signal.fftconvolve(optPsf_cut_pixel_response_convolved, grating_kernel, mode='same')
  
-        if self.verbosity==1:
-
-            print('type(optPsf_cut_grating_convolved[0][0])'+str(type(optPsf_cut_grating_convolved[0][0])))
 
        
         #########        #########        #########        #########        #########         #########        #########        #########        #########        #########   
@@ -1372,7 +1374,7 @@ class ZernikeFitter_PFS(object):
         time_end_single=time.time()
         if self.verbosity==1:
             print('Time for single_Psf_position protocol is '+str(time_end_single-time_start_single))
-            print('type(optPsf_cut_fiber_convolved_downsampled[0][0])'+str(type(optPsf_cut_fiber_convolved_downsampled[0][0])))
+            #print('type(optPsf_cut_fiber_convolved_downsampled[0][0])'+str(type(optPsf_cut_fiber_convolved_downsampled[0][0])))
    
         if self.verbosity==1:
             print('Sucesfully created optPsf_cut_fiber_convolved_downsampled') 
@@ -2062,22 +2064,24 @@ class LN_PFS_multi_same_spot(object):
         return list_of_defocuses_float
             
     
-    def create_resonable_allparameters_parametrizations(self,array_of_allparameters,list_of_defocuses_input,list_of_defocuses_output,zmax):
+    def create_resonable_allparameters_parametrizations(self,array_of_allparameters,list_of_defocuses_input,zmax,remove_last_n=None):
         """
-        given parameters for single defocus images and their defocuses, create parameterizations for multi-image fit across various defocuses
+        given parameters for single defocus images and their defocuses, create parameterizations (1d functions) for multi-image fit across various defocuses
         inverse of function `create_list_of_allparameters`
         
-        @param array_of_allparameters                        array with parameters of defocus
+        @param array_of_allparameters                        array with parameters of defocus, 2d array with shape [n(list_of_defocuses),number of parameters]
         @param list_of_defocuses_input                       list of strings at which defocuses are the data from array_of_allparameters
-        @param list_of_defocuses_output                      list of strings at which defocuses the results will be returned
         @param zmax                                          largest Zernike order considered (has to be same for input and output) 
+        @param remove_last_n                                 do not do the fit for the last 'n' parameters, default=2
         """           
         
+        if remove_last_n is None:
+            remove_last_n=2
         
         list_of_defocuses_int=self.transform_list_of_defocuses_from_str_to_float(list_of_defocuses_input)
         
         list_of_polyfit_1_parameter=[]
-        for i in range(array_of_allparameters.shape[1]-2):
+        for i in range(array_of_allparameters.shape[1]-remove_last_n):
             polyfit_1_parameter=np.polyfit(x=list_of_defocuses_int,y=array_of_allparameters[:,i],deg=1)
             list_of_polyfit_1_parameter.append(polyfit_1_parameter)
             
@@ -2094,7 +2098,15 @@ class LN_PFS_multi_same_spot(object):
 
     def lnlike_Neven_multi_same_spot(self,list_of_allparameters_input,return_Images=False):
         
+
+        
         list_of_single_res=[]
+        if return_Images==True:
+            list_of_single_model_image=[]
+            list_of_single_allparameters=[]
+            list_of_single_chi_results=[]
+            
+
         
         if len(self.list_of_sci_images)==len(list_of_allparameters_input):
             list_of_allparameters=np.copy(list_of_allparameters_input)
@@ -2102,12 +2114,34 @@ class LN_PFS_multi_same_spot(object):
             allparametrization=list_of_allparameters_input
             list_of_allparameters=self.create_list_of_allparameters(allparametrization,list_of_defocuses=self.list_of_defocuses)
 
-        if self.verbosity==1:
-            print('Starting LN_PFS_multi_same_spot for parameters-hash '+str(hash(str(allparametrization.data)))+' at '+str(time.time())+' in thread '+str(threading.get_ident())) 
+            if self.verbosity==1:
+                print('Starting LN_PFS_multi_same_spot for parameters-hash '+str(hash(str(allparametrization.data)))+' at '+str(time.time())+' in thread '+str(threading.get_ident())) 
         
         
 
         assert len(self.list_of_sci_images)==len(list_of_allparameters)
+        
+        list_of_var_sums=[]
+        for i in range(len(list_of_allparameters)):
+            # taking from create_chi_2_almost function in LN_PFS_single
+            
+            
+            mask_image=self.list_of_mask_images[i]
+            var_image=self.list_of_var_images[i]
+            # array that has True for values which are good and False for bad values
+            inverted_mask=~mask_image.astype(bool)
+            
+            #         
+            var_image_masked=var_image*inverted_mask
+            var_image_masked_without_nan = var_image_masked.ravel()[var_image_masked.ravel()>0]
+            
+            var_sum=-(1/2)*(np.sum(np.log(2*np.pi*var_image_masked_without_nan)))
+            
+            list_of_var_sums.append(var_sum)
+        
+        array_of_var_sum=np.array(list_of_var_sums)
+        max_of_array_of_var_sum=np.max(array_of_var_sum)
+        renormalization_of_var_sum=array_of_var_sum/max_of_array_of_var_sum
         
         for i in range(len(list_of_allparameters)):
             
@@ -2117,7 +2151,7 @@ class LN_PFS_multi_same_spot(object):
                 print(' ')           
 
             
-            # if the first image, do the full analysis, generate new pupil and illumination
+            # if this is the first image, do the full analysis, generate new pupil and illumination
             if i==0:
                 model_single=LN_PFS_single(self.list_of_sci_images[i],self.list_of_var_images[i],self.list_of_mask_images[i],dithering=self.dithering,save=self.save,verbosity=self.verbosity,
                 pupil_parameters=self.pupil_parameters,use_pupil_parameters=self.use_pupil_parameters,use_optPSF=self.use_optPSF,
@@ -2128,30 +2162,83 @@ class LN_PFS_multi_same_spot(object):
                 if res_single_with_intermediate_images==-np.inf:
                     return -np.inf
                 likelihood_result=res_single_with_intermediate_images[0]
+                model_image=res_single_with_intermediate_images[1]
+                allparameters=res_single_with_intermediate_images[2]                        
                 pupil_explicit_0=res_single_with_intermediate_images[3]
-                list_of_single_res.append(likelihood_result)
-            else:
+                wf_grid_rot=res_single_with_intermediate_images[4]
+                chi_results=res_single_with_intermediate_images[5]  
                 
+                
+                list_of_single_res.append(likelihood_result)
+                if return_Images==True:
+                    list_of_single_model_image.append(model_image)
+                    list_of_single_allparameters.append(allparameters)
+                    list_of_single_chi_results.append(chi_results)
+                
+                
+            # and if this is not the first image, use the pupil and illumination used in the first image
+            else:               
                 
                 model_single=LN_PFS_single(self.list_of_sci_images[i],self.list_of_var_images[i],self.list_of_mask_images[i],dithering=self.dithering,save=self.save,verbosity=self.verbosity,
                 pupil_parameters=self.pupil_parameters,use_pupil_parameters=self.use_pupil_parameters,use_optPSF=self.use_optPSF,
                 zmax=self.zmax,extraZernike=self.extraZernike,pupilExplicit=pupil_explicit_0,simulation_00=self.simulation_00,
                 double_sources=self.double_sources,double_sources_positions_ratios=self.double_sources_positions_ratios,npix=self.npix,fit_for_flux=self.fit_for_flux)
-                
-                res_single_without_intermediate_images=model_single(list_of_allparameters[i],return_Image=False)
-                list_of_single_res.append(res_single_without_intermediate_images)
+                if return_Images==False:
+                    res_single_without_intermediate_images=model_single(list_of_allparameters[i],return_Image=return_Images)
+                    likelihood_result=res_single_without_intermediate_images
+                    #print(likelihood_result)
+                    list_of_single_res.append(likelihood_result)
+
+                if return_Images==True:
+                    res_single_with_an_image=model_single(list_of_allparameters[i],return_Image=return_Images)
+                    if res_single_with_an_image==-np.inf:
+                        return -np.inf
+                    likelihood_result=res_single_with_an_image[0]
+                    model_image=res_single_with_an_image[1]
+                    allparameters=res_single_with_an_image[2]
+                    chi_results=res_single_with_an_image[3]
+                    
+                    list_of_single_res.append(likelihood_result)
+                    list_of_single_model_image.append(model_image)
+                    list_of_single_allparameters.append(allparameters)
+                    list_of_single_chi_results.append(chi_results)                    
+                    
+                    # possibly implement intermediate images here
+
+
 
         
         array_of_single_res=np.array(list_of_single_res)
-        if self.verbosity==1:
-            print('chi2 returned per individual image are: '+str(array_of_single_res))
-            
-        if self.verbosity==1:
-            print('Ending LN_PFS_multi_same_spot for parameters-hash '+str(hash(str(allparametrization.data)))+' at '+str(time.time())+' in thread '+str(threading.get_ident()))   
-            
-        mean_res_of_multi_same_spot=np.mean(array_of_single_res)
         
-        return mean_res_of_multi_same_spot
+        # renormalization
+        
+        if self.verbosity==1:
+            print('################################')
+            print('Likelihoods returned per individual images are: '+str(array_of_single_res))
+            print('Mean likelihood is '+str(np.mean(array_of_single_res)))
+            
+
+  
+        #mean_res_of_multi_same_spot=np.mean(array_of_single_res)
+        mean_res_of_multi_same_spot=np.mean(array_of_single_res/renormalization_of_var_sum)
+
+        
+        if self.verbosity==1:
+            print('################################')
+            print('Renormalized likelihoods returned per individual images are: '+str(array_of_single_res/renormalization_of_var_sum))
+            print('Renormalization factors are: ' + str(renormalization_of_var_sum))
+            print('Mean renormalized likelihood is '+str(mean_res_of_multi_same_spot))
+        
+        if self.verbosity==1:
+            #print('Ending LN_PFS_multi_same_spot for parameters-hash '+str(hash(str(allparametrization.data)))+' at '+str(time.time())+' in thread '+str(threading.get_ident()))   
+            print('Ending LN_PFS_multi_same_spot at time '+str(time.time())+' in thread '+str(threading.get_ident()))   
+            print(' ')        
+        
+        if return_Images==False:
+            return mean_res_of_multi_same_spot
+        if return_Images==True:
+            return mean_res_of_multi_same_spot,list_of_single_res,list_of_single_model_image,\
+                list_of_single_allparameters,list_of_single_chi_results
         
             
 
@@ -2249,7 +2336,7 @@ class LN_PFS_single(object):
         # this will create images which will have different pupil size for different sizes of science image
         # and this will influence the results
         if npix is None:
-            if dithering is None or dithering is 1:
+            if dithering is None or dithering==1:
                 npix=int(math.ceil(int(1024*sci_image.shape[0]/(20*4)))*2)
             else:
                 npix=int(math.ceil(int(1024*sci_image.shape[0]/(20*4*self.dithering)))*2)
@@ -2303,19 +2390,33 @@ class LN_PFS_single(object):
         
 
         """ 
+        # array that has True for values which are good and False for bad values
         inverted_mask=~mask_image.astype(bool)
         
+        #         
         var_image_masked=var_image*inverted_mask
         sci_image_masked=sci_image*inverted_mask
         modelImg_masked=modelImg*inverted_mask
         
-        sigma = np.sqrt(var_image_masked)
-        chi = (sci_image_masked - modelImg_masked)/sigma
-        chi2_intrinsic=np.sum(sci_image_masked**2/var_image_masked)
+        # sigma values
+        sigma_masked = np.sqrt(var_image_masked)
         
-        chi_without_nan=[]
+        # chi array
+        chi = (sci_image_masked - modelImg_masked)/sigma_masked
+        # chi intrinsic, i.e., without subtracting model
+        chi_intrinsic=(sci_image_masked/sigma_masked)
+        
+        
+        #chi2_intrinsic=np.sum(sci_image_masked**2/var_image_masked)
+        
+        # ravel and remove bad values
         chi_without_nan = chi.ravel()[~np.isnan(chi.ravel())]
-        res=(chi_without_nan)**2
+        chi_intrinsic_without_nan=chi_intrinsic.ravel()[~np.isnan(chi_intrinsic.ravel())]
+        
+        # square it
+        chi2_res=(chi_without_nan)**2
+        chi2_intrinsic_res=(chi_intrinsic_without_nan)**2
+
         
         # calculates 'Q' values
         Qlist=np.abs((sci_image_masked - modelImg_masked))
@@ -2323,7 +2424,8 @@ class LN_PFS_single(object):
         sci_image_without_nan=sci_image_masked.ravel()[~np.isnan(sci_image_masked.ravel())]
         Qvalue = np.sum(Qlist_without_nan)/np.sum(sci_image_without_nan)
         
-        return [np.sum(res),chi2_intrinsic,Qvalue]
+        # return the result
+        return [np.sum(chi2_res),np.sum(chi2_intrinsic_res),Qvalue,np.mean(chi2_res),np.mean(chi2_intrinsic_res)]
     
     def lnlike_Neven(self,allparameters,return_Image=False,return_intermediate_images=False):
         """
@@ -2357,7 +2459,6 @@ class LN_PFS_single(object):
         if self.verbosity==1:
             test_print=1
         #When running big fits these are limits which ensure that the code does not wander off in totally non physical region
-
         # hsc frac
         if globalparameters[0]<=0.6 or globalparameters[0]>0.8:
             print('globalparameters[0] outside limits') if test_print == 1 else False 
@@ -2525,7 +2626,7 @@ class LN_PFS_single(object):
             print('globalparameters[20] outside limits') if test_print == 1 else False 
             return -np.inf  
         
-         # fiber_r
+        # fiber_r
         if globalparameters[21]<1.78:
             print('globalparameters[21] outside limits') if test_print == 1 else False 
             return -np.inf
@@ -2583,7 +2684,12 @@ class LN_PFS_single(object):
             
             flux_fitting_result = scipy.optimize.shgo(find_flux_fit,bounds=[(0.98,1.02)])
             flux=flux_fitting_result.x[0]
-            allparameters[-1]=flux
+            if len(allparameters)==42:
+                allparameters[-1]=flux
+            if len(allparameters)==41:
+                allparameters=np.concatenate((allparameters,np.array([flux])))
+            else:
+                pass
             modelImg=modelImg*flux
             if self.verbosity==1:
                 print('Internally fitting for flux; multiplying all values in the model by '+str(flux))
@@ -2595,9 +2701,12 @@ class LN_PFS_single(object):
 
         
         
+        # returns 0. chi2 value, 1. chi2_max value, 2. Qvalue, 3. chi2/d.o.f., 4. chi2_max/d.o.f.  
         chi_2_almost_multi_values=self.create_chi_2_almost(modelImg,self.sci_image,self.var_image,self.mask_image)
         chi_2_almost=chi_2_almost_multi_values[0]
-        
+        chi_2_almost_max=chi_2_almost_multi_values[1]
+        chi_2_almost_dof=chi_2_almost_multi_values[3]
+        chi_2_almost_max_dof=chi_2_almost_multi_values[4]
         # old, wrongly defined, result
         #res=-(1/2)*(chi_2_almost+np.log(2*np.pi*np.sum(self.var_image)))
         
@@ -2608,6 +2717,7 @@ class LN_PFS_single(object):
         time_lnlike_end=time.time()  
         if self.verbosity==True:
             print('Finished with lnlike_Neven')
+            print('chi_2_almost/d.o.f is '+str(chi_2_almost_dof)+'; chi_2_almost_max is '+str(chi_2_almost_max)+' log(improvment) is '+str(np.log10(chi_2_almost_dof/chi_2_almost_max)))
             print('multiprocessing.current_process() '+str(current_process())+' thread '+str(threading.get_ident()))
             print(str(platform.uname()))
             print('Time for lnlike_Neven function in thread '+str(threading.get_ident())+' is: '+str(time_lnlike_end-time_lnlike_start) +str(' seconds'))    
@@ -2617,10 +2727,11 @@ class LN_PFS_single(object):
         if return_Image==False:
             return res
         else:
+            # if return_Image==True return: 0. likelihood, 1. model image, 2. parameters, 3. [0. chi**2, 1. chi**2_max, 2. chi**2/dof, 3. chi**2_max/dof]
             if return_intermediate_images==False:
-                return res,modelImg,allparameters
+                return res,modelImg,allparameters,[chi_2_almost,chi_2_almost_max,chi_2_almost_dof,chi_2_almost_max_dof]
             if return_intermediate_images==True:
-                return res,modelImg,allparameters,ilum,wf_grid_rot
+                return res,modelImg,allparameters,ilum,wf_grid_rot,[chi_2_almost,chi_2_almost_max,chi_2_almost_dof,chi_2_almost_max_dof]
             
    
             
@@ -3342,7 +3453,7 @@ class Psf_position(object):
         self.v_flux=v_flux
         
         # if you are just asking for simulated image at (0,0) there is no possibility to create double sources
-        if simulation_00 is 1:
+        if simulation_00==1:
             double_souces=None
             
         if double_sources is None or double_sources is False:
@@ -3361,7 +3472,7 @@ class Psf_position(object):
         # double_sources is always None when using simulated images
         if double_sources==None or double_sources is False:
             # if simulation_00 is on just run the realization set at 0
-            if simulation_00 is 1:
+            if simulation_00==1:
                 if verbosity==1:
                     print('simulation_00 is set to 1 - I am just returing the image at (0,0) coordinates ')                
       
@@ -3406,7 +3517,7 @@ class Psf_position(object):
                 np.save(TESTING_FINAL_IMAGES_FOLDER+'complete_realization_renormalized',complete_realization_renormalized)     
     
             if self.verbosity==1:
-                if simulation_00 is not 1:
+                if simulation_00!=1:
                     print('We are fitting for only one source')
                     print('One source fitting result is '+str(primary_position_and_ratio.x))   
                     print('type(complete_realization_renormalized)'+str(type(complete_realization_renormalized[0][0])))
@@ -3688,8 +3799,13 @@ class Psf_position(object):
       pos = np.clip(pos, a_min=0, a_max=img_shape)
       end = np.clip(end, a_min=0, a_max=img_shape)
       img_slices = (slice(low, high) for low, high in zip(pos, end))
-      crop[tuple(crop_slices)] = img[tuple(img_slices)]    
-      
+      try:
+          crop[tuple(crop_slices)] = img[tuple(img_slices)]    
+      except TypeError:
+          np.save('/home/ncaplar/img',img)
+          np.save('/home/ncaplar/pos',pos)          
+          np.save('/home/ncaplar/crop',crop)
+          
     def bilinear_interpolation(self, y,x,img_floor_floor,img_floor_ceiling,img_ceiling_floor,img_ceiling_ceiling):     
         # have to check if floor and ceiling definition are ok 
         # https://en.wikipedia.org/wiki/Bilinear_interpolation
@@ -3814,13 +3930,13 @@ def find_centroid_of_flux(image):
     y_center=[]
 
     I_x=[]
-    for i in range(len(image)):
+    for i in range(image.shape[1]):
         I_x.append([i,np.sum(image[:,i])])
 
     I_x=np.array(I_x)
 
     I_y=[]
-    for i in range(len(image)):
+    for i in range(image.shape[0]):
         I_y.append([i,np.sum(image[i])])
 
     I_y=np.array(I_y)
@@ -3937,7 +4053,7 @@ def create_parInit(allparameters_proposal,multi=None,pupil_parameters=None,allpa
                 if deduced_scattering_slope is not None:
                     allparameters_proposal_err[26+11]=0
             else:
-                allparameters_proposal_err=stronger*np.array([2,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,
+                allparameters_proposal_err=stronger*np.array([0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,
                                                      0.15,0.15,0.15,0.15,0.15,0.15,0.15,0.15,0.15,0.15,0.15,0.15,0.15,0.15,0.15,0.15,0.15,0.15,0.15,0.15,0.15,0.15,
                                                      0.08,0.03,0.1,0.1,0.016,0.05,
                                                      0.3,1,0.1,0.1,
@@ -4361,7 +4477,7 @@ def _interval_overlap(first_breaks: np.ndarray,
 
   return np.maximum(upper - lower, 0)
 
-@lru_cache()
+#@lru_cache()
 def _resize_weights(
     old_size: int, new_size: int, reflect: bool = False) -> np.ndarray:
   """Create a weight matrix for resizing with the local mean along an axis.
@@ -4424,36 +4540,3 @@ def resize(array: np.ndarray,
     product = np.tensordot(output, weights, [[axis], [-1]])
     output = np.moveaxis(product, -1, axis)
   return output
-
-def svd_invert(matrix,threshold):
-    '''
-    :param matrix:
-    :param threshold:
-    :return:SCD-inverted matrix
-    '''
-    # print 'MATRIX:',matrix
-    u,ws,v = svd(matrix,full_matrices=True)
-
-    #invw = inv(np.identity(len(ws))*ws)
-    #return ws
-
-    ww = np.max(ws)
-    n = len(ws)
-    invw = np.identity(n)
-    ncount = 0
-
-    for i in range(n):
-        if ws[i] < ww*threshold:
-            # log.info('SVD_INVERT: Value %i=%.2e rejected (threshold=%.2e).'%(i,ws[i],ww*threshold))
-            invw[i][i]= 0.
-            ncount+=1
-        else:
-            # print 'WS[%4i] %15.9f'%(i,ws[i])
-            invw[i][i] = 1./ws[i]
-
-    # log.info('%i singular values rejected in inversion'%ncount)
-
-    inv_matrix = np.dot(u , np.dot( invw, v))
-
-    return inv_matrix
-
