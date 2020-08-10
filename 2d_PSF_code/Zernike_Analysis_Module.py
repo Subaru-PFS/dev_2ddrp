@@ -11,6 +11,7 @@ Apr 29, 2020: 0.24 -> 0.24a added check for image for both side of defocus in cr
 Jun 17, 2020: 0.24a -> 0.24b cleaned the STAMPS_FOLDER specification
 Jun 25, 2020: 0.24b -> 0.25 improved create_res_data
 Jul 03, 2020: 0.25 -> 0.26 included multi analysis
+Jul 15, 2020: 0.26 -> 0.26a modified to include PSF_DIRECTORY
 
 @author: Neven Caplar
 @contact: ncaplar@princeton.edu
@@ -79,11 +80,17 @@ from typing import Tuple, Iterable
 
 __all__ = ['Zernike_Analysis','Zernike_result_analysis','create_mask','resize']
 
-__version__ = "0.26"
+__version__ = "0.26a"
 
 ############################################################
 # name your directory where you want to have files!
-PSF_DIRECTORY='/Users/nevencaplar/Documents/PFS/'
+if socket.gethostname()=='IapetusUSA':
+    PSF_DIRECTORY='/Users/nevencaplar/Documents/PFS/'
+else:
+    PSF_DIRECTORY='/tigress/ncaplar/'
+
+  
+
 ############################################################   
 
 TESTING_FOLDER=PSF_DIRECTORY+'Testing/'
@@ -136,15 +143,15 @@ class Zernike_Analysis(object):
         #############
         # where are poststamps of spots located
         if dataset==0:
-            STAMPS_FOLDER="/Users/nevencaplar/Documents/PFS/Data_Nov_14/Stamps_cleaned/"  
+            STAMPS_FOLDER=PSF_DIRECTORY+"Data_Nov_14/Stamps_cleaned/"  
         if dataset==1:
-            STAMPS_FOLDER="/Users/nevencaplar/Documents/PFS/ReducedData/Data_Feb_5/Stamps_cleaned/"    
+            STAMPS_FOLDER=PSF_DIRECTORY+"ReducedData/Data_Feb_5/Stamps_cleaned/"    
         if dataset==2:
-            STAMPS_FOLDER="/Users/nevencaplar/Documents/PFS/ReducedData/Data_May_28/Stamps_cleaned/"
+            STAMPS_FOLDER=PSF_DIRECTORY+"ReducedData/Data_May_28/Stamps_cleaned/"
         if dataset==3:
-            STAMPS_FOLDER="/Users/nevencaplar/Documents/PFS/ReducedData/Data_Jun_25/Stamps_cleaned/"
+            STAMPS_FOLDER=PSF_DIRECTORY+"ReducedData/Data_Jun_25/Stamps_cleaned/"
         if dataset==4 or dataset==5:
-            STAMPS_FOLDER="/Users/nevencaplar/Documents/PFS/ReducedData/Data_Aug_14/Stamps_cleaned/"    
+            STAMPS_FOLDER=PSF_DIRECTORY+"ReducedData/Data_Aug_14/Stamps_cleaned/"    
 
         
         # which observation numbers associated with each dataset
@@ -156,7 +163,7 @@ class Zernike_Analysis(object):
                     single_number_focus=8693  
 
         if dataset==1:  
-            # F/3.2 stop 
+            # F/3.4 stop 
             if arc is not None:         
                 if arc=="HgAr":
                     single_number_focus=11748
@@ -171,15 +178,15 @@ class Zernike_Analysis(object):
             if arc is not None:         
                 if arc=="HgAr":
                     single_number_focus=17017+54
-                    obs_possibilites=np.array([17023,17023+6,17023+12,17023+18,17023+24,17023+30,17023+36,17023+42,17023+48,17023+48,\
+                    obs_possibilites=np.array([17023,17023+6,17023+12,17023+18,17023+24,17023+30,17023+36,17023+42,-99,17023+48,\
                                17023+54,17023+60,17023+66,17023+72,17023+78,17023+84,17023+90,17023+96,17023+48])
                 if arc=="Ne":
                     single_number_focus=16292  
-                    obs_possibilites=np.array([16238+6,16238+12,16238+18,16238+24,16238+30,16238+36,16238+42,16238+48,16238+54,16238+54,\
+                    obs_possibilites=np.array([16238+6,16238+12,16238+18,16238+24,16238+30,16238+36,16238+42,16238+48,-99,16238+54,\
                                16238+60,16238+66,16238+72,16238+78,16238+84,16238+90,16238+96,16238+102,16238+54])
                 if arc=="Kr":
                     single_number_focus=17310+54  
-                    obs_possibilites=np.array([17310+6,17310+12,17310+18,17310+24,17310+30,17310+36,17310+42,17310+48,17310+54,17310+54,\
+                    obs_possibilites=np.array([17310+6,17310+12,17310+18,17310+24,17310+30,17310+36,17310+42,17310+48,-99,17310+54,\
                                     17310+60,17310+66,17310+72,17310+78,17310+84,17310+90,17310+96,17310+102,17310+54])
                 
         if dataset==3:  
@@ -187,11 +194,11 @@ class Zernike_Analysis(object):
             if arc is not None:         
                 if arc=="HgAr":
                     single_number_focus=19238+54
-                    obs_possibilites=np.array([19238,19238+6,19238+12,19238+18,19238+24,19238+30,19238+36,19238+42,19238+48,19238+48,\
+                    obs_possibilites=np.array([19238,19238+6,19238+12,19238+18,19238+24,19238+30,19238+36,19238+42,-99,19238+48,\
                                    19238+54,19238+60,19238+66,19238+72,19238+78,19238+84,19238+90,19238+96,19238+48])
                 elif arc=="Ne":
                     single_number_focus=19472  
-                    obs_possibilites=np.array([19472+6,19472+12,19472+18,19472+24,19472+30,19472+36,19472+42,19472+48,19472+54,19472+54,\
+                    obs_possibilites=np.array([19472+6,19472+12,19472+18,19472+24,19472+30,19472+36,19472+42,19472+48,-99,19472+54,\
                                   19472+60,19472+66,19472+72,19472+78,19472+84,19472+90,19472+96,19472+102,19472+54]) 
                     
         if dataset==4: 
@@ -199,15 +206,15 @@ class Zernike_Analysis(object):
             if arc is not None:         
                 if arc=="HgAr":
                     single_number_focus=21346+54
-                    obs_possibilites=np.array([21346+6,21346+12,21346+18,21346+24,21346+30,21346+36,21346+42,21346+48,21346+54,21346+54,\
+                    obs_possibilites=np.array([21346+6,21346+12,21346+18,21346+24,21346+30,21346+36,21346+42,21346+48,-99,21346+54,\
                                    21346+60,21346+66,21346+72,21346+78,21346+84,21346+90,21346+96,21346+102,21346+48])
                 if arc=="Ne":
                     single_number_focus=21550+54  
-                    obs_possibilites=np.array([21550+6,21550+12,21550+18,21550+24,21550+30,21550+36,21550+42,21550+48,21550+54,21550+54,\
+                    obs_possibilites=np.array([21550+6,21550+12,21550+18,21550+24,21550+30,21550+36,21550+42,21550+48,-99,21550+54,\
                                    21550+60,21550+66,21550+72,21550+78,21550+84,21550+90,21550+96,21550+102,21550+54])
                 if str(arc)=="Kr":
                     single_number_focus=21754+54    
-                    obs_possibilites=np.array([21754+6,21754+12,21754+18,21754+24,21754+30,21754+36,21754+42,21754+48,21754+54,21754+54,\
+                    obs_possibilites=np.array([21754+6,21754+12,21754+18,21754+24,21754+30,21754+36,21754+42,21754+48,-99,21754+54,\
                                     21754+60,21754+66,21754+72,21754+78,21754+84,21754+90,21754+96,21754+102,21754+54])
     
         if dataset==5:
@@ -248,6 +255,7 @@ class Zernike_Analysis(object):
             
         if multi_var==True:
             print('labelInput: ' + str(labelInput))
+            print('self.single_number: '+str(self.single_number))
             index_of_single_image_in_list_of_images=self.list_of_defocuses.index(labelInput)
             self.index_of_single_image_in_list_of_images=index_of_single_image_in_list_of_images
             
@@ -317,11 +325,11 @@ class Zernike_Analysis(object):
                 
         if dataset==2: 
             
-            with open('/Users/nevencaplar/Documents/PFS/ReducedData/Data_May_28/Dataframes/finalNe_May2019.pkl', 'rb') as f:
+            with open(PSF_DIRECTORY+'ReducedData/Data_May_28/Dataframes/finalNe_May2019.pkl', 'rb') as f:
                 finalNe_May2019=pickle.load(f)  
-            with open('/Users/nevencaplar/Documents/PFS/ReducedData/Data_May_28/Dataframes/finalHgAr_May2019.pkl', 'rb') as f:
+            with open(PSF_DIRECTORY+'ReducedData/Data_May_28/Dataframes/finalHgAr_May2019.pkl', 'rb') as f:
                 finalHgAr_May2019=pickle.load(f)  
-            with open('/Users/nevencaplar/Documents/PFS/ReducedData/Data_May_28/Dataframes/finalKr_May2019.pkl', 'rb') as f:
+            with open(PSF_DIRECTORY+'ReducedData/Data_May_28/Dataframes/finalKr_May2019.pkl', 'rb') as f:
                 finalKr_May2019=pickle.load(f)  
             
             if arc=="HgAr":
@@ -335,11 +343,11 @@ class Zernike_Analysis(object):
                 
         if dataset==3:   
             
-            with open('/Users/nevencaplar/Documents/PFS/ReducedData/Data_May_28/Dataframes/finalNe_May2019.pkl', 'rb') as f:
+            with open(PSF_DIRECTORY+'ReducedData/Data_Jun_25/Dataframes/finalNe_May2019.pkl', 'rb') as f:
                 finalNe_May2019=pickle.load(f)  
-            with open('/Users/nevencaplar/Documents/PFS/ReducedData/Data_May_28/Dataframes/finalHgAr_May2019.pkl', 'rb') as f:
+            with open(PSF_DIRECTORY+'ReducedData/Data_Jun_25/Dataframes/finalHgAr_May2019.pkl', 'rb') as f:
                 finalHgAr_May2019=pickle.load(f)  
-            with open('/Users/nevencaplar/Documents/PFS/ReducedData/Data_May_28/Dataframes/finalKr_May2019.pkl', 'rb') as f:
+            with open(PSF_DIRECTORY+'ReducedData/Data_Jun_25/Dataframes/finalKr_May2019.pkl', 'rb') as f:
                 finalKr_May2019=pickle.load(f)  
             
             if arc=="HgAr":
@@ -351,11 +359,12 @@ class Zernike_Analysis(object):
                 
         if dataset==4 or dataset==5:   
                 
-            with open('/Users/nevencaplar/Documents/PFS/ReducedData/Data_May_28/Dataframes/finalHgAr_Feb2020', 'rb') as f:
+            with open(PSF_DIRECTORY+'ReducedData/Data_Aug_14/Dataframes/finalHgAr_Feb2020', 'rb') as f:
+                print(f)
                 finalHgAr_Feb2020_dataset=pickle.load(f)  
-            with open('/Users/nevencaplar/Documents/PFS/ReducedData/Data_May_28/Dataframes/finalNe_Feb2020', 'rb') as f:
+            with open(PSF_DIRECTORY+'ReducedData/Data_Aug_14/Dataframes/finalNe_Feb2020', 'rb') as f:
                 finalNe_Feb2020_dataset=pickle.load(f)  
-            with open('/Users/nevencaplar/Documents/PFS/ReducedData/Data_May_28/Dataframes/finalKr_Feb2020', 'rb') as f:
+            with open(PSF_DIRECTORY+'ReducedData/Data_Aug_14/Dataframes/finalKr_Feb2020', 'rb') as f:
                 finalKr_Feb2020_dataset=pickle.load(f)  
             
             
@@ -401,7 +410,7 @@ class Zernike_Analysis(object):
         # where are results from Tiger placed
         ##########################
        
-        RESULT_FOLDER='/Users/nevencaplar/Documents/PFS/TigerAnalysis/ResultsFromTiger/'+date+'/'
+        RESULT_FOLDER=PSF_DIRECTORY+'TigerAnalysis/ResultsFromTiger/'+date+'/'
         if os.path.exists(RESULT_FOLDER):
             pass
         else:
@@ -413,7 +422,7 @@ class Zernike_Analysis(object):
         
         self.RESULT_FOLDER=RESULT_FOLDER
         
-        IMAGES_FOLDER='/Users/nevencaplar/Documents/PFS/Images/'+date+'/'
+        IMAGES_FOLDER=PSF_DIRECTORY+'/Images/'+date+'/'
         if not os.path.exists(IMAGES_FOLDER):
             os.makedirs(IMAGES_FOLDER)
         self.IMAGES_FOLDER=IMAGES_FOLDER
@@ -429,6 +438,11 @@ class Zernike_Analysis(object):
         
         if self.verbosity==1:
             print('analyzing label: '+str(obs))
+            
+            
+            
+            
+        
         
 
     def return_double_sources(self):
@@ -446,71 +460,83 @@ class Zernike_Analysis(object):
         return self.columns,self.columns22,self.columns22_analysis
     
     def create_likelihood(self):
-        #chain_Emcee1=np.load(self.RESULT_FOLDER+'chain'+str(self.date)+'_Single_'+str(self.method)+'_'+str(self.obs)+str(self.single_number)+str(self.eps)+'Emcee1.npy')
-        #likechain_Emcee1=np.load(self.RESULT_FOLDER+'likechain'+str(self.date)+'_Single_'+str(self.method)+'_'+str(self.obs)+str(self.single_number)+str(self.eps)+'Emcee1.npy')
 
-        # get chain number 0, which is has lowest temperature
-        #likechain0_Emcee1=likechain_Emcee1[0]
-        #chain0_Emcee1=chain_Emcee1[0]
         if self.multi_var==True:
             self.obs=self.obs_multi
-        #chain_Emcee2=np.load(self.RESULT_FOLDER+'chain'+str(self.date)+'_Single_'+str(self.method)+'_'+str(self.obs)+str(self.single_number)+str(self.eps)+'Emcee2.npy')
-        likechain_Emcee2=np.load(self.RESULT_FOLDER+'likechain'+str(self.date)+'_Single_'+str(self.method)+'_'+str(self.obs)+str(self.single_number)+str(self.eps)+str(self.arc)+'Emcee2.npy')
-       
-        like_min_Emcee2=[]
-        for i in range(likechain_Emcee2.shape[1]):
-            like_min_Emcee2.append(np.min(np.abs(likechain_Emcee2[:,i]))  )     
             
-        #chain_Swarm1=np.load(self.RESULT_FOLDER+'chain'+str(self.date)+'_Single_'+str(self.method)+'_'+str(self.obs)+str(self.single_number)+str(self.eps)+'Swarm1.npy')
-        likechain_Swarm1=np.load(self.RESULT_FOLDER+'likechain'+str(self.date)+'_Single_'+str(self.method)+'_'+str(self.obs)+str(self.single_number)+str(self.eps)+str(self.arc)+'Swarm1.npy')
+            
+        self.len_of_chains()    
+            
+        # Swarm1
+        #likechain_Swarm1=np.load(self.RESULT_FOLDER+'likechain'+str(self.date)+'_Single_'+str(self.method)+'_'+str(self.obs)+str(self.single_number)+str(self.eps)+str(self.arc)+'Swarm1.npy')
+        likechain_Swarm1=self.likechain_Swarm1
+        
         
         like_min_swarm1=[]
         for i in range(likechain_Swarm1.shape[0]):
             like_min_swarm1.append(np.min(np.abs(likechain_Swarm1[i]))  )  
-        #likechain0_Emcee2=likechain_Emcee2[0]
-        #chain0_Emcee2=chain_Emcee2[0]        
-        
-        #chain_Swarm2=np.load(self.RESULT_FOLDER+'chain'+str(self.date)+'_Single_'+str(self.method)+'_'+str(self.obs)+str(self.single_number)+str(self.eps)+'Swarm2.npy')
-        likechain_Swarm2=np.load(self.RESULT_FOLDER+'likechain'+str(self.date)+'_Single_'+str(self.method)+'_'+str(self.obs)+str(self.single_number)+str(self.eps)+str(self.arc)+'Swarm2.npy')        
 
-        like_min_swarm2=[]
-        for i in range(likechain_Swarm2.shape[0]):
-            like_min_swarm2.append(np.min(np.abs(likechain_Swarm2[i]))  )  
-        
-        chain_Emcee3=np.load(self.RESULT_FOLDER+'chain'+str(self.date)+'_Single_'+str(self.method)+'_'+str(self.obs)+str(self.single_number)+str(self.eps)+str(self.arc)+'Emcee3.npy')
-        likechain_Emcee3=np.load(self.RESULT_FOLDER+'likechain'+str(self.date)+'_Single_'+str(self.method)+'_'+str(self.obs)+str(self.single_number)+str(self.eps)+str(self.arc)+'Emcee3.npy')
-        
-        # get chain number 0, which is has lowest temperature
-        if len(likechain_Emcee3)<=4:
-            likechain0_Emcee3=likechain_Emcee3[0]
-            chain0_Emcee3=chain_Emcee3[0]     
-        else:
-            likechain0_Emcee3=likechain_Emcee3
-            chain0_Emcee3=chain_Emcee3
-        # check the shape of the chain (number of walkers, number of steps, number of parameters)
-        print('(number of walkers, number of steps, number of parameters): '+str(chain0_Emcee3.shape))
-        
-        # see the best chain
-        minchain=chain0_Emcee3[np.abs(likechain0_Emcee3)==np.min(np.abs(likechain0_Emcee3))][0]
-        #print(minchain)
-        self.minchain=minchain
-        like_min_Emcee3=[]
-        
-        #for i in range(likechain0_Emcee1.shape[1]):
-        #    like_min.append(np.min(np.abs(likechain0_Emcee1[:,i])))
-        
-        #for i in range(likechain0_Emcee2.shape[1]):
-        #    like_min.append(np.min(np.abs(likechain0_Emcee2[:,i])))    
-        
-        for i in range(likechain0_Emcee3.shape[1]):
-            like_min_Emcee3.append(np.min(np.abs(likechain0_Emcee3[:,i]))  )  
-        
+        #        
+        if self.chain_Emcee2 is not None:
+            # Emcee1
+            #likechain_Emcee2=np.load(self.RESULT_FOLDER+'likechain'+str(self.date)+'_Single_'+str(self.method)+'_'+str(self.obs)+str(self.single_number)+str(self.eps)+str(self.arc)+'Emcee2.npy')
+            likechain_Emcee1=self.likechain_Emcee1
+            
+            like_min_Emcee1=[]
+            for i in range(likechain_Emcee1.shape[1]):
+                like_min_Emcee1.append(np.min(np.abs(likechain_Emcee1[:,i]))  )     
+                
+      
+            # Swarm2
+            likechain_Swarm2=np.load(self.RESULT_FOLDER+'likechain'+str(self.date)+'_Single_'+str(self.method)+'_'+str(self.obs)+str(self.single_number)+str(self.eps)+str(self.arc)+'Swarm2.npy')        
+            likechain_Swarm2=self.likechain_Swarm2
+    
+            like_min_swarm2=[]
+            for i in range(likechain_Swarm2.shape[0]):
+                like_min_swarm2.append(np.min(np.abs(likechain_Swarm2[i]))  )  
+            
+            # Emcee 2
+            #chain_Emcee3=np.load(self.RESULT_FOLDER+'chain'+str(self.date)+'_Single_'+str(self.method)+'_'+str(self.obs)+str(self.single_number)+str(self.eps)+str(self.arc)+'Emcee3.npy')
+            #likechain_Emcee3=np.load(self.RESULT_FOLDER+'likechain'+str(self.date)+'_Single_'+str(self.method)+'_'+str(self.obs)+str(self.single_number)+str(self.eps)+str(self.arc)+'Emcee3.npy')
+            
+            chain_Emcee2=self.chain_Emcee2
+            likechain_Emcee2=self.likechain_Emcee2
+      
+            # get chain number 0, which is has lowest temperature
+            #if len(likechain_Emcee3)<=4:
+            #    likechain0_Emcee3=likechain_Emcee3[0]
+            #    chain0_Emcee3=chain_Emcee3[0]     
+            #else:
+            #    likechain0_Emcee3=likechain_Emcee3
+            #    chain0_Emcee3=chain_Emcee3
+            # check the shape of the chain (number of walkers, number of steps, number of parameters)
+            print('(number of walkers, number of steps, number of parameters for Emcee): '+str(chain_Emcee2.shape))
+            
+            # see the best chain
+            minchain=chain_Emcee2[np.abs(likechain_Emcee2)==np.min(np.abs(likechain_Emcee2))][0]
+            #print(minchain)
+            self.minchain=minchain
+            
+            like_min_Emcee2=[]
+                    
+            for i in range(likechain_Emcee2.shape[1]):
+                like_min_Emcee2.append(np.min(np.abs(likechain_Emcee2[:,i]))  )  
+            
    
-        like_min=like_min_swarm1+like_min_Emcee2+like_min_swarm2+like_min_Emcee3
+            like_min=like_min_swarm1+like_min_Emcee1+like_min_swarm2+like_min_Emcee2
+        else:
+            
+            # see the best chain
+            minchain=self.chain_Swarm1[np.abs(self.likechain_Swarm1)==np.min(np.abs(self.likechain_Swarm1))][0]
+            #print(minchain)
+            self.minchain=minchain
+            
+            like_min=like_min_swarm1            
+
         #print(len(like_min))                
         print('minimal likelihood is: '+str(np.min(like_min)))   
         chi2=(np.array(like_min)*(2)-np.sum(np.log(2*np.pi*self.var_image)))/(self.sci_image.shape[0])**2
-        print('minimal chi2 reduced is: '+str(np.min(chi2)))
+        print('minimal chi2 reduced is (makes no sense for multi_var): '+str(np.min(chi2)))
         
         return minchain,like_min
 
@@ -519,16 +545,22 @@ class Zernike_Analysis(object):
         if self.multi_var==True:
             self.obs=self.obs_multi
             
-        chain_Emcee2=np.load(self.RESULT_FOLDER+'chain'+str(self.date)+'_Single_'+str(self.method)+'_'+str(self.obs)+str(self.single_number)+str(self.eps)+str(self.arc)+'Emcee2.npy')
-        chain_Swarm1=np.load(self.RESULT_FOLDER+'chain'+str(self.date)+'_Single_'+str(self.method)+'_'+str(self.obs)+str(self.single_number)+str(self.eps)+str(self.arc)+'Swarm1.npy')       
-        chain_Swarm2=np.load(self.RESULT_FOLDER+'chain'+str(self.date)+'_Single_'+str(self.method)+'_'+str(self.obs)+str(self.single_number)+str(self.eps)+str(self.arc)+'Swarm2.npy')
-        chain_Emcee3=np.load(self.RESULT_FOLDER+'chain'+str(self.date)+'_Single_'+str(self.method)+'_'+str(self.obs)+str(self.single_number)+str(self.eps)+str(self.arc)+'Emcee3.npy')
-
+            
+        
+            
+        self.create_chains_Emcee_1()
+        self.create_chains_Emcee_2()
+        self.create_chains_swarm_1()
+        self.create_chains_swarm_2()
+   
         # (number of walkers, number of steps, number of parameters) for Emcee 
         # (number of steps, number of walkers, number of parameters) for Swarm 
-        print(chain_Swarm1.shape,chain_Emcee2.shape,chain_Swarm2.shape,chain_Emcee3.shape)
-        
-        return [len(chain_Swarm1),(chain_Emcee2).shape[1],len(chain_Swarm2),(chain_Emcee3).shape[1]]
+        if self.chain_Emcee2 is None:
+            print(self.chain_Swarm1.shape)       
+            return [len(self.chain_Swarm1),0,0,0]
+        else:
+            print(self.chain_Swarm1.shape,self.chain_Emcee2.shape,self.chain_Swarm2.shape,self.chain_Emcee3.shape)
+            return [len(self.chain_Swarm1),(self.chain_Emcee2).shape[1],len(self.chain_Swarm2),(self.chain_Emcee3).shape[1]]
         
 
     def create_chains(self):
@@ -559,24 +591,64 @@ class Zernike_Analysis(object):
         self.likechain0_Emcee3=likechain0_Emcee3
         
         return chain0_Emcee3,likechain0_Emcee3   
+
+
+    
+    def create_chains_Emcee_1(self):
+        """
+        get chain and likelihood chain for first run of Emcee
+        unfortunately the file name is ``Emcee2'', because of historical reasons
+        
+        
+        Returns
+        -------
+        chain0_Emcee1 : chain
+        likechain0_Emcee1 : likelihood chain
+        
+        
+        """
+        
+        if self.multi_var==True:
+            self.obs=self.obs_multi
+        try:     
+            chain_Emcee1=np.load(self.RESULT_FOLDER+'chain'+str(self.date)+'_Single_'+str(self.method)+'_'+str(self.obs)+\
+                                 str(self.single_number)+str(self.eps)+str(self.arc)+'Emcee2.npy')
+            likechain_Emcee1=np.load(self.RESULT_FOLDER+'likechain'+str(self.date)+'_Single_'+str(self.method)+'_'+str(self.obs)+\
+                                     str(self.single_number)+str(self.eps)+str(self.arc)+'Emcee2.npy')
+            
+            
+            self.chain_Emcee1=chain_Emcee1
+            self.likechain_Emcee1=likechain_Emcee1
+        except:
+            self.chain_Emcee1=None
+            self.likechain_Emcee1=None
+            
+        
+        return self.chain_Emcee1,self.likechain_Emcee1   
     
     
     def create_chains_Emcee_2(self):
+        """        
+        get chain and likelihood chain for the second run of Emcee
+        unfortunately the file name is ``Emcee3'', because of historical reasons
+        """        
 
         if self.multi_var==True:
             self.obs=self.obs_multi
             
-        chain_Emcee3=np.load(self.RESULT_FOLDER+'chain'+str(self.date)+'_Single_'+str(self.method)+'_'+str(self.obs)+str(self.single_number)+str(self.eps)+str(self.arc)+'Emcee3.npy')
-        likechain_Emcee3=np.load(self.RESULT_FOLDER+'likechain'+str(self.date)+'_Single_'+str(self.method)+'_'+str(self.obs)+str(self.single_number)+str(self.eps)+str(self.arc)+'Emcee3.npy')
+        try:
+            chain_Emcee2=np.load(self.RESULT_FOLDER+'chain'+str(self.date)+'_Single_'+str(self.method)+'_'+str(self.obs)+\
+                                 str(self.single_number)+str(self.eps)+str(self.arc)+'Emcee3.npy')
+            likechain_Emcee2=np.load(self.RESULT_FOLDER+'likechain'+str(self.date)+'_Single_'+str(self.method)+'_'+str(self.obs)+\
+                                     str(self.single_number)+str(self.eps)+str(self.arc)+'Emcee3.npy')
+    
+            self.chain_Emcee2=chain_Emcee2
+            self.likechain_Emcee2=likechain_Emcee2
+        except:
+            self.chain_Emcee2=None
+            self.likechain_Emcee2=None
         
-        # get chain number 0, which is has lowest temperature
-        likechain0_Emcee3=likechain_Emcee3
-        chain0_Emcee3=chain_Emcee3     
-        
-        self.chain0_Emcee3=chain0_Emcee3
-        self.likechain0_Emcee3=likechain0_Emcee3
-        
-        return chain0_Emcee3,likechain0_Emcee3   
+        return self.chain_Emcee2,self.likechain_Emcee2  
  
         
     def create_Emcee2_stack(self):
@@ -585,8 +657,10 @@ class Zernike_Analysis(object):
             self.obs=self.obs_multi
         
         
-        chain0_Emcee2=np.load(self.RESULT_FOLDER+'chain'+str(self.date)+'_Single_'+str(self.method)+'_'+str(self.obs)+str(self.single_number)+str(self.eps)+str(self.arc)+'Emcee3.npy')
-        likechain0_Emcee2=np.load(self.RESULT_FOLDER+'likechain'+str(self.date)+'_Single_'+str(self.method)+'_'+str(self.obs)+str(self.single_number)+str(self.eps)+str(self.arc)+'Emcee3.npy')
+        chain0_Emcee2=np.load(self.RESULT_FOLDER+'chain'+str(self.date)+'_Single_'+str(self.method)+'_'+str(self.obs)+\
+                              str(self.single_number)+str(self.eps)+str(self.arc)+'Emcee3.npy')
+        likechain0_Emcee2=np.load(self.RESULT_FOLDER+'likechain'+str(self.date)+'_Single_'+str(self.method)+'_'+str(self.obs)+\
+                                  str(self.single_number)+str(self.eps)+str(self.arc)+'Emcee3.npy')
         
         for i in range(chain0_Emcee2.shape[1]):
             if i==0:
@@ -604,56 +678,55 @@ class Zernike_Analysis(object):
         
         return chain0_stack,likechain0_stack
     
-    
-    def create_chains_Emcee_1(self):
-        if self.multi_var==True:
-            self.obs=self.obs_multi
-            
-            
-        chain_Emcee3=np.load(self.RESULT_FOLDER+'chain'+str(self.date)+'_Single_'+str(self.method)+'_'+str(self.obs)+str(self.single_number)+str(self.eps)+str(self.arc)+'Emcee2.npy')
-        likechain_Emcee3=np.load(self.RESULT_FOLDER+'likechain'+str(self.date)+'_Single_'+str(self.method)+'_'+str(self.obs)+str(self.single_number)+str(self.eps)+str(self.arc)+'Emcee2.npy')
-        
-        # get chain number 0, which is has lowest temperature
-        likechain0_Emcee3=likechain_Emcee3
-        chain0_Emcee3=chain_Emcee3     
-        
-        self.chain0_Emcee3=chain0_Emcee3
-        self.likechain0_Emcee3=likechain0_Emcee3
-        
-        return chain0_Emcee3,likechain0_Emcee3       
-    
-    def create_chains_swarm_2(self):
-              
-        if self.multi_var==True:
-            self.obs=self.obs_multi
-        
-        chain_Emcee3=np.load(self.RESULT_FOLDER+'chain'+str(self.date)+'_Single_'+str(self.method)+'_'+str(self.obs)+str(self.single_number)+str(self.eps)+str(self.arc)+'Swarm2.npy')
-        likechain_Emcee3=np.load(self.RESULT_FOLDER+'likechain'+str(self.date)+'_Single_'+str(self.method)+'_'+str(self.obs)+str(self.single_number)+str(self.eps)+str(self.arc)+'Swarm2.npy')
-        
-        # get chain number 0, which is has lowest temperature
-        likechain0_Emcee3=likechain_Emcee3
-        chain0_Emcee3=chain_Emcee3     
-        
-        self.chain0_Emcee3=chain0_Emcee3
-        self.likechain0_Emcee3=likechain0_Emcee3
-        
-        return chain0_Emcee3,likechain0_Emcee3      
 
     def create_chains_swarm_1(self):
+        
+        """        
+        get chain and likelihood chain for the first run of cosmoHammer optimizer
+
+        """  
 
         if self.multi_var==True:
             self.obs=self.obs_multi
-              
-        chain_Emcee3=np.load(self.RESULT_FOLDER+'chain'+str(self.date)+'_Single_'+str(self.method)+'_'+str(self.obs)+str(self.single_number)+str(self.eps)+str(self.arc)+'Swarm1.npy')
-        likechain_Emcee3=np.load(self.RESULT_FOLDER+'likechain'+str(self.date)+'_Single_'+str(self.method)+'_'+str(self.obs)+str(self.single_number)+str(self.eps)+str(self.arc)+'Swarm1.npy')
+        try:      
+            chain_Swarm1=np.load(self.RESULT_FOLDER+'chain'+str(self.date)+'_Single_'+str(self.method)+'_'+str(self.obs)+\
+                                 str(self.single_number)+str(self.eps)+str(self.arc)+'Swarm1.npy')
+            likechain_Swarm1=np.load(self.RESULT_FOLDER+'likechain'+str(self.date)+'_Single_'+str(self.method)+'_'+str(self.obs)+\
+                                     str(self.single_number)+str(self.eps)+str(self.arc)+'Swarm1.npy')
+        except:
+            print('Swarm1 or likechainSwarm1 not found')
 
-        likechain0_Emcee3=likechain_Emcee3
-        chain0_Emcee3=chain_Emcee3     
         
-        self.chain0_Emcee3=chain0_Emcee3
-        self.likechain0_Emcee3=likechain0_Emcee3
+        self.chain_Swarm1=chain_Swarm1
+        self.likechain_Swarm1=likechain_Swarm1
         
-        return chain0_Emcee3,likechain0_Emcee3        
+        return chain_Swarm1,likechain_Swarm1       
+    
+    def create_chains_swarm_2(self):
+        
+        """        
+        get chain and likelihood chain for the second run of cosmoHammer optimizer
+
+        """
+              
+        if self.multi_var==True:
+            self.obs=self.obs_multi
+        try:
+            chain_Swarm2=np.load(self.RESULT_FOLDER+'chain'+str(self.date)+'_Single_'+str(self.method)+'_'+str(self.obs)+\
+                                 str(self.single_number)+str(self.eps)+str(self.arc)+'Swarm2.npy')
+            likechain_Swarm2=np.load(self.RESULT_FOLDER+'likechain'+str(self.date)+'_Single_'+str(self.method)+'_'+str(self.obs)+\
+                                     str(self.single_number)+str(self.eps)+str(self.arc)+'Swarm2.npy')
+      
+            self.chain_Swarm2=chain_Swarm2
+            self.likechain_Swarm2=likechain_Swarm2
+            
+        except:
+            self.chain_Swarm2=None
+            self.likechain_Swarm2=None
+            
+        
+        return self.chain_Swarm2,self.likechain_Swarm2      
+     
 
     def create_allparameters_single(self,mm,array_of_polyfit_1_parameterizations,zmax=None):
         """
@@ -800,7 +873,7 @@ class Zernike_Analysis(object):
         plt.imshow(laplace_of_wf,cmap=plt.get_cmap('hot'), vmin = -1,vmax = 1) 
         plt.colorbar()
 
-    def create_basic_data_image(self):     
+    def create_basic_data_image(self,return_Images=False):     
         
         sci_image=self.sci_image
         var_image=self.var_image
@@ -823,16 +896,19 @@ class Zernike_Analysis(object):
         cbar=plt.colorbar(fraction=0.046, pad=0.04)
         plt.imshow(mask_image,origin='lower',vmin=0,vmax=np.max(mask_image),alpha=0.2)
         cbar.set_ticks([10,10**2,10**3,10**4,10**5])
+        
+        if return_Images==True:
+            return sci_image,var_image,mask_image
 
 
     def create_fitting_evolution_plot(self):     
         
         minchain,like_min=self.create_likelihood()
         len_of_chains=self.len_of_chains()
-        chain0_Emcee3,likechain0_Emcee3=self.create_chains()
+        #chain0_Emcee3,likechain0_Emcee3=self.create_chains()
         
         
-        size=chain0_Emcee3.shape[1]
+        #size=self.chain_swarm1.shape[1]
         matplotlib.rcParams.update({'font.size': 18})
         plt.figure(figsize=(18,10))
         plt.subplot(211)
@@ -851,36 +927,55 @@ class Zernike_Analysis(object):
         plt.axvline(np.sum(len_of_chains[:3])+0.5,ls='--')
 
     
-    def create_basic_comparison_plot(self,custom_image=None,custom_mask=None,use_max_chi_scaling=False): 
+    def create_basic_comparison_plot(self,custom_model_image=None,custom_mask=None,custom_sci_image=None,custom_var_image=None,use_max_chi_scaling=False): 
         
-        if custom_image is None:
+        if custom_model_image is None:
             optPsf_cut_fiber_convolved_downsampled=np.load(TESTING_FINAL_IMAGES_FOLDER+'optPsf_cut_fiber_convolved_downsampled.npy')
             res_iapetus=optPsf_cut_fiber_convolved_downsampled
         else:
-            res_iapetus=custom_image
+            res_iapetus=custom_model_image
             
-        sci_image=self.sci_image
-        var_image=self.var_image
+            
+        
+        if custom_sci_image is None:   
+            sci_image=self.sci_image
+        else:
+            sci_image=custom_sci_image
+
+        if custom_var_image is None:           
+            var_image=self.var_image
+        else:
+            var_image=custom_var_image     
+            
         size=sci_image.shape[0]
         if size==40:
             dithering=2
         else:
             dithering=1
         
+        if size==20:
+            x_center=find_centroid_of_flux(res_iapetus)[0]
+        else:
+            x_center=(size/2)
+            
+        left_limit=np.round(x_center-3.5)+0.5
+        right_limit=np.round(x_center+3.5)-0.5               
+        
+        
         plt.figure(figsize=(14,14))
 
 
         plt.subplot(221)
         plt.imshow(res_iapetus,origin='lower',vmax=np.max(np.abs(sci_image)))
-        plt.plot(np.ones(len(sci_image))*(size/2-3.5),np.array(range(len(sci_image))),'--',color='white')
-        plt.plot(np.ones(len(sci_image))*((size/2-dithering*3.5)+7*dithering),np.array(range(len(sci_image))),'--',color='white')
+        plt.plot(np.ones(len(sci_image))*(left_limit),np.array(range(len(sci_image))),'--',color='white')
+        plt.plot(np.ones(len(sci_image))*(right_limit),np.array(range(len(sci_image))),'--',color='white')
         plt.colorbar(fraction=0.046, pad=0.04)
         plt.title('Model')
         plt.grid(False)
         plt.subplot(222)
         plt.imshow(sci_image,origin='lower',vmax=np.max(np.abs(sci_image)))
-        plt.plot(np.ones(len(sci_image))*(size/2-3.5),np.array(range(len(sci_image))),'--',color='white')
-        plt.plot(np.ones(len(sci_image))*((size/2-dithering*3.5)+7*dithering),np.array(range(len(sci_image))),'--',color='white')
+        plt.plot(np.ones(len(sci_image))*(left_limit),np.array(range(len(sci_image))),'--',color='white')
+        plt.plot(np.ones(len(sci_image))*(right_limit),np.array(range(len(sci_image))),'--',color='white')
         plt.colorbar(fraction=0.046, pad=0.04)
         plt.title('Data')
         plt.grid(False)
@@ -888,8 +983,8 @@ class Zernike_Analysis(object):
         plt.imshow(sci_image-res_iapetus,origin='lower',cmap='bwr',vmin=-np.max(np.abs(sci_image))/20,vmax=np.max(np.abs(sci_image))/20)
 
 
-        plt.plot(np.ones(len(sci_image))*(size/2-3.5),np.array(range(len(sci_image))),'--',color='black')
-        plt.plot(np.ones(len(sci_image))*((size/2-dithering*3.5)+7*dithering),np.array(range(len(sci_image))),'--',color='black')
+        plt.plot(np.ones(len(sci_image))*(left_limit),np.array(range(len(sci_image))),'--',color='black')
+        plt.plot(np.ones(len(sci_image))*(right_limit),np.array(range(len(sci_image))),'--',color='black')
         
         plt.colorbar(fraction=0.046, pad=0.04)
         
@@ -911,8 +1006,8 @@ class Zernike_Analysis(object):
             max_chi=np.max(np.abs((sci_image-res_iapetus)/np.sqrt(var_image)))
             plt.imshow((sci_image-res_iapetus)/np.sqrt(var_image),origin='lower',cmap='bwr',vmax=-max_chi,vmin=max_chi)            
 
-        plt.plot(np.ones(len(sci_image))*(size/2-3.5),np.array(range(len(sci_image))),'--',color='black')
-        plt.plot(np.ones(len(sci_image))*((size/2-dithering*3.5)+7*dithering),np.array(range(len(sci_image))),'--',color='black')
+        plt.plot(np.ones(len(sci_image))*(left_limit),np.array(range(len(sci_image))),'--',color='black')
+        plt.plot(np.ones(len(sci_image))*(right_limit),np.array(range(len(sci_image))),'--',color='black')
         plt.colorbar(fraction=0.046, pad=0.04)
         plt.title('chi map')
         plt.tight_layout(pad=0.0, w_pad=1.8, h_pad=-10.0)
@@ -926,51 +1021,76 @@ class Zernike_Analysis(object):
         print('Abs of residual divided by total flux is: '+str(np.sum(np.abs((res_iapetus-sci_image)))/np.sum((res_iapetus))))
         print('Abs of residual divided by largest value of a flux in the image is: '+str(np.max(np.abs((res_iapetus-sci_image)/np.max(res_iapetus)))))
   
-    def create_basic_comparison_plot_log(self):      
-        optPsf_cut_fiber_convolved_downsampled=np.load(TESTING_FINAL_IMAGES_FOLDER+'optPsf_cut_fiber_convolved_downsampled.npy')
-        res_iapetus=optPsf_cut_fiber_convolved_downsampled
-        sci_image=self.sci_image
-        var_image=self.var_image
+    def create_basic_comparison_plot_log(self,custom_model_image=None,custom_mask=None,custom_sci_image=None,custom_var_image=None,use_max_chi_scaling=False):   
+        
+        
+        if custom_model_image is None:
+            optPsf_cut_fiber_convolved_downsampled=np.load(TESTING_FINAL_IMAGES_FOLDER+'optPsf_cut_fiber_convolved_downsampled.npy')
+            res_iapetus=optPsf_cut_fiber_convolved_downsampled
+        else:
+            res_iapetus=custom_model_image
+        
+
+        if custom_sci_image is None:   
+            sci_image=self.sci_image
+        else:
+            sci_image=custom_sci_image
+
+        if custom_var_image is None:           
+            var_image=self.var_image
+        else:
+            var_image=custom_var_image  
+            
+            
         size=sci_image.shape[0]
         if size==40:
             dithering=2
         else:
             dithering=1
+            
+        if size==20:
+            x_center=find_centroid_of_flux(res_iapetus)[0]
+        else:
+            x_center=(size/2)
+            
+        left_limit=np.round(x_center-3.5)+0.5
+        right_limit=np.round(x_center+3.5)-0.5                  
+        
         
         
         plt.figure(figsize=(14,14))
         plt.subplot(221)
         plt.imshow(res_iapetus,origin='lower',vmin=1,vmax=np.max(np.abs(sci_image)),norm=LogNorm())
-        plt.plot(np.ones(len(sci_image))*(size/2-3.5),np.array(range(len(sci_image))),'--',color='white')
-        plt.plot(np.ones(len(sci_image))*((size/2-dithering*3.5)+7*dithering),np.array(range(len(sci_image))),'--',color='white')
+        plt.plot(np.ones(len(sci_image))*(left_limit),np.array(range(len(sci_image))),'--',color='white')
+        plt.plot(np.ones(len(sci_image))*(right_limit),np.array(range(len(sci_image))),'--',color='white')
         cbar=plt.colorbar(fraction=0.046, pad=0.04)
         cbar.set_ticks([10,10**2,10**3,10**4,10**5])
         plt.title('Model')
         plt.grid(False)
         plt.subplot(222)
         plt.imshow(sci_image,origin='lower',vmin=1,vmax=np.max(np.abs(sci_image)),norm=LogNorm())
-        plt.plot(np.ones(len(sci_image))*(size/2-3.5),np.array(range(len(sci_image))),'--',color='white')
-        plt.plot(np.ones(len(sci_image))*((size/2-dithering*3.5)+7*dithering),np.array(range(len(sci_image))),'--',color='white')
+        plt.plot(np.ones(len(sci_image))*(left_limit),np.array(range(len(sci_image))),'--',color='white')
+        plt.plot(np.ones(len(sci_image))*(right_limit),np.array(range(len(sci_image))),'--',color='white')
         cbar=plt.colorbar(fraction=0.046, pad=0.04)
         cbar.set_ticks([10,10**2,10**3,10**4,10**5])
         plt.title('Data')
         plt.grid(False)
         plt.subplot(223)
         plt.imshow(np.abs(sci_image-res_iapetus),origin='lower',vmax=np.max(np.abs(sci_image))/20,norm=LogNorm())
-        plt.plot(np.ones(len(sci_image))*(size/2-3.5),np.array(range(len(sci_image))),'--',color='white')
-        plt.plot(np.ones(len(sci_image))*((size/2-dithering*3.5)+7*dithering),np.array(range(len(sci_image))),'--',color='white')
+        plt.plot(np.ones(len(sci_image))*(left_limit),np.array(range(len(sci_image))),'--',color='white')
+        plt.plot(np.ones(len(sci_image))*(right_limit),np.array(range(len(sci_image))),'--',color='white')
         cbar=plt.colorbar(fraction=0.046, pad=0.04)
         cbar.set_ticks([10,10**2,10**3,10**4,10**5])
         plt.title('abs(Residual (  data-model))')
         plt.grid(False)
         plt.subplot(224)
         plt.imshow((sci_image-res_iapetus)**2/((1)*var_image),origin='lower',vmin=1,norm=LogNorm())
-        plt.plot(np.ones(len(sci_image))*(size/2-3.5),np.array(range(len(sci_image))),'--',color='white')
-        plt.plot(np.ones(len(sci_image))*((size/2-dithering*3.5)+7*dithering),np.array(range(len(sci_image))),'--',color='white')
+        plt.plot(np.ones(len(sci_image))*(left_limit),np.array(range(len(sci_image))),'--',color='white')
+        plt.plot(np.ones(len(sci_image))*(right_limit),np.array(range(len(sci_image))),'--',color='white')
         cbar=plt.colorbar(fraction=0.046, pad=0.04)
         cbar.set_ticks([10,10**2,10**3,10**4,10**5])
         plt.title('chi**2 map')
-        print(np.sum((res_iapetus-sci_image)**2/((var_image.shape[0]*var_image.shape[1])*var_image)))
+        print('chi**2 max reduced is: '+str(np.sum((res_iapetus)**2/((var_image.shape[0]*var_image.shape[1])*var_image))))
         np.sum(np.abs((res_iapetus-sci_image)))/np.sum((res_iapetus))
         plt.tight_layout(pad=0.0, w_pad=1.8, h_pad=-7.0)
         print('chi**2 reduced is: '+str(np.sum((res_iapetus-sci_image)**2/((var_image.shape[0]*var_image.shape[1])*var_image))))
@@ -978,48 +1098,72 @@ class Zernike_Analysis(object):
         print('Abs of residual divided by largest value of a flux in the image is: '+str(np.max(np.abs((res_iapetus-sci_image)/np.max(res_iapetus)))))     
  
 
-    def create_basic_comparison_plot_log_artifical(self):      
-        optPsf_cut_fiber_convolved_downsampled=np.load(TESTING_FINAL_IMAGES_FOLDER+'optPsf_cut_fiber_convolved_downsampled.npy')
-        res_iapetus=optPsf_cut_fiber_convolved_downsampled
-        noise=cs=self.create_artificial_noise()
-        sci_image=self.sci_image
-        var_image=self.var_image
+    def create_basic_comparison_plot_log_artifical(self,custom_model_image=None,custom_mask=None,custom_sci_image=None,custom_var_image=None,use_max_chi_scaling=False): 
+        
+        # need to update for multivar
+        if custom_model_image is None:
+            optPsf_cut_fiber_convolved_downsampled=np.load(TESTING_FINAL_IMAGES_FOLDER+'optPsf_cut_fiber_convolved_downsampled.npy')
+            res_iapetus=optPsf_cut_fiber_convolved_downsampled
+        else:
+            res_iapetus=custom_model_image
+        
+
+        noise=self.create_artificial_noise(custom_model_image=custom_model_image,custom_var_image=custom_var_image)
+        
+        if custom_sci_image is None:   
+            sci_image=self.sci_image
+        else:
+            sci_image=custom_sci_image
+
+        if custom_var_image is None:           
+            var_image=self.var_image
+        else:
+            var_image=custom_var_image  
+            
         size=sci_image.shape[0]
         if size==40:
             dithering=2
         else:
             dithering=1
-        
+
+
+        if size==20:
+            x_center=find_centroid_of_flux(res_iapetus)[0]
+        else:
+            x_center=(size/2)
+            
+        left_limit=np.round(x_center-3.5)+0.5
+        right_limit=np.round(x_center+3.5)-0.5            
         
         plt.figure(figsize=(14,14))
         plt.subplot(221)
         plt.imshow(res_iapetus+noise,origin='lower',vmin=1,vmax=np.max(np.abs(sci_image)),norm=LogNorm())
-        plt.plot(np.ones(len(sci_image))*(size/2-3.5),np.array(range(len(sci_image))),'--',color='white')
-        plt.plot(np.ones(len(sci_image))*((size/2-dithering*3.5)+7*dithering),np.array(range(len(sci_image))),'--',color='white')
+        plt.plot(np.ones(len(sci_image))*(left_limit),np.array(range(len(sci_image))),'--',color='white')
+        plt.plot(np.ones(len(sci_image))*(right_limit),np.array(range(len(sci_image))),'--',color='white')
         cbar=plt.colorbar(fraction=0.046, pad=0.04)
         cbar.set_ticks([10,10**2,10**3,10**4,10**5])
         plt.title('Model with artifical noise')
         plt.grid(False)
         plt.subplot(222)
         plt.imshow(sci_image,origin='lower',vmin=1,vmax=np.max(np.abs(sci_image)),norm=LogNorm())
-        plt.plot(np.ones(len(sci_image))*(size/2-3.5),np.array(range(len(sci_image))),'--',color='white')
-        plt.plot(np.ones(len(sci_image))*((size/2-dithering*3.5)+7*dithering),np.array(range(len(sci_image))),'--',color='white')
+        plt.plot(np.ones(len(sci_image))*(left_limit),np.array(range(len(sci_image))),'--',color='white')
+        plt.plot(np.ones(len(sci_image))*(right_limit),np.array(range(len(sci_image))),'--',color='white')
         cbar=plt.colorbar(fraction=0.046, pad=0.04)
         cbar.set_ticks([10,10**2,10**3,10**4,10**5])
         plt.title('Data')
         plt.grid(False)
         plt.subplot(223)
         plt.imshow(np.abs(res_iapetus-sci_image),origin='lower',vmax=np.max(np.abs(sci_image))/20,norm=LogNorm())
-        plt.plot(np.ones(len(sci_image))*(size/2-3.5),np.array(range(len(sci_image))),'--',color='white')
-        plt.plot(np.ones(len(sci_image))*((size/2-dithering*3.5)+7*dithering),np.array(range(len(sci_image))),'--',color='white')
+        plt.plot(np.ones(len(sci_image))*(left_limit),np.array(range(len(sci_image))),'--',color='white')
+        plt.plot(np.ones(len(sci_image))*(right_limit),np.array(range(len(sci_image))),'--',color='white')
         cbar=plt.colorbar(fraction=0.046, pad=0.04)
         cbar.set_ticks([10,10**2,10**3,10**4,10**5])
         plt.title('abs(Residual (model - data))')
         plt.grid(False)
         plt.subplot(224)
         plt.imshow((res_iapetus-sci_image)**2/((1)*var_image),origin='lower',vmin=1,norm=LogNorm())
-        plt.plot(np.ones(len(sci_image))*(size/2-3.5),np.array(range(len(sci_image))),'--',color='white')
-        plt.plot(np.ones(len(sci_image))*((size/2-dithering*3.5)+7*dithering),np.array(range(len(sci_image))),'--',color='white')
+        plt.plot(np.ones(len(sci_image))*(left_limit),np.array(range(len(sci_image))),'--',color='white')
+        plt.plot(np.ones(len(sci_image))*(right_limit),np.array(range(len(sci_image))),'--',color='white')
         cbar=plt.colorbar(fraction=0.046, pad=0.04)
         cbar.set_ticks([10,10**2,10**3,10**4,10**5])
         plt.title('chi**2 map')
@@ -1030,16 +1174,24 @@ class Zernike_Analysis(object):
         print('Abs of residual divided by total flux is: '+str(np.sum(np.abs((res_iapetus-sci_image)))/np.sum((res_iapetus))))
         print('Abs of residual divided by largest value of a flux in the image is: '+str(np.max(np.abs((res_iapetus-sci_image)/np.max(res_iapetus)))))          
         
-    def create_artificial_noise(self):
-        var_image=self.var_image
-        optPsf_cut_fiber_convolved_downsampled=np.load(TESTING_FINAL_IMAGES_FOLDER+'optPsf_cut_fiber_convolved_downsampled.npy')
-        res_iapetus=optPsf_cut_fiber_convolved_downsampled
+    def create_artificial_noise(self, custom_model_image=None,custom_var_image=None):
         
+        if custom_var_image is None:           
+            var_image=self.var_image
+        else:
+            var_image=custom_var_image  
+        
+        if custom_model_image is None:
+            optPsf_cut_fiber_convolved_downsampled=np.load(TESTING_FINAL_IMAGES_FOLDER+'optPsf_cut_fiber_convolved_downsampled.npy')
+            res_iapetus=optPsf_cut_fiber_convolved_downsampled
+        else:
+            res_iapetus=custom_model_image        
+                
         artifical_noise=np.zeros_like(res_iapetus)
         artifical_noise=np.array(artifical_noise)
         for i in range(len(artifical_noise)):
             for j in range(len(artifical_noise)):
-                artifical_noise[i,j]=np.random.randn()*np.sqrt(var_image[i,j])       
+                artifical_noise[i,j]=np.random.randn()*np.sqrt(var_image[i,j]+40)       
                 
         return artifical_noise
     
@@ -1150,6 +1302,178 @@ class Zernike_Analysis(object):
         return optPsf_cut_fiber_convolved_downsampled
      
 
+    def plot_1D_residual(self,custom_model_image=None,custom_mask=None,custom_sci_image=None,custom_var_image=None,use_max_chi_scaling=False,title=None):
+            
+        """ 
+    
+        @array[in] sci_image               numpy array with the values for the cutout of the science image (20x20 cutout)
+        @array[in] var_image               numpy array with the cutout for the cutout of the variance image (20x20 cutout)
+        @array[in] model_image             model (20x20 image)
+        @string[in] title                  custom title to appear above the plot
+    
+    
+        @plot[out]                         diagnostic plot
+    
+        """
+        
+        if custom_model_image is None:
+            optPsf_cut_fiber_convolved_downsampled=np.load(TESTING_FINAL_IMAGES_FOLDER+'optPsf_cut_fiber_convolved_downsampled.npy')
+            model_image=optPsf_cut_fiber_convolved_downsampled
+        else:
+            model_image=custom_model_image
+            
+            
+        
+        if custom_sci_image is None:   
+            sci_image=self.sci_image
+        else:
+            sci_image=custom_sci_image
+
+        if custom_var_image is None:           
+            var_image=self.var_image
+        else:
+            var_image=custom_var_image     
+            
+        size=sci_image.shape[0]
+        if size==40:
+            dithering=2
+        else:
+            dithering=1
+        
+        if size==20:
+            x_center=find_centroid_of_flux(model_image)[0]
+        else:
+            x_center=(size/2)
+            
+        left_limit=np.round(x_center-3.5)+0.5
+        right_limit=np.round(x_center+3.5)-0.5           
+        
+        init_lamda,std_init_lamda,init_removal_lamda,std_init_removal_lamda=self.residual_1D(sci_image,var_image,model_image)
+        
+        
+        position_of_max_flux=np.where(init_lamda==np.max(init_lamda))[0][0]
+        difference_from_max=range(20)-position_of_max_flux
+        pixels_to_test=np.array(range(20))[(np.abs(difference_from_max)>2)&(np.abs(difference_from_max)<=6)]
+        Q=np.mean(np.abs(init_removal_lamda[pixels_to_test]/std_init_removal_lamda[pixels_to_test]))
+     
+        plt.figure(figsize=(20,10))
+        plt.errorbar(np.array(range(len(init_lamda))),init_lamda,yerr=std_init_lamda,fmt='o',elinewidth=2,capsize=12,markeredgewidth=2,label='data',color='orange')
+        plt.plot(np.array(range(len(init_lamda))),init_lamda*0.01,color='gray',label='1% data')
+        plt.plot(np.array(range(len(init_lamda))),-init_lamda*0.01,color='gray')    
+        
+        plt.errorbar(np.array(range(len(init_removal_lamda))),init_removal_lamda,yerr=std_init_removal_lamda,color='red',fmt='o',elinewidth=2,capsize=10,markeredgewidth=2,label='residual')
+    
+        for i in range(20):
+            plt.text(-0.5+i, -1400, str("{:1.0f}".format(init_lamda[i])), fontsize=20,rotation=70.,color='orange')
+    
+        for i in range(20):
+            plt.text(-0.5+i, -2100, str("{:1.1f}".format(init_removal_lamda[i]/std_init_removal_lamda[i])), fontsize=20,rotation=70.,color='red')
+        
+        if title is None:
+            pass
+        else:
+            plt.title(str(title))
+            
+        plt.legend(loc=2, fontsize=22)
+        plt.plot(np.zeros(20),'--',color='black')
+        plt.ylim(-2500,2500)
+        plt.ylabel('flux',size=25)
+        plt.xlabel('pixel',size=25)
+        plt.xticks(range(20))
+    
+        sci_image_40000,var_image_40000,model_image_40000=add_artificial_noise(sci_image,var_image,model_image)
+        init_lamda,std_init_lamda,init_removal_lamda,std_init_removal_lamda=self.residual_1D(sci_image_40000,var_image_40000,model_image_40000)
+    
+        position_of_max_flux=np.where(init_lamda==np.max(init_lamda))[0][0]
+        difference_from_max=range(20)-position_of_max_flux
+        pixels_to_test=np.array(range(20))[(np.abs(difference_from_max)>2)&(np.abs(difference_from_max)<=6)]
+        Q_40000=np.mean(np.abs(init_removal_lamda[pixels_to_test]/std_init_removal_lamda[pixels_to_test]))
+        
+    
+    
+        plt.text(19.5,2300, '$Q_{'+str(np.int(np.round(np.max(sci_image))))+'}$='+str("{:1.2f}".format(Q)),
+                horizontalalignment='right',
+                verticalalignment='top',fontsize=26)
+    
+        chi2=np.mean((model_image-sci_image)**2/var_image)
+    
+        plt.text(19.5,2000, '$\chi^{2}_{'+str(np.int(np.round(np.max(sci_image))))+'}$='+str("{:1.2f}".format(chi2)),
+                horizontalalignment='right',
+                verticalalignment='top',fontsize=26)
+    
+        chi2_40000=np.mean((model_image_40000-sci_image_40000)**2/var_image_40000)
+    
+        plt.text(19.5,1650, '$Q_{40000}$='+str("{:1.2f}".format(Q_40000)),
+                horizontalalignment='right',
+                verticalalignment='top',fontsize=26)
+        plt.text(19.5,1300, '$\chi^{2}_{40000}$='+str("{:1.2f}".format(chi2_40000)),
+                horizontalalignment='right',
+                verticalalignment='top',fontsize=26)
+    
+        plt.axvspan(pixels_to_test[0]-0.5, pixels_to_test[3]+0.5, alpha=0.3, color='grey')
+        plt.axvspan(pixels_to_test[4]-0.5, pixels_to_test[7]+0.5, alpha=0.3, color='grey')
+        
+            
+    def residual_1D(self,sci_image,var_image,res_iapetus):
+        
+        """
+    
+        @param[in] sci_image        data (20x20 cutout)
+        @param[in] var_image        Variance data (20x20 cutout)
+        @param[in] res_iapetus      model (20x20 cutout)
+        """
+    
+        x_center=find_centroid_of_flux(res_iapetus)[0]  
+        left_limit=np.round(x_center-3.5)+0.5
+        right_limit=np.round(x_center+3.5)-0.5                
+    
+    
+        #sci_image =np.load(STAMPS_FOLDER+'sci'+str(obs)+str(single_number)+str(arc)+'_Stacked.npy')
+        #var_image =np.load(STAMPS_FOLDER+'var'+str(obs)+str(single_number)+str(arc)+'_Stacked.npy')    
+        multiplicative_factor_to_renormalize_to_50000=np.max(sci_image)/50000
+        sci_image_smaller=sci_image[:,left_limit:right_limit]/multiplicative_factor_to_renormalize_to_50000
+        var_image_smaller=var_image[:,left_limit:right_limit]/multiplicative_factor_to_renormalize_to_50000
+        residual_initial_smaller=sci_image_smaller-res_iapetus[:,left_limit:right_limit]/multiplicative_factor_to_renormalize_to_50000
+        #residual_RF_smaller=chi_RF_corrected_image[:,8:14]*np.sqrt(var_image_smaller)
+    
+        #################################
+        # step 5 from Horne, very simplified
+        inputimage_smaller=sci_image_smaller
+        Px=np.sum(inputimage_smaller,axis=0)/np.sum(inputimage_smaller)
+        var_inputimage_smaller=var_image_smaller
+        #################################
+        # Equation 8 from Horne with modification from Robert abut variance for extraction of signal
+        # note that this uses profile from full thing, and not "residual profile"
+    
+        # nominator
+        weighted_inputimage_smaller=inputimage_smaller*Px/(1)
+        # denominator
+        weights_array=np.ones((inputimage_smaller.shape[0],inputimage_smaller.shape[1]))*Px**2
+    
+        init_lamda=np.array(list(map(np.sum, weighted_inputimage_smaller)))/(np.array(list(map(np.sum,weights_array))))
+        init_lamda_boxcar=np.array(list(map(np.sum, inputimage_smaller)))
+        # Equation 8.5 from Horne
+        var_f_std_lamda=1/np.sum(np.array(Px**2/(var_inputimage_smaller)),axis=1)
+        std_init_lamda=np.sqrt(var_f_std_lamda)
+        std_init_lamda_boxcar=np.sqrt(np.array(list(map(np.sum, var_inputimage_smaller))))
+    
+    
+        #################################
+        # Equation 8 from Horne with modification from Robert abut variance for initial removal
+        # note that this uses profile from full thing, and not "residual profile"
+    
+        # nominator
+        weighted_inputimage_smaller=residual_initial_smaller*Px/(1)
+        # denominator
+        weights_array=np.ones((residual_initial_smaller.shape[0],residual_initial_smaller.shape[1]))*Px**2
+    
+        init_removal_lamda=np.array(list(map(np.sum, weighted_inputimage_smaller)))/(np.array(list(map(np.sum,weights_array))))
+        init_removal_lamda_boxcar=np.array(list(map(np.sum, residual_initial_smaller)))
+        # Equation 8.5 from Horne
+        var_init_removal_lamda=1/np.sum(np.array(Px**2/(var_inputimage_smaller)),axis=1)
+        std_init_removal_lamda=np.sqrt(var_init_removal_lamda)
+        return init_lamda,std_init_lamda,init_removal_lamda,std_init_removal_lamda
+        
 
 class Zernike_result_analysis(object):
     
@@ -2309,62 +2633,7 @@ def lin_fit_2D(x,y, a, b,c):
     return a * x + b*y+c
 
 
-        
-def residual_1D(sci_image,var_image,res_iapetus):
-    
-    """
 
-    @param[in] sci_image        data (20x20 cutout)
-    @param[in] var_image        Variance data (20x20 cutout)
-    @param[in] res_iapetus      model (20x20 cutout)
-    """
-
-    #sci_image =np.load(STAMPS_FOLDER+'sci'+str(obs)+str(single_number)+str(arc)+'_Stacked.npy')
-    #var_image =np.load(STAMPS_FOLDER+'var'+str(obs)+str(single_number)+str(arc)+'_Stacked.npy')    
-    multiplicative_factor_to_renormalize_to_50000=np.max(sci_image)/50000
-    sci_image_smaller=sci_image[:,8:14]/multiplicative_factor_to_renormalize_to_50000
-    var_image_smaller=var_image[:,8:14]/multiplicative_factor_to_renormalize_to_50000
-
-    residual_initial_smaller=sci_image_smaller-res_iapetus[:,8:14]/multiplicative_factor_to_renormalize_to_50000
-    #residual_RF_smaller=chi_RF_corrected_image[:,8:14]*np.sqrt(var_image_smaller)
-
-    #################################
-    # step 5 from Horne, very simplified
-    inputimage_smaller=sci_image_smaller
-    Px=np.sum(inputimage_smaller,axis=0)/np.sum(inputimage_smaller)
-    var_inputimage_smaller=var_image_smaller
-    #################################
-    # Equation 8 from Horne with modification from Robert abut variance for extraction of signal
-    # note that this uses profile from full thing, and not "residual profile"
-
-    # nominator
-    weighted_inputimage_smaller=inputimage_smaller*Px/(1)
-    # denominator
-    weights_array=np.ones((inputimage_smaller.shape[0],inputimage_smaller.shape[1]))*Px**2
-
-    init_lamda=np.array(list(map(np.sum, weighted_inputimage_smaller)))/(np.array(list(map(np.sum,weights_array))))
-    init_lamda_boxcar=np.array(list(map(np.sum, inputimage_smaller)))
-    # Equation 8.5 from Horne
-    var_f_std_lamda=1/np.sum(np.array(Px**2/(var_inputimage_smaller)),axis=1)
-    std_init_lamda=np.sqrt(var_f_std_lamda)
-    std_init_lamda_boxcar=np.sqrt(np.array(list(map(np.sum, var_inputimage_smaller))))
-
-
-    #################################
-    # Equation 8 from Horne with modification from Robert abut variance for initial removal
-    # note that this uses profile from full thing, and not "residual profile"
-
-    # nominator
-    weighted_inputimage_smaller=residual_initial_smaller*Px/(1)
-    # denominator
-    weights_array=np.ones((residual_initial_smaller.shape[0],residual_initial_smaller.shape[1]))*Px**2
-
-    init_removal_lamda=np.array(list(map(np.sum, weighted_inputimage_smaller)))/(np.array(list(map(np.sum,weights_array))))
-    init_removal_lamda_boxcar=np.array(list(map(np.sum, residual_initial_smaller)))
-    # Equation 8.5 from Horne
-    var_init_removal_lamda=1/np.sum(np.array(Px**2/(var_inputimage_smaller)),axis=1)
-    std_init_removal_lamda=np.sqrt(var_init_removal_lamda)
-    return init_lamda,std_init_lamda,init_removal_lamda,std_init_removal_lamda
 
 def chi_50000(sci_image,var_image,res_iapetus):
 

@@ -21,6 +21,7 @@ Jul 14, 2020: 0.32b -> 0.32c changed /tigress/ncaplar/Data/ to /tigress/ncaplar/
 Jul 30, 2020: 0.32c -> 0.33 startedTokovinin implentation
 Jul 30, 2020: 0.33 -> 0.33a changed eps=6 to be test implementation
 Jul 31, 2020: 0.33a -> 0.33b implemented list_of_labelInput_without_focus_or_near_focus
+Aug 10, 2020: 0.33b -> 0.34 first implementation of the extra Zernike parameters
 @author: Neven Caplar
 @contact: ncaplar@princeton.edu
 @web: www.ncaplar.com
@@ -75,7 +76,7 @@ import emcee
 #Zernike_Module
 from Zernike_Module import LN_PFS_single,LN_PFS_multi_same_spot,create_parInit,PFSLikelihoodModule,svd_invert
 
-__version__ = "0.33b"
+__version__ = "0.34"
 
 parser = argparse.ArgumentParser(description="Starting args import",
                                  formatter_class=argparse.RawTextHelpFormatter,
@@ -352,7 +353,7 @@ def Tokovinin_algorithm_chi(sci_image,var_image,mask_image,allparameters_proposa
 
             # set number of extra Zernike
             number_of_extra_zernike=0
-            twentytwo_or_extra=22
+            #twentytwo_or_extra=22
             # numbers that make sense are 11,22,37,56,79,106,137,172,211,254
             if number_of_extra_zernike is None:
                 number_of_extra_zernike=0
@@ -365,7 +366,8 @@ def Tokovinin_algorithm_chi(sci_image,var_image,mask_image,allparameters_proposa
             list_of_delta_z.append(0.5/((np.sqrt(8.*(z_par+1.)-6.)-1.)/2.))
 
         # array, randomized delta extra zernike
-        array_of_delta_randomize=np.random.standard_normal(len(list_of_delta_z))*1.2+1
+        #array_of_delta_randomize=np.random.standard_normal(len(list_of_delta_z))*1.2+1
+        array_of_delta_randomize=np.random.standard_normal(len(list_of_delta_z))*1
         array_of_delta_z=+np.array(list_of_delta_z)*array_of_delta_randomize
         
         # initialize 
@@ -377,7 +379,7 @@ def Tokovinin_algorithm_chi(sci_image,var_image,mask_image,allparameters_proposa
         # if this is not a first iteration
         else:
             print('array_of_delta_z in '+str(iteration_number)+' '+str(array_of_delta_z))
-            
+            # code analysis programs might suggest that there is an error here, but everything is ok
             chi_2_before_iteration=np.copy(chi_2_after_iteration)
             # copy wavefront from the end of the previous iteration
             all_wavefront_z_old=np.copy(all_wavefront_z_new)
@@ -498,7 +500,7 @@ def Tokovinin_algorithm_chi(sci_image,var_image,mask_image,allparameters_proposa
         
         
         print('images_normalized.shape: '+str(images_normalized.shape))
-
+        # equation A1 from Tokovinin 2006
         H=np.transpose(np.array((images_normalized-M0))/array_of_delta_z[:,None])    
         H_std=np.transpose(np.array((images_normalized_std-M0_std))/array_of_delta_z[:,None]) 
 
@@ -615,7 +617,7 @@ for obs in list_of_obs:
             # observation which are of good enough quality
             list_of_obs_cleaned.append(obs)
             
-            
+print('len of list_of_sci_images: '+str(len(list_of_sci_images)) )           
 
 # If there is no valid images imported, exit 
 if list_of_sci_images==[]:
@@ -704,16 +706,22 @@ for obs in list_of_obs_cleaned:
     labelInput=label[list(obs_possibilites).index(obs)]
     list_of_labelInput.append(labelInput)
     
+print('list_of_labelInput: '+str(list_of_labelInput))
+    
 # list of labels without values near focus (for possible analysis with Tokovinin alrogithm)
 list_of_labelInput_without_focus_or_near_focus=deepcopy(list_of_labelInput)
 for i in ['m15','m1','m05','0d','0','p05','p1','p15']:
     if i in list_of_labelInput:
         list_of_labelInput_without_focus_or_near_focus.remove(i)
-        
+    
+print('list_of_labelInput_without_focus_or_near_focus: ' +str(list_of_labelInput_without_focus_or_near_focus))    
+    
 # positional indices of the defocused data in the whole set of input data (for possible analysis with Tokovinin alrogithm)
 index_of_list_of_labelInput_without_focus_or_near_focus=[]
 for i in list_of_labelInput_without_focus_or_near_focus:
     index_of_list_of_labelInput_without_focus_or_near_focus.append(list_of_labelInput.index(i))
+    
+print('index_of_list_of_labelInput_without_focus_or_near_focus: ' +str(index_of_list_of_labelInput_without_focus_or_near_focus))
         
 
 # if we are going to analyzed focused images based on defocused analysis, go there 
@@ -807,6 +815,7 @@ else:
     array_of_allparameters=np.array(list_of_allparameters)
     
     # based on the information from the previous step (results at list_of_defocuses), generate singular array_of_allparameters at list_of_labelInput positions        
+    # has shape 2xN, N=number of parameters
     array_of_polyfit_1_parameterizations_proposal=model_multi.create_resonable_allparameters_parametrizations(array_of_allparameters=array_of_allparameters,\
                                                                 list_of_defocuses_input=list_of_defocuses,zmax=zmax)
     #list_of_allparameters_proposal=model_multi.create_list_of_allparameters(array_of_polyfit_1_parameterizations_proposal,list_of_defocuses=['m4','p4'])    
@@ -958,6 +967,7 @@ if twentytwo_or_extra==22:
                                     0.2,0.2,0.2,
                                     0,0,1])
         else:
+            """
             stronger_array_01=np.array([1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
                         1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,
                         0.2,0.2,0.2,0.2,0.2,0.2,
@@ -966,6 +976,18 @@ if twentytwo_or_extra==22:
                         0.2,0.2,0.2,0.2,
                         0.2,0.2,0.2,
                         0.2,0.2,1])
+            """            
+            
+            stronger_array_01=np.array([0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+                        0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+                        0.2,0.2,0.2,0.2,0.2,0.2,
+                        0.0,0.0,0.0,0.0,
+                        0.2,0.2,0.2,
+                        0.2,0.2,0.2,0.2,
+                        0.2,0.2,0.2,
+                        0.2,0.2,1])            
+            
+            
             
     
     # create inital parameters  
@@ -999,7 +1021,7 @@ if twentytwo_or_extra==22:
     gbests=[]
     num_iter = 0
     random_seed=42
-    for swarm in pso.sample(2*nsteps):
+    for swarm in pso.sample(nsteps):
         swarms.append(swarm)
         gbests.append(pso.gbest.copy())
         num_iter += 1
@@ -1028,6 +1050,13 @@ if twentytwo_or_extra==22:
                 
             if num_iter % 5 ==1:
                 
+                # if this is first step, take the preprepered proposal 
+                if num_iter==0:
+                    array_of_polyfit_1_parameterizations_proposal=array_of_polyfit_1_parameterizations_proposal
+                else:  
+                    array_of_polyfit_1_parameterizations_proposal=model_multi.move_parametrizations_from_1d_to_2d(pso.gbest.position)
+                       
+                
                 #print('swarm: '+str(len(swarm)))
                 #print('swarm[0]: '+str(swarm[0]))    
                 list_of_Tokovin_results=[]
@@ -1035,14 +1064,19 @@ if twentytwo_or_extra==22:
                 for i in range(len(swarm)):
                     swarm_positions_sum.append(np.sum(swarm[i].position))
                  
+                # analyze only images which are outside focus with Tokovinin method    
                 for index_of_single_image in index_of_list_of_labelInput_without_focus_or_near_focus:
+                    
+                    print('index_of_single_image: '+str(index_of_single_image))
+                    print('len of list_of_sci_images '+str(len(list_of_sci_images)))
+                    
                     sci_image=list_of_sci_images[index_of_single_image]
                     var_image=list_of_var_images[index_of_single_image]
                     mask_image=list_of_mask_images[index_of_single_image]
                     
                     
                     list_of_allparameters_proposal=model_multi.create_list_of_allparameters(array_of_polyfit_1_parameterizations_proposal,\
-                                                                                            list_of_defocuses=list_of_labelInput_without_focus_or_near_focus)    
+                                                                                            list_of_defocuses=list_of_labelInput)    
 
                     
                     
@@ -1063,20 +1097,38 @@ if twentytwo_or_extra==22:
                 array_of_Tokovin_results=np.array(array_of_Tokovin_results)        
         
                 print('array_of_Tokovin_results shape: ' + str(array_of_Tokovin_results.shape))
-                # shape 6x42, we need 60,
-                allparameters_best_parametrizations=model_multi.create_resonable_allparameters_parametrizations(array_of_Tokovin_results,\
+                # array_of_Tokovin_results has shape 6x42, we need 60x1
+                allparameters_best_parametrization_2d=model_multi.create_resonable_allparameters_parametrizations(array_of_Tokovin_results,\
                                                                     list_of_defocuses_input=list_of_labelInput_without_focus_or_near_focus,zmax=22,remove_last_n=0)
                 
+                if allparameters_best_parametrization_2d.shape[0]>42:
                 
-                allparameters_best_proposal=np.concatenate((allparameters_best_parametrizations[:19].ravel(),
-                                                            allparameters_best_parametrizations[19:-1][:,1]))
-                print(allparameters_best_proposal)    
+                    allparameters_best_parametrization_1d=np.concatenate((allparameters_best_parametrization_2d[:19].ravel(),
+                                                                allparameters_best_parametrization_2d[19:19+23][:,1],allparameters_best_parametrization_2d[19+23:].ravel()))
+                    
+                else:
+                    allparameters_best_parametrization_1d=np.concatenate((allparameters_best_parametrization_2d[:19].ravel(),
+                                                                allparameters_best_parametrization_2d[19:-1][:,1]))    
+                print(allparameters_best_parametrization_1d)    
                 #index_of_best_position=swarm_positions_sum.index(np.sum(pso.gbest.position))
                 #print('index_of_best_position '+str(index_of_best_position))
                 #print('pso.gbest: '+str(pso.gbest.position))
-                pso.gbest.position=allparameters_best_proposal
+                
+                
+                # replacing only the best position 
+                pso.gbest.position=allparameters_best_parametrization_1d
                 #pso.swarm[index_of_best_position].position[0]=allparameters_parametrizations
                 #print('swarm[index_of_best_position]'+str(pso.swarm[index_of_best_position]))
+
+                # replacing all the wavefront component in all of the particles                
+                for i in range(len(pso.swarm)):
+                    pso.swarm[i].position[0:19*2]=allparameters_best_parametrization_1d[0:19*2]     
+                    
+                    if zmax>22:
+                        pso.swarm[i].position[19*2+23:]=allparameters_best_parametrization_1d[19*2+23:]   
+                        
+
+               
                 
                 
                 
@@ -1134,569 +1186,9 @@ if twentytwo_or_extra==22:
     
     list_of_times.append(time_end-time_start)
     sys.stdout.flush()
-    
-    ##################################################################################################################### 
-    # First emcee  - unfortunately the results are called ``second emcee'' due to historic reasons
-    #if pupil_parameters is not None:
-    #    minchain=add_pupil_parameters_to_all_parameters(minchain,pupil_parameters)
-    
-    parInit1=create_parInit(allparameters_proposal=minchain,multi=multi_var,pupil_parameters=None,allparameters_proposal_err=minchain_err,stronger=5*stronger_array_01,use_optPSF=None,deduced_scattering_slope=None,zmax=zmax_input)
-    
-    # if the generated length of the parameters is larger than size of swarm number of walkers divided by 2, cut the number of walkers
 
-    #number_of_walkers_cut= int(options[0]/2)
-    number_of_walkers_cut=8* len(minchain_err)
-    # number_of_walkers has to be an even number
-    if (number_of_walkers_cut % 2) == 0:
-        pass
-    else:
-        number_of_walkers_cut=number_of_walkers_cut+1
-    
-    if len(parInit1) > number_of_walkers_cut:      
-        parInit1=parInit1[0:number_of_walkers_cut]
     
     
-    sampler = emcee.EnsembleSampler(parInit1.shape[0],parInit1.shape[1],model_multi,pool=pool)
-    
-    for i, result in enumerate(sampler.sample(parInit1, iterations=nsteps,skip_initial_state_check=True)):
-        print('First/second emcee run: '+"{0:5.1%}\r".format(float(i) / nsteps)),
-        sys.stdout.flush()
-    
-    #Export this file
-    np.save(RESULT_FOLDER+NAME_OF_CHAIN+'Emcee2',sampler.chain)
-    np.save(RESULT_FOLDER+NAME_OF_LIKELIHOOD_CHAIN+'Emcee2',sampler.lnprobability) 
-          
-    # Create minchain and save it
-    likechain0=sampler.lnprobability
-    chain0=sampler.chain
-    minchain=chain0[np.abs(likechain0)==np.min(np.abs(likechain0))][0]  
-    #np.save(RESULT_FOLDER+NAME_OF_CHAIN+'minchain',minchain)    
-    
-    print('Likelihood atm: '+str(np.min(np.abs(likechain0))))
-    print('minchain atm: '+str(minchain))
-    
-    
-    #chi2reduced=2*np.min(np.abs(likechain0))/(sci_image.shape[0])**2
-    
-    minchain_err=[]
-    for i in range(len(minchain)):
-        #minchain_err=np.append(minchain_err,np.std(chain0[:,:,i].flatten()))
-        minchain_err=np.append(minchain_err,np.std(chain0[:,:,i].flatten()))
-    
-    minchain_err=np.array(minchain_err)
-    #print('chi2reduced: '+str(chi2reduced))
-    print('minchain_err: '+str(minchain_err))
-    #lower_limits_inter=minchain-minchain_err
-    #higher_limits_inter=minchain+minchain_err
-    
-    #lower_limits_2=np.maximum(lower_limits,lower_limits_inter)
-    #higher_limits_2=np.minimum(higher_limits,higher_limits_inter)
-    
-    #print('lower_limits: '+str(lower_limits_2))
-    #print('higher_limits: '+str(higher_limits_2))
-    
-    print('Time when second emcee run finished was: '+time.ctime())     
-    time_end=time.time()   
-    print('Time taken was '+str(time_end-time_start)+' seconds')
-    list_of_times.append(time_end-time_start)
-    
-    sys.stdout.flush()
-    
-    ##################################################################################################################### 
-    # Second swarm  
-    parInit1=create_parInit(allparameters_proposal=minchain,multi=multi_var,pupil_parameters=None,allparameters_proposal_err=minchain_err,stronger=stronger_array_01,use_optPSF=None,deduced_scattering_slope=None,zmax=zmax_input)
-    while len(parInit1)<options[0]:
-        parInit1_2=create_parInit(allparameters_proposal=minchain,multi=multi_var,pupil_parameters=None,allparameters_proposal_err=minchain_err,stronger=stronger_array_01,use_optPSF=None,deduced_scattering_slope=None,zmax=zmax_input)
-        parInit1=np.vstack((parInit1,parInit1_2))
-    
-    chain = cosmoHammer.LikelihoodComputationChain()
-    chain.addLikelihoodModule(PFSLikelihoodModule(model_multi))
-    
-    pso = cosmoHammer.ParticleSwarmOptimizer(chain, low=np.min(parInit1,axis=0), high=np.max(parInit1,axis=0),particleCount=options[0],pool=pool)
-    #returns all swarms and the best particle for all iterations
-    for i in range(len(pso.swarm)):
-        pso.swarm[i].position=parInit1[i]
-    
-    #returns all swarms and the best particle for all iterations
-    #swarms, gbests = pso.optimize(maxIter=4*nsteps,c1=options[1],c2=options[2])
-
-    list_of_swarms_time_2=[]
-    time_start_swarms_time_2=time.time()   
-    
-    
-    swarms=[]
-    gbests=[]
-    num_iter = 0
-    for swarm in pso.sample(3*nsteps):
-        swarms.append(swarm)
-        gbests.append(pso.gbest.copy())
-        num_iter += 1
-        if pso.isMaster():
-            
-            time_end_swarms_time_2=time.time()
-            list_of_swarms_time_2.append(time_end_swarms_time_2-time_start_swarms_time_2)
-            if num_iter % 2 == 0:
-                print("Last swarm: "+str(100*num_iter/(3*nsteps)))
-                sys.stdout.flush()
-     
-        # if already taken more than half of the steps, and not moved in 5 steps, break
-        #if num_iter>int(2*nsteps):
-        #    if gbests[-1].fitness==gbests[-6].fitness:
-        #        print('breaking at num_iter '+str(num_iter))
-        #        break
-        #    else:
-        #        pass
-        else:
-            pass
-               
-    minchain=gbests[-1].position
-    minln=gbests[-1].fitness
-    
-    res=[]
-    for i in range(len(swarms)):
-        for j in range(len(swarms[0])):
-            res.append(swarms[i][j].position)
-            
-    res=np.array(res)
-    chains=res.reshape(len(swarms),len(swarms[0]),parInit1.shape[1])
-    
-    
-    res=[]
-    for i in range(len(swarms)):
-        for j in range(len(swarms[0])):
-            res.append(swarms[i][j].fitness)
-            
-    res=np.array(res)
-    ln_chains=res.reshape(len(swarms),len(swarms[0]))
-    
-    #Export this file
-    np.save(RESULT_FOLDER+NAME_OF_CHAIN+'Swarm2',chains)
-    np.save(RESULT_FOLDER+NAME_OF_LIKELIHOOD_CHAIN+'Swarm2',ln_chains) 
-    
-    #minchain=chains[np.abs(ln_chains)==np.min(np.abs(ln_chains))][0]
-    chi2reduced=2*np.min(np.abs(ln_chains))/(sci_image.shape[0])**2
-    
-    if np.sqrt(chi2reduced)>10:
-        chi2reduced_multiplier=10
-    else:
-        chi2reduced_multiplier=np.sqrt(chi2reduced)    
-    
-    minchain_err=[]
-    for i in range(len(minchain)):
-        minchain_err=np.append(minchain_err,chi2reduced_multiplier*np.std(chains[:,:,i].flatten()))
-    
-    minchain_err=np.array(minchain_err)
-    
-    print('Likelihood atm: '+str(np.abs(gbests[-1].fitness)))
-    print('minchain atm: '+str(minchain))
-    print('minchain_err: '+str(minchain_err))
-    print('Time when last swarm run finished was: '+time.ctime())     
-    time_end=time.time()   
-    print('Time taken was '+str(time_end-time_start)+' seconds')
-    list_of_times.append(time_end-time_start)
-    
-    sys.stdout.flush()
-    ##################################################################################################################### 
-    # Second emcee   - unfortunately the results are called ``third emcee'' due to historic reasons
-        
-    #if pupil_parameters is not None:
-    #    minchain=add_pupil_parameters_to_all_parameters(minchain,pupil_parameters)
-    
-    parInit1=create_parInit(allparameters_proposal=minchain,multi=multi_var,pupil_parameters=None,allparameters_proposal_err=minchain_err,stronger=10*stronger_array_01,use_optPSF=None,deduced_scattering_slope=None,zmax=zmax_input)
-    
-    # if the generated length of the parameters is larger than size of swarm number of walkers divided by 2, cut the number of walkers
-
-    #number_of_walkers_cut= int(options[0]/2)
-    number_of_walkers_cut=8* len(minchain_err)
-    # number_of_walkers has to be an even number
-    if (number_of_walkers_cut % 2) == 0:
-        pass
-    else:
-        number_of_walkers_cut=number_of_walkers_cut+1
-    
-    if len(parInit1) > number_of_walkers_cut:      
-        parInit1=parInit1[0:number_of_walkers_cut]
-    
-    #print(parInit1[0])
-    sampler = emcee.EnsembleSampler(parInit1.shape[0],parInit1.shape[1],model_multi,pool=pool)
-    for i, result in enumerate(sampler.sample(parInit1, iterations=int(nsteps/2),skip_initial_state_check=True)):
-        print('Last emcee run: '+"{0:5.1%}\r".format(float(i) /(nsteps/2))),
-        sys.stdout.flush()
-    #sampler.run_mcmc(parInit1, 2*nsteps)  
-        
-    #Export this file
-    np.save(RESULT_FOLDER+NAME_OF_CHAIN+'Emcee3',sampler.chain)
-    np.save(RESULT_FOLDER+NAME_OF_LIKELIHOOD_CHAIN+'Emcee3',sampler.lnprobability) 
-    
-    # Create minchain and save it
-    likechain0=sampler.lnprobability
-    chain0=sampler.chain
-    minchain=chain0[np.abs(likechain0)==np.min(np.abs(likechain0))][0]  
-    np.save(RESULT_FOLDER+NAME_OF_CHAIN+'minchain',minchain)   
-    
-    print('Time when total script finished was: '+time.ctime())     
-    time_end=time.time()   
-    print('Total time taken was  '+str(time_end-time_start)+' seconds')
-    list_of_times.append(time_end-time_start)    
-    
-    
-    print('Likelihood final: '+str(np.min(np.abs(likechain0))))
-    print('minchain final: '+str(minchain))
-
-    np.save(RESULT_FOLDER+NAME_OF_CHAIN+'_list_of_times',list_of_times)
-
-    np.save(RESULT_FOLDER+NAME_OF_CHAIN+'_list_of_swarms_time_2',list_of_swarms_time_2)    
-    
-    sys.stdout.flush()
-    pool.close()
-    sys.exit(0)
-
-else:
-    
-    from multiprocessing import Pool
-    
-    def model_return(allparameters_proposal):
-        return model(allparameters_proposal,return_Image=True)    
-
-    print('Testing proposal is: '+str(allparameters_proposal_22))
-    time_start_single=time.time()
-    
-    pre_model_result,pre_image,pre_input_parameters=model_return(allparameters_proposal_22)
-    
-    Testing_chi2=(-2)*pre_model_result/(sci_image.shape[0]*sci_image.shape[1])
-    print('Likelihood for the testing proposal is: '+str(Testing_chi2))
-    time_end=time.time()
-    print('Total time taken was  '+str(time_end-time_start)+' seconds')    
-    
-    NAME_OF_pre_image='pre_image'+str(date_of_output)+'20_Single_P_'+str(obs)+str(single_number)+str(eps)+str(arc)
-    NAME_OF_allparameters='allparameters_proposal_after_iteration_'+str(date_of_output)+'20_Single_P_'+str(obs)+str(single_number)+str(eps)+str(arc)
-    NAME_OF_final_optpsf='final_optpsf'+str(date_of_output)+'20_Single_P_'+str(obs)+str(single_number)+str(eps)+str(arc)
-    RESULT_DIRECTANDINT_FOLDER='/tigress/ncaplar/Result_DirectAndInt/'  
-    RESULT_DIRECTANDINT_FINALRESULTS_FOLDER='/tigress/ncaplar/Result_DirectAndInt_FinalResults/'  
-    
-    pool=Pool(processes=34)
-    print('Staring pool process')
-    
-
-    number_of_non_decreses=[0]
-    for iteration_number in range(10):
-        
-
-        
-        # implement that it is not dif of flux, but sigma too
-        #mask=sci_image>(np.max(sci_image)*0.1)
-        
-        mean_value_of_background=np.mean([np.median(sci_image[0]),np.median(sci_image[-1]),np.median(sci_image[:,0]),np.median(sci_image[:,-1])])*10
-        mask=sci_image>(mean_value_of_background*20)
-        
-        # normalized science image
-        sci_image_std=sci_image/np.sqrt(var_image)
-        # initial SVD treshold
-        thresh0 = 0.02
-        
-        # set number of extra Zernike
-        #number_of_extra_zernike=56
-        # numbers that make sense are 11,22,37,56,79,106,137,172,211,254
-        number_of_extra_zernike=twentytwo_or_extra-22
-        
-        # initial list of how much to move Zernike coefficents
-        list_of_delta_z=[]
-        for z_par in range(3,22+number_of_extra_zernike):
-            list_of_delta_z.append(0.5/((np.sqrt(8.*(z_par+1.)-6.)-1.)/2.))
-        #array_of_delta_z=np.array(list_of_delta_z)*np.random.choice([1, -1],len(list_of_delta_z))
-        
-        # array, randomized delta extra zernike
-        array_of_delta_randomize=np.random.standard_normal(len(list_of_delta_z))*0.2+1
-        array_of_delta_z=+np.array(list_of_delta_z)*array_of_delta_randomize
-        # initialize 
-        if iteration_number==0:
-            
-            # array, randomized delta extra zernike
-            array_of_delta_randomize=np.random.standard_normal(len(list_of_delta_z))*0.2+1
-            array_of_delta_z=+np.array(list_of_delta_z)*array_of_delta_randomize
-            
-            
-            chi_2_before_iteration=Testing_chi2
-            all_wavefront_z_old=np.concatenate((allparameters_proposal[0:19],np.zeros(number_of_extra_zernike)))
-            #all_wavefront_z_old=np.concatenate((allparameters_proposal[0:19],allparameters_proposal[42:]))
-            thresh=thresh0
-            
-            input_parameters=[]
-            list_of_hashes=[]
-            list_of_all_wavefront_z=[]
-            
-            up_to_z22_start=all_wavefront_z_old[0:19]     
-            from_z22_start=all_wavefront_z_old[19:]  
-    
-            initial_input_parameters=np.concatenate((up_to_z22_start,allparameters_proposal[19:],from_z22_start))
-            initial_hash=np.abs(hash(tuple(initial_input_parameters)))
-            initial_model_result,image_0,initial_input_parameters=model_return(initial_input_parameters)
-            #image_0=np.load(RESULT_DIRECTANDINT_FOLDER+'optPsf_cut_fiber_convolved_downsampled_'+str(initial_hash)+'.npy')
-            #print('initial_input_parameters for loop '+str(iteration_number)+' are '+str(initial_input_parameters))
-            print('var of initial_input_parameters for loop '+str(iteration_number)+' are '+str(np.var(initial_input_parameters[19:])))
-            #print('initial_model_result is '+str(initial_model_result))
-            
-            np.save(RESULT_DIRECTANDINT_FOLDER+'initial_model_result_'+str(iteration_number),initial_model_result)
-            np.save(RESULT_DIRECTANDINT_FOLDER+'image_0_'+str(iteration_number),image_0)
-            np.save(RESULT_DIRECTANDINT_FOLDER+'initial_input_parameters_'+str(iteration_number),initial_input_parameters)
-    
-            for z_par in range(len(all_wavefront_z_old)):
-                all_wavefront_z_list=np.copy(all_wavefront_z_old)
-                all_wavefront_z_list[z_par]=all_wavefront_z_list[z_par]+array_of_delta_z[z_par]
-                list_of_all_wavefront_z.append(all_wavefront_z_list)
-                up_to_z22_start=all_wavefront_z_list[0:19]     
-                from_z22_start=all_wavefront_z_list[19:]  
-                
-                allparameters_proposal_int_22_test=np.concatenate((up_to_z22_start,allparameters_proposal[19:42],from_z22_start))
-                input_parameters.append(allparameters_proposal_int_22_test)
-                list_of_hashes.append(np.abs(hash(tuple(allparameters_proposal_int_22_test))))          
-    
-        else:
-            chi_2_before_iteration=np.copy(chi_2_after_iteration)
-            all_wavefront_z_old=np.copy(all_wavefront_z_new)
-            if did_chi_2_improve==0:
-                thresh=thresh0
-            else:
-                thresh=thresh*0.5
-            
-            # array, randomized delta extra zernike
-            array_of_delta_randomize=np.random.standard_normal(len(list_of_delta_z))*0.2+1
-            array_of_delta_z=+np.array(list_of_delta_z)*array_of_delta_randomize        
-        
-            input_parameters=[]
-            list_of_ex_z=[]
-            list_of_hashes=[]
-            
-            up_to_z22_start=np.copy(all_wavefront_z_old[:19])
-            from_z22_start=np.copy(all_wavefront_z_old[19:])
-            
-            initial_input_parameters=np.concatenate((up_to_z22_start,allparameters_proposal[19:42],from_z22_start))
-            initial_hash=np.abs(hash(tuple(initial_input_parameters)))
-            initial_model_result,image_0,initial_input_parameters=model_return(initial_input_parameters)
-            #image_0=np.load(RESULT_DIRECTANDINT_FOLDER+'optPsf_cut_fiber_convolved_downsampled_'+str(initial_hash)+'.npy')
-            #print('input_parameters for loop '+str(iteration_number)+' are '+str(initial_input_parameters))      
-            print('var of initial_input_parameters for loop '+str(iteration_number)+' are '+str(np.var(initial_input_parameters[19:])))
-
-            
-            np.save(RESULT_DIRECTANDINT_FOLDER+'initial_model_result_'+str(iteration_number),initial_model_result)
-            np.save(RESULT_DIRECTANDINT_FOLDER+'image_0_'+str(iteration_number),image_0)
-            np.save(RESULT_DIRECTANDINT_FOLDER+'initial_input_parameters_'+str(iteration_number),initial_input_parameters)        
-            
-            
-            for z_par in range(len(all_wavefront_z_old)):
-                all_wavefront_z_list=np.copy(all_wavefront_z_old)
-                all_wavefront_z_list[z_par]=all_wavefront_z_list[z_par]+array_of_delta_z[z_par]
-                
-                up_to_z22_start=all_wavefront_z_list[0:19]     
-                from_z22_start=all_wavefront_z_list[19:]  
-                
-                list_of_all_wavefront_z.append(all_wavefront_z_list)
-                allparameters_proposal_int_22_test=np.concatenate((up_to_z22_start,allparameters_proposal[19:42],from_z22_start))
-                input_parameters.append(allparameters_proposal_int_22_test)
-                #list_of_hashes.append(np.abs(hash(tuple(allparameters_proposal_int_22_test))))     
-    
-    
-        # standard deviation image
-        STD=np.sqrt(var_image )       
-    
-        # normalized and masked model image before this iteration
-        M0=((image_0[mask])/np.sum(image_0[mask])).ravel()
-       
-       # normalized with STD and masked model image before this iteration
-        #M0=((image_0[mask]*STD[mask])/np.sum(image_0[mask]*STD[mask])).ravel()
-        
-        # normalized and masked science image
-        I=((sci_image[mask])/np.sum(sci_image[mask])).ravel()
-        #I=((sci_image[mask]*STD[mask])/np.sum(sci_image[mask]*STD[mask])).ravel()
-        #print('I[0]: '+str(I[0]))
-        #print('M0[0]: '+str(M0[0]))
-        #M0_STD=M0/STD
-        print('np.sum(np.abs(I-M0)) before iteration '+str(iteration_number)+': '+str(np.sum(np.abs(I-M0))))  
-        # used until March 11
-        IM_start=np.sum(np.abs(I-M0))
-        # used until March 11
-        #IM_start_STD=np.sum(np.abs(I_STD-M0_STD))   
-        
-    
-        
-        out_ln=[]
-        out_images=[]
-        out_parameters=[]
-        
-        #print('len(input_parameters)'+str(len(input_parameters)))
-        if __name__ == '__main__':
-            print('We are inside of the pool loop number '+str(iteration_number)+' now')
-            out1=pool.map(model_return,input_parameters)
-            
-    
-    
-            for i in range(len(out1)):
-                out_ln.append(out1[i][0])
-                out_images.append(out1[i][1])
-                out_parameters.append(out1[i][2])
-            
-            
-            
-        #print('results after pool loop '+str(iteration_number)+' are '+str((-2)*np.array(out_ln)/(sci_image.shape[0]*sci_image.shape[1])))
-        print('min result after pool loop '+str(iteration_number)+' are '+str(np.min((-2)*np.array(out_ln)/(sci_image.shape[0]*sci_image.shape[1]))))                 
-         
-        
-        '''
-        optpsf_list=[]
-        single_wavefront_parameter_list=[]
-        
-        #print('len(list_of_hashes):'+str(len(list_of_hashes)))
-        for i in range(len(list_of_hashes)):
-            single_optpsf_image=np.load(RESULT_DIRECTANDINT_FOLDER+'optPsf_cut_fiber_convolved_downsampled_'+str(list_of_hashes[i])+'.npy')
-            optpsf_list.append(single_optpsf_image)
-            
-            allparameters=np.load(RESULT_DIRECTANDINT_FOLDER+'allparameters_'+str(list_of_hashes[i])+'.npy')
-            #print(allparameters)
-            #print(len(allparameters))
-            single_wavefront_parameter_list.append(np.concatenate((allparameters[:19],allparameters[42:])) )
-            
-            #extraZernike_parameter_list.append(single_wavefront_parameters)
-        '''
-        #print('extraZernike_parameter_list[35]'+str(extraZernike_parameter_list[35]))
-        #print('Tokovnin_proposal_start'+str(Tokovnin_proposal_start))
-        #print('extraZernike_parameter_list[35]-Tokovnin_proposal_start'+str(extraZernike_parameter_list[35]-Tokovnin_proposal_start))
-        
-        optpsf_list=out_images
-        single_wavefront_parameter_list=[]
-        for i in range(len(out_parameters)):
-           single_wavefront_parameter_list.append(np.concatenate((out_parameters[i][:19],out_parameters[i][42:])) )
-       
-        '''
-        #determine which parameter was moved
-        Zernike_which_argument_was_moved=[]
-        for i in range(len(single_wavefront_parameter_list)):
-                Zernike_which_argument_was_moved.append(np.where((single_wavefront_parameter_list[i]-all_wavefront_z_old)>0))
-        #print('extra_Zernike_which_argument_was_moved '+str(extra_Zernike_which_argument_was_moved))
-        Zernike_which_argument_was_moved=np.array(Zernike_which_argument_was_moved).astype(int).ravel()
-    
-        
-        Zernike_parameter_list_sorted=np.array(single_wavefront_parameter_list)[Zernike_which_argument_was_moved]
-        # array of images sorted as you changed Zernike polynomials in the wavefront
-        single_Zernike_parameter_sorted=np.array(optpsf_list)[Zernike_which_argument_was_moved]
-        '''
-        
-        #np.save('/tigress/ncaplar/Result_DirectAndInt_FinalResults/out_ln_'+str(iteration_number),out_ln)
-        #np.save('/tigress/ncaplar/Result_DirectAndInt_FinalResults/out_images_'+str(iteration_number),out_images)
-        #np.save('/tigress/ncaplar/Result_DirectAndInt_FinalResults/out_parameters_'+str(iteration_number),out_parameters)
-        #np.save('/tigress/ncaplar/Result_DirectAndInt_FinalResults/array_of_delta_z_'+str(iteration_number),array_of_delta_z)
-        #np.save('/tigress/ncaplar/Result_DirectAndInt_FinalResults/single_wavefront_parameter_list_'+str(iteration_number),single_wavefront_parameter_list)   
-        
-        # normalize and mask images that have been created in the fitting procedure
-        images_normalized=[]
-        for i in range(len(optpsf_list)):
-            images_normalized.append((optpsf_list[i][mask]/np.sum(optpsf_list[i][mask])).ravel())
-        images_normalized=np.array(images_normalized)
-        
-         # normalize (via STD) and mask images that have been created in the fitting procedure
-        #images_normalized=[]
-        #for i in range(len(single_Zernike_parameter_sorted)):
-        #    images_normalized.append(((single_Zernike_parameter_sorted[i][mask]*STD[mask])/np.sum(single_Zernike_parameter_sorted[i][mask]*STD[mask])).ravel())
-        #images_normalized=np.array(images_normalized)
-        
-        
-        #print(len(images_normalized[0]))
-        #import starting image
-     
-        H=np.transpose(np.array((images_normalized-M0))/array_of_delta_z[:,None])    
-    
-        
-        HHt=np.matmul(np.transpose(H),H) 
-        print('svd thresh is '+str(thresh))
-        invHHt=svd_invert(HHt,thresh)
-        invHHtHt=np.matmul(invHHt,np.transpose(H))
-        
-        first_proposal_Tokovnin=np.matmul(invHHtHt,I-M0)
-        #first_proposal_Tokovnin=np.matmul(invHHtHt,I-M0_STD)
-       
-        Tokovnin_proposal=0.9*first_proposal_Tokovnin
-        #print('Tokovnin_proposal '+str(Tokovnin_proposal))
-        print('std of Tokovnin_proposal is: '+str(np.std(Tokovnin_proposal)))
-        
-        all_wavefront_z_new=np.copy(all_wavefront_z_old)
-        #print('len(all_wavefront_z_new)'+str(len(all_wavefront_z_new)))
-        #print('len(Tokovnin_proposal)'+str(len(Tokovnin_proposal)))    
-        all_wavefront_z_new=all_wavefront_z_new+Tokovnin_proposal
-        up_to_z22_end=all_wavefront_z_new[:19]
-        from_z22_end=all_wavefront_z_new[19:]
-        allparameters_proposal_after_iteration=np.concatenate((up_to_z22_end,allparameters_proposal[19:42],from_z22_end))
-        
-        likelihood_after_iteration,final_optpsf_image,allparameters_proposal_after_iteration=model_return(allparameters_proposal_after_iteration)
-        #final_hash=np.abs(hash(tuple(allparameters_proposal_after_iteration)))
-        #final_optpsf_image=np.load(RESULT_DIRECTANDINT_FOLDER+'optPsf_cut_fiber_convolved_downsampled_'+str(final_hash)+'.npy')
-        
-        M_final=(final_optpsf_image[mask]/np.sum(final_optpsf_image[mask])).ravel()
-        #M_final=((final_optpsf_image[mask]*STD[mask])/np.sum(final_optpsf_image[mask]*STD[mask])).ravel()   
-        
-        
-        
-        IM_final=np.sum(np.abs(I-M_final))
-        print('I-M_final after iteration '+str(iteration_number)+': '+str(np.sum(np.abs(I-M_final))))
-         
-        
-        chi_2_after_iteration=(-2)*likelihood_after_iteration/(sci_image.shape[0]*sci_image.shape[1])
-        #print('chi_2_after_iteration '+str(iteration_number)+': '+str(chi_2_after_iteration))
-        if chi_2_after_iteration/chi_2_before_iteration <1.02 :
-            did_chi_2_improve=1
-        else:
-            did_chi_2_improve=0
-            # resetting all parameters
-            all_wavefront_z_new=np.copy(all_wavefront_z_old)
-            chi_2_after_iteration=chi_2_before_iteration
-            all_wavefront_z_new=np.copy(all_wavefront_z_old)
-            up_to_z22_end=all_wavefront_z_new[:19]
-            from_z22_start=all_wavefront_z_new[19:]
-            allparameters_proposal_after_iteration=np.concatenate((up_to_z22_start,allparameters_proposal[19:42],from_z22_start))
-            thresh=thresh0
-            number_of_non_decreses.append(1)
-            print('current value of number_of_non_decreses is: '+str(np.sum(number_of_non_decreses)))
-            
-            #np.save('/tigress/ncaplar/Result_DirectAndInt_FinalResults/allparameters_proposal_after_iteration_'+str(obs)+str(single_number)+str(eps)+str(arc),allparameters_proposal_after_iteration)
-            #np.save('/tigress/ncaplar/Result_DirectAndInt_FinalResults/final_optpsf_image'+str(obs)+str(single_number)+str(eps)+str(arc),final_optpsf_image)
-    
-    
-            
-            if np.sum(number_of_non_decreses)==3:
-                # need to put in save here as well, right?
-                np.save(RESULT_DIRECTANDINT_FINALRESULTS_FOLDER+NAME_OF_allparameters,allparameters_proposal_after_iteration)
-                np.save(RESULT_DIRECTANDINT_FINALRESULTS_FOLDER+NAME_OF_final_optpsf,final_optpsf_image)
-                np.save(RESULT_DIRECTANDINT_FINALRESULTS_FOLDER+NAME_OF_pre_image,pre_image)
-                sys.exit(0)
-        '''
-        if IM_final/IM_start <1.05 :
-            did_chi_2_improve=1
-        else:
-            did_chi_2_improve=0
-            # resetting all parameters
-            all_wavefront_z_new=np.copy(all_wavefront_z_old)
-            chi_2_after_iteration=chi_2_before_iteration
-            all_wavefront_z_new=np.copy(all_wavefront_z_old)
-            up_to_z22_end=all_wavefront_z_new[:19]
-            from_z22_start=all_wavefront_z_new[19:]
-            allparameters_proposal_after_iteration=np.concatenate((up_to_z22_start,allparameters_proposal[19:42],from_z22_start))
-            thresh=thresh0
-            number_of_non_decreses.append(1)
-            if np.sum(number_of_non_decreses)==3:
-                sys.exit(0)
-        '''
-        
-        
-        print('Likelihood for the proposal after iteration number '+str(iteration_number)+' is: '+str((-2)*likelihood_after_iteration/(sci_image.shape[0]*sci_image.shape[1])))
-        print('did_chi_2_improve (1 for yes, 0 for no): '+str(did_chi_2_improve))
-        
-        if iteration_number==9: 
-            np.save(RESULT_DIRECTANDINT_FINALRESULTS_FOLDER+NAME_OF_allparameters,allparameters_proposal_after_iteration)
-            np.save(RESULT_DIRECTANDINT_FINALRESULTS_FOLDER+NAME_OF_final_optpsf,final_optpsf_image)
-            np.save(RESULT_DIRECTANDINT_FINALRESULTS_FOLDER+NAME_OF_pre_image,pre_image)
-    print('Time when total script finished was: '+time.ctime())     
-    time_end=time.time()   
-    print('Total time taken was  '+str(time_end-time_start)+' seconds')
-    
-
     sys.stdout.flush()
     pool.close()
     sys.exit(0)

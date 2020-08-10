@@ -63,6 +63,7 @@ Jul 09, 2020: 0.30c -> 0.30d changed all float64 to float32
 Jul 16, 2020: 0.30d -> 0.31 moved all fft to scipy.signal.fftconvolve
 Jul 20, 2020: 0.31 -> 0.32 introduced renormalization_of_var_sum for multi_var analysis
 Jul 26, 2020: 0.32 -> 0.32a only changed last value of allparameters if len()==42
+Aug 10, 2020L 0.32a -> 0.33 added extra Zernike to parInit
 
 
 @author: Neven Caplar
@@ -1947,20 +1948,47 @@ class LN_PFS_multi_same_spot(object):
         self.fit_for_flux=fit_for_flux
         self.list_of_defocuses=list_of_defocuses
         
+    def move_parametrizations_from_1d_to_2d(self,allparameters_parametrizations_1d,zmax=None):
+        
+        # 22 parameters has len of 61
+        if zmax is None:
+            zmax=int((len(allparameters_parametrizations_1d)-61)/2+22)
+        
+        assert len(allparameters_parametrizations_1d.shape)==1
+        
 
+        z_parametrizations=allparameters_parametrizations_1d[:19*2].reshape(19,2)
+        g_parametrizations=np.transpose(np.vstack((np.zeros(len(allparameters_parametrizations_1d[19*2:19*2+23])),\
+                                                   allparameters_parametrizations_1d[19*2:19*2+23])))
+            
+            
+        if zmax>22:
+            extra_Zernike_parameters_number=zmax-22
+        z_extra_parametrizations=allparameters_parametrizations_1d[19*2+23:].reshape(extra_Zernike_parameters_number,2)    
+        
+        if zmax<=22:
+            allparameters_parametrizations_2d=np.vstack((z_parametrizations,g_parametrizations))   
+        if zmax>22:
+            allparameters_parametrizations_2d=np.vstack((z_parametrizations,g_parametrizations,z_extra_parametrizations))   
+        
+        assert allparameters_parametrizations_2d[41][1] > 0.98
+        assert allparameters_parametrizations_2d[41][1] < 1.02        
+        
+        return allparameters_parametrizations_2d
         
         
-    def create_list_of_allparameters(self,allparameters_parametrizations,list_of_defocuses=None):
+    def create_list_of_allparameters(self,allparameters_parametrizations,list_of_defocuses=None,zmax=None):
         """
-        given the parametrizations, create list_of_allparameters to be used in analysis of single images
+        given the parametrizations (in either 1d or 2d ), create list_of_allparameters to be used in analysis of single images
         
         """
-
-
+        
+        if zmax is None:
+            zmax=self.zmax
+        
+        # if you have passed parameterization in 1d, move to 2d 
         if len(allparameters_parametrizations.shape)==1:
-            z_parametrizations=allparameters_parametrizations[:19*2].reshape(19,2)
-            g_parametrizations=np.transpose(np.vstack((np.zeros(len(allparameters_parametrizations[19*2:])),allparameters_parametrizations[19*2:])))
-            allparameters_parametrizations=np.vstack((z_parametrizations,g_parametrizations))
+            allparameters_parametrizations=self.move_parametrizations_from_1d_to_2d(allparameters_parametrizations)
             
         list_of_allparameters=[]
         
@@ -1972,7 +2000,7 @@ class LN_PFS_multi_same_spot(object):
             #print(list_of_defocuses_int)
             # go through the list of defocuses, and create the allparameters array for each defocus
             for i in range(len(list_of_defocuses)):
-                list_of_allparameters.append(self.create_allparameters_single(list_of_defocuses_int[i],allparameters_parametrizations,self.zmax))
+                list_of_allparameters.append(self.create_allparameters_single(list_of_defocuses_int[i],allparameters_parametrizations,zmax))
             
             #print(list_of_allparameters)
             
@@ -1997,17 +2025,24 @@ class LN_PFS_multi_same_spot(object):
         
     def create_allparameters_single(self,mm,array_of_polyfit_1_parameterizations,zmax=None):
         """
-        transfroms linear fits as a function of defocus of parametrizations into form acceptable for creating single images 
+        transforms 1d array linear fits as a function of defocus of parametrizations into form acceptable for creating single images 
         workhorse function used by create_list_of_allparameters
         
         @param mm [float]                               defocus of the slit
-        @param array_of_polyfit_1_parameterizations     parametrs describing linear fit for the parameters as a function of focus
-        @param zmax                                     largerst Zernike used
+        @param array_of_polyfit_1_parameterizations     parameters describing linear fit for the parameters as a function of focus
+        @param zmax                                     largest Zernike used
         
         """
         
         if zmax==None:
-            zmax=11
+            # if len is 42, the zmax is 22
+            zmax=array_of_polyfit_1_parameterizations.shape[0]-42+22
+            if zmax>22:
+                extra_Zernike_parameters_number=zmax-22
+        else:
+            extra_Zernike_parameters_number=zmax-22
+            
+
         
         #for single case, up to z11
         if zmax==11:
@@ -2023,18 +2058,27 @@ class LN_PFS_multi_same_spot(object):
             for i in range(len(g_parametrizations)):
                 allparameters_proposal_single[i+8]=g_parametrizations[i][1] 
                 
-        if zmax==22:
+        if zmax>=22:
             z_parametrizations=array_of_polyfit_1_parameterizations[:19]
-            g_parametrizations=array_of_polyfit_1_parameterizations[19:]
+            g_parametrizations=array_of_polyfit_1_parameterizations[19:19+23]
+            
+            if extra_Zernike_parameters_number>0:
+                z_extra_parametrizations=array_of_polyfit_1_parameterizations[42:]
             
             
-            allparameters_proposal_single=np.zeros((19+len(g_parametrizations)))
+            allparameters_proposal_single=np.zeros((19+len(g_parametrizations)+extra_Zernike_parameters_number))
+            
+            
             for i in range(0,19,1):
                 #print(str([i,mm,z_parametrizations[i]]))
                 allparameters_proposal_single[i]=self.value_at_defocus(mm,z_parametrizations[i][0],z_parametrizations[i][1])      
         
             for i in range(len(g_parametrizations)):
                 allparameters_proposal_single[19+i]=g_parametrizations[i][1] 
+                
+            for i in range(0,extra_Zernike_parameters_number,1):
+                #print(str([i,mm,z_parametrizations[i]]))
+                allparameters_proposal_single[19+len(g_parametrizations)+i]=self.value_at_defocus(mm,z_extra_parametrizations[i][0],z_extra_parametrizations[i][1])      
             
         return allparameters_proposal_single           
     
@@ -2139,6 +2183,7 @@ class LN_PFS_multi_same_spot(object):
             
             list_of_var_sums.append(var_sum)
         
+        # renormalization needs to be reconsidered?
         array_of_var_sum=np.array(list_of_var_sums)
         max_of_array_of_var_sum=np.max(array_of_var_sum)
         renormalization_of_var_sum=array_of_var_sum/max_of_array_of_var_sum
@@ -2209,6 +2254,7 @@ class LN_PFS_multi_same_spot(object):
 
         
         array_of_single_res=np.array(list_of_single_res)
+
         
         # renormalization
         
@@ -2717,7 +2763,7 @@ class LN_PFS_single(object):
         time_lnlike_end=time.time()  
         if self.verbosity==True:
             print('Finished with lnlike_Neven')
-            print('chi_2_almost/d.o.f is '+str(chi_2_almost_dof)+'; chi_2_almost_max is '+str(chi_2_almost_max)+' log(improvment) is '+str(np.log10(chi_2_almost_dof/chi_2_almost_max)))
+            print('chi_2_almost/d.o.f is '+str(chi_2_almost_dof)+'; chi_2_almost_max_dof is '+str(chi_2_almost_max_dof)+' log(improvment) is '+str(np.log10(chi_2_almost_dof/chi_2_almost_max_dof)))
             print('multiprocessing.current_process() '+str(current_process())+' thread '+str(threading.get_ident()))
             print(str(platform.uname()))
             print('Time for lnlike_Neven function in thread '+str(threading.get_ident())+' is: '+str(time_lnlike_end-time_lnlike_start) +str(' seconds'))    
@@ -2768,12 +2814,13 @@ class PFSLikelihoodModule(object):
     PFSLikelihoodModule class for calculating a likelihood for cosmoHammer.ParticleSwarmOptimizer
     """
 
-    def __init__(self,model):
+    def __init__(self,model,explicit_wavefront=None):
         """
         
         Constructor of the PFSLikelihoodModule
         """
         self.model=model
+        self.explicit_wavefront=explicit_wavefront
 
     def computeLikelihood(self, ctx):
         """
@@ -3952,7 +3999,7 @@ def create_parInit(allparameters_proposal,multi=None,pupil_parameters=None,allpa
     """!given the suggested parametrs create array with randomized starting values to supply to fitting code
     
     @param allparameters_proposal            array contaning suggested starting values for a model 
-    @param multi                             (not working) when you want to analyze more images at once
+    @param multi                             set to True when you want to analyze more images at once
     @param pupil_parameters                  fix parameters describing the pupil
     @param allparameters_proposal_err        uncertantity on proposed parameters
     @param stronger                          factors which increases all uncertanties by a constant value
@@ -3975,7 +4022,10 @@ def create_parInit(allparameters_proposal,multi=None,pupil_parameters=None,allpa
                     allparameters_proposal=np.concatenate((array_of_polyfit_1_parameterizations[:19].ravel(),array_of_polyfit_1_parameterizations[19:-1][:,1]))
                 if len(array_of_polyfit_1_parameterizations[19:])==22:
                     allparameters_proposal=np.concatenate((array_of_polyfit_1_parameterizations[:19].ravel(),array_of_polyfit_1_parameterizations[19:][:,1]))        
-    
+            if zmax>22:
+                allparameters_proposal=np.concatenate((array_of_polyfit_1_parameterizations[:19].ravel(),array_of_polyfit_1_parameterizations[19:][:,1],array_of_polyfit_1_parameterizations[42:].ravel()))   
+                
+                
         # if you have passed 1d parametrizations just copy
         else:
             
@@ -3991,12 +4041,12 @@ def create_parInit(allparameters_proposal,multi=None,pupil_parameters=None,allpa
     if stronger is None:
         stronger=1
         
-    # default value, if none is passes is set at 11
+    # default value for zmax, if None is passed it is set at 22
     if zmax is None:
-        zmax=11
+        zmax=22
         
     # if you are passing fixed scattering slope at number deduced from larger defocused image
-    # does not work with multi!!!!
+    # does not work with multi!!!! (really? - I think it should)
     if zmax==11:   
         if deduced_scattering_slope is not None:
             allparameters_proposal[26]=np.abs(deduced_scattering_slope)
@@ -4027,7 +4077,10 @@ def create_parInit(allparameters_proposal,multi=None,pupil_parameters=None,allpa
                                         0.1,0.1,0.02,0.02,0.5,0.2,0.1,
                                         30000,0.5,0.01,
                                         0.1,0.05,0.01]   )     
-    if zmax==22:
+    if zmax>=22:
+        
+        extra_Zernike_parameters_number=zmax-22
+        print('extra_Zernike_parameters_number:' +str(extra_Zernike_parameters_number))
         if allparameters_proposal_err is None:
             if multi is None:
                 # 19 values describing z4-z22
@@ -4049,6 +4102,10 @@ def create_parInit(allparameters_proposal,multi=None,pupil_parameters=None,allpa
                                                      0.1,0.64,0.05,0.2,
                                                      60000,0.95,0.014,
                                                      0.2,0.14,0.015])
+                if extra_Zernike_parameters_number > 0:
+                    extra_Zernike_proposal=0.05*np.ones((extra_Zernike_parameters_number,))
+                    allparameters_proposal_err=np.concatenate((allparameters_proposal_err,extra_Zernike_proposal))
+                
                 # fixed scattering slope at number deduced from larger defocused image
                 if deduced_scattering_slope is not None:
                     allparameters_proposal_err[26+11]=0
@@ -4060,13 +4117,17 @@ def create_parInit(allparameters_proposal,multi=None,pupil_parameters=None,allpa
                                                      0.15,0.15,0.1,
                                                      0.1,0.64,0.05,0.2,
                                                      60000,0.95,0.014,
-                                                     0.2,0.14,0.015])        
+                                                     0.2,0.14,0.015])     
+                extra_Zernike_proposal=0.05*np.ones((extra_Zernike_parameters_number*2,))
+                allparameters_proposal_err=np.concatenate((allparameters_proposal_err,extra_Zernike_proposal))
+                
+
     
     
     if pupil_parameters is None:
-        number_of_par=len(allparameters_proposal)
+        number_of_par=len(allparameters_proposal_err)
     else:
-        number_of_par=len(allparameters_proposal)-len(pupil_parameters)
+        number_of_par=len(allparameters_proposal_err)-len(pupil_parameters)
         
     walkers_mult=6
     nwalkers=number_of_par*walkers_mult
@@ -4085,7 +4146,7 @@ def create_parInit(allparameters_proposal,multi=None,pupil_parameters=None,allpa
             zparameters_flatten_err=allparameters_proposal_err[0:8*2]
             globalparameters_flatten=allparameters_proposal[8*2:]
             globalparameters_flatten_err=allparameters_proposal_err[8*2:]
-    if zmax==22:
+    if zmax>=22:
         if multi is None:
             zparameters_flatten=allparameters_proposal[0:8+11]
             zparameters_flatten_err=allparameters_proposal_err[0:8+11]
@@ -4125,7 +4186,9 @@ def create_parInit(allparameters_proposal,multi=None,pupil_parameters=None,allpa
                         zparameters_flat=np.column_stack((zparameters_flat,zparameters_flat_single_par))
             except NameError:
                 print('NameError!')        
-    if zmax==22:
+                
+                
+    if zmax>=22:
         if multi is None:
             try: 
                 for i in range(8+11):
@@ -4139,23 +4202,34 @@ def create_parInit(allparameters_proposal,multi=None,pupil_parameters=None,allpa
                         zparameters_flat=np.column_stack((zparameters_flat,zparameters_flat_single_par))
             except NameError:
                 print('NameError!')
+                
+        # in case that multi variable is turned on:        
         else:
             try: 
                 for i in range((8+11)*2):
-                    #print(i)
-                    #print(zparameters_flatten[i])
-                    #print(zparameters_flatten_err[i])
-                    #print(nwalkers)
                     zparameters_flat_single_par=np.concatenate(([zparameters_flatten[i]],np.random.normal(zparameters_flatten[i],zparameters_flatten_err[i],nwalkers-1)))
+
+                    
+                    
                     if i==0:
                         zparameters_flat=zparameters_flat_single_par
                     else:
                         zparameters_flat=np.column_stack((zparameters_flat,zparameters_flat_single_par))
+                        
+                # if you are going for extra Zernike parameters
+                if zmax>22 :
+                    for i in range(extra_Zernike_parameters_number*2):
+                        print(i)
+                        zparameters_extra_flat_single_par=np.random.normal(0,0.05,nwalkers)
+                        print(zparameters_extra_flat_single_par.shape)
+                        if i==0:
+                            zparameters_extra_flat=zparameters_extra_flat_single_par
+                        else:
+                            zparameters_extra_flat=np.column_stack((zparameters_extra_flat,zparameters_extra_flat_single_par))
+                        print(zparameters_extra_flat.shape)
+                        
             except NameError:
                 print('NameError!')        
-        
-    #print(globalparameters_flatten[0])
-    #print(globalparameters_flatten_err[0])       
     
     try:
         #print(globalparameters_flatten)
@@ -4313,11 +4387,12 @@ def create_parInit(allparameters_proposal,multi=None,pupil_parameters=None,allpa
 
     
     #print(globalparameters_flat.shape) 
-    
-    allparameters=np.column_stack((zparameters_flat,globalparameters_flat))
-    
-    parInit=allparameters.reshape(nwalkers,number_of_par) 
-    
+    if zmax<=22:    
+        allparameters=np.column_stack((zparameters_flat,globalparameters_flat))
+    if zmax>22:    
+        allparameters=np.column_stack((zparameters_flat,globalparameters_flat,zparameters_extra_flat))    
+      
+    parInit=allparameters.reshape(nwalkers,number_of_par)   
     
     # hm..... relic of some older code, needs cleaning
     if use_optPSF is not None:
