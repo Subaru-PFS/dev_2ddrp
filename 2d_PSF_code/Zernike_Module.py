@@ -63,7 +63,8 @@ Jul 09, 2020: 0.30c -> 0.30d changed all float64 to float32
 Jul 16, 2020: 0.30d -> 0.31 moved all fft to scipy.signal.fftconvolve
 Jul 20, 2020: 0.31 -> 0.32 introduced renormalization_of_var_sum for multi_var analysis
 Jul 26, 2020: 0.32 -> 0.32a only changed last value of allparameters if len()==42
-Aug 10, 2020L 0.32a -> 0.33 added extra Zernike to parInit
+Aug 10, 2020: 0.32a -> 0.33 added extra Zernike to parInit
+Aug 12, 2020: 0.33 -> 0.33a changed iters to 6 in fluxfit
 
 
 @author: Neven Caplar
@@ -138,7 +139,7 @@ __all__ = ['PupilFactory', 'Pupil','ZernikeFitter_PFS','LN_PFS_multi_same_spot',
            'sky_scale','sky_size','remove_pupil_parameters_from_all_parameters',\
            'resize','_interval_overlap','svd_invert']
 
-__version__ = "0.32"
+__version__ = "0.33a"
 
 
 
@@ -1173,7 +1174,7 @@ class ZernikeFitter_PFS(object):
             print('size_of_central_cut: '+str(size_of_central_cut))
             
         # cut part which you need to form the final image 
-        # set oversampling to 1 so you are not resizingthe image  and dx=0 and dy=0 so that you are not moving around, i.e., you are cutting the central region
+        # set oversampling to 1 so you are not resizing the image, and dx=0 and dy=0 so that you are not moving around, i.e., you are cutting the central region
         optPsf_cut=Psf_position.cut_Centroid_of_natural_resolution_image(image=optPsf,size_natural_resolution=size_of_central_cut+1,oversampling=1,dx=0,dy=0)
         if self.verbosity==1:
             print('optPsf_cut.shape'+str(optPsf_cut.shape))
@@ -1328,8 +1329,8 @@ class ZernikeFitter_PFS(object):
         # 5. centering
         # This is the part which creates the final image
         
-        # if you have requsted a simulated image without movement, `simulation_00' will not be `None' and the code goes into the small if statment below
-        # otherwise the statment is skipped an the code does not create image with optical center at (0,0)
+        # if you have requsted a simulated image without movement, `simulation_00' will not be `None' and the code goes into the small ``if statment'' below
+        # otherwise, if `simulation_00' is `None' the statment is skipped and the code does not create image with optical center at (0,0)
         if self.verbosity==1:
             print('simulation_00 parameter:' +str(self.simulation_00))
         if self.simulation_00 is not None:
@@ -1964,15 +1965,17 @@ class LN_PFS_multi_same_spot(object):
             
         if zmax>22:
             extra_Zernike_parameters_number=zmax-22
-        z_extra_parametrizations=allparameters_parametrizations_1d[19*2+23:].reshape(extra_Zernike_parameters_number,2)    
+            z_extra_parametrizations=allparameters_parametrizations_1d[19*2+23:].reshape(extra_Zernike_parameters_number,2)    
         
         if zmax<=22:
             allparameters_parametrizations_2d=np.vstack((z_parametrizations,g_parametrizations))   
         if zmax>22:
             allparameters_parametrizations_2d=np.vstack((z_parametrizations,g_parametrizations,z_extra_parametrizations))   
         
-        assert allparameters_parametrizations_2d[41][1] > 0.98
-        assert allparameters_parametrizations_2d[41][1] < 1.02        
+        
+        #print('allparameters_parametrizations_2d[41]: '+ str(allparameters_parametrizations_2d[41]))
+        #assert allparameters_parametrizations_2d[41][1] >= 0.98
+        #assert allparameters_parametrizations_2d[41][1] <= 1.02        
         
         return allparameters_parametrizations_2d
         
@@ -1987,6 +1990,9 @@ class LN_PFS_multi_same_spot(object):
             zmax=self.zmax
         
         # if you have passed parameterization in 1d, move to 2d 
+        #print("allparameters_parametrizations.type: "+str(type(allparameters_parametrizations)))
+        #print("allparameters_parametrizations.len: "+str(+len(allparameters_parametrizations)))
+        #print("allparameters_parametrizations.shape: "+str(allparameters_parametrizations.shape))
         if len(allparameters_parametrizations.shape)==1:
             allparameters_parametrizations=self.move_parametrizations_from_1d_to_2d(allparameters_parametrizations)
             
@@ -2123,10 +2129,26 @@ class LN_PFS_multi_same_spot(object):
             remove_last_n=2
         
         list_of_defocuses_int=self.transform_list_of_defocuses_from_str_to_float(list_of_defocuses_input)
+        if remove_last_n>0:
+            array_of_allparameters=array_of_allparameters[:,:-remove_last_n]
         
+        if zmax<=22:
+            len_of_iterations=array_of_allparameters.shape[1]
+        else:
+            len_of_iterations=42+zmax-22
+            
         list_of_polyfit_1_parameter=[]
-        for i in range(array_of_allparameters.shape[1]-remove_last_n):
-            polyfit_1_parameter=np.polyfit(x=list_of_defocuses_int,y=array_of_allparameters[:,i],deg=1)
+        for i in range(len_of_iterations):
+            #print([i,array_of_allparameters.shape[1]])
+            if i<array_of_allparameters.shape[1]:
+                #print('i'+str(i)+' '+str(array_of_allparameters[:,i]))
+                polyfit_1_parameter=np.polyfit(x=list_of_defocuses_int,y=array_of_allparameters[:,i],deg=1)
+            else:
+                #print('i'+str(i)+' '+'None')
+                # if you have no input for such high level of Zernike, set it at zero
+                polyfit_1_parameter=np.array([0,0])
+                
+            #print('i_polyfit'+str(i)+' '+str(polyfit_1_parameter))
             list_of_polyfit_1_parameter.append(polyfit_1_parameter)
             
         array_of_polyfit_1_parameterizations=np.array(list_of_polyfit_1_parameter)        
@@ -2351,7 +2373,7 @@ class LN_PFS_single(object):
                           'x_fiber','y_fiber','effective_ilum_radius','frd_sigma','frd_lorentz_factor','det_vert','slitHolder_frac_dx',
                           'grating_lines','scattering_slope','scattering_amplitude',
                           'pixel_effect','fiber_r','flux']         
-        if zmax==22:
+        if zmax>=22:
             self.columns=['z4','z5','z6','z7','z8','z9','z10','z11',
                           'z12','z13','z14','z15','z16','z17','z18','z19','z20','z21','z22', 
               'hscFrac','strutFrac','dxFocal','dyFocal','slitFrac','slitFrac_dy',
@@ -2490,12 +2512,18 @@ class LN_PFS_single(object):
                 allparameters=add_pupil_parameters_to_all_parameters(allparameters,self.pupil_parameters)
             else:
                 allparameters=add_pupil_parameters_to_all_parameters(remove_pupil_parameters_from_all_parameters(allparameters),self.pupil_parameters)
-                        
-        zparameters=allparameters[0:self.zmax-3]
-        globalparameters=allparameters[len(zparameters):]
         
-        if self.fit_for_flux==True:
-            globalparameters=np.concatenate((globalparameters,np.array([1])))
+
+        if self.zmax<=22:
+            zmax_number=self.zmax-3              
+        else:
+            zmax_number=19
+        zparameters=allparameters[0:zmax_number]
+            
+        globalparameters=allparameters[len(zparameters):len(zparameters)+23]
+        
+        #if self.fit_for_flux==True:
+        #    globalparameters=np.concatenate((globalparameters,np.array([1])))
 
         
 
@@ -2507,7 +2535,7 @@ class LN_PFS_single(object):
         #When running big fits these are limits which ensure that the code does not wander off in totally non physical region
         # hsc frac
         if globalparameters[0]<=0.6 or globalparameters[0]>0.8:
-            print('globalparameters[0] outside limits') if test_print == 1 else False 
+            print('globalparameters[0] outside limits; value: '+str(globalparameters[0])) if test_print == 1 else False 
             return -np.inf
         
          #strut frac
@@ -2728,7 +2756,7 @@ class LN_PFS_single(object):
             def find_flux_fit(flux_fit):
                 return self.create_chi_2_almost(flux_fit*modelImg,self.sci_image,self.var_image,self.mask_image)[0]     
             
-            flux_fitting_result = scipy.optimize.shgo(find_flux_fit,bounds=[(0.98,1.02)])
+            flux_fitting_result = scipy.optimize.shgo(find_flux_fit,bounds=[(0.98,1.02)],iters=6)
             flux=flux_fitting_result.x[0]
             if len(allparameters)==42:
                 allparameters[-1]=flux
@@ -3434,7 +3462,15 @@ class Zernike_Analysis(object):
 
 class Psf_position(object):
     """
-    Class that deals with positining the PSF model in respect to the data
+    Class that deals with positioning the PSF model in respect to the data
+    
+    inputs are:
+        
+        image                                       oversampled model image
+        oversampling                                by how much is the the oversampled image oversampled
+        size_natural_resolution                     size of the final image
+        simulation_00                               True if simulate at optical center at 0,0
+    
     """
 
     def __init__(self, image,oversampling,size_natural_resolution, simulation_00=False, double_sources=False,double_sources_positions_ratios=[0,0],verbosity=0,save=None):
@@ -3459,7 +3495,7 @@ class Psf_position(object):
         function which takes central part of a larger oversampled image
         
         @param image                          array contaning suggested starting values for a model 
-        @param size_natural_resolution        how many natural units to create new image (fix)
+        @param size_natural_resolution        size of new image in natural units 
         @param oversampling                   oversampling
         @param dx                             how much to move in dx direction (fix)
         @param dy                             how much to move in dy direction (fix)
@@ -3486,8 +3522,8 @@ class Psf_position(object):
         @param sci_image_0                                                scientific image
         @param var_image_0                                                variance image
         @param v_flux                                                     flux normalization
-        @param simulation_00                                              do not move the center, for making good comparisons between images
-        @param double_sources                                             are there double sources avaliable in the image ?
+        @param simulation_00                                              do not move the center, for making fair comparisons between models - optical center in the center of the image
+        @param double_sources                                             are there double sources in the image
         @param double_sources_positions_ratios                            tuple describing init guess for the relation between secondary and primary souces (offset, ratio)
         @param verbosity                                                  verbosity of the algorithm
         
@@ -3501,7 +3537,7 @@ class Psf_position(object):
         
         # if you are just asking for simulated image at (0,0) there is no possibility to create double sources
         if simulation_00==1:
-            double_souces=None
+            double_sources=None
             
         if double_sources is None or double_sources is False:
             double_sources_positions_ratios=[0,0]
@@ -3621,12 +3657,14 @@ class Psf_position(object):
         """
         create one complete realization of the image from the full oversampled image
         
-        @param x                                                          array contaning x_primary, y_primary (y_secondary, ratio_secondary)
-        @bol return_full_result                                           if yes, return the images iteself (not just chi**2)
+        @param     x                                                          array contaning x_primary, y_primary (y_secondary, ratio_secondary)
+                                                                              what is x_primary and y_primary?
+        @bol       return_full_result                                         if True, returns the images iteself (not just chi**2)
         """
         
         
         image=self.image
+        # I think I use sci_image only for its shape
         sci_image=self.sci_image
         var_image=self.var_image
         mask_image=self.mask_image
@@ -3715,7 +3753,7 @@ class Psf_position(object):
                                                                                         input_img_single_realization_before_downsampling_primary_floor_floor,input_img_single_realization_before_downsampling_primary_floor_ceiling,\
                                                                                         input_img_single_realization_before_downsampling_primary_ceiling_floor,input_img_single_realization_before_downsampling_primary_ceiling_ceiling)
         
-          # downsample the primary image    
+        # downsample the primary image    
         single_primary_realization=resize(input_img_single_realization_before_downsampling_primary,(shape_of_sci_image,shape_of_sci_image))
          
         ###################
@@ -3853,7 +3891,15 @@ class Psf_position(object):
           np.save('/home/ncaplar/pos',pos)          
           np.save('/home/ncaplar/crop',crop)
           
-    def bilinear_interpolation(self, y,x,img_floor_floor,img_floor_ceiling,img_ceiling_floor,img_ceiling_ceiling):     
+    def bilinear_interpolation(self, y,x,img_floor_floor,img_floor_ceiling,img_ceiling_floor,img_ceiling_ceiling):   
+        
+        '''
+        creates bilinear interpolation given y and x subpixel coordinate and 4 images
+        
+        '''
+        
+        
+        
         # have to check if floor and ceiling definition are ok 
         # https://en.wikipedia.org/wiki/Bilinear_interpolation
         # x2=1
@@ -4023,7 +4069,8 @@ def create_parInit(allparameters_proposal,multi=None,pupil_parameters=None,allpa
                 if len(array_of_polyfit_1_parameterizations[19:])==22:
                     allparameters_proposal=np.concatenate((array_of_polyfit_1_parameterizations[:19].ravel(),array_of_polyfit_1_parameterizations[19:][:,1]))        
             if zmax>22:
-                allparameters_proposal=np.concatenate((array_of_polyfit_1_parameterizations[:19].ravel(),array_of_polyfit_1_parameterizations[19:][:,1],array_of_polyfit_1_parameterizations[42:].ravel()))   
+                # will fail if you ask for z larger than 22 and you have not provided it 
+                allparameters_proposal=np.concatenate((array_of_polyfit_1_parameterizations[:19].ravel(),array_of_polyfit_1_parameterizations[19:19+23][:,1],array_of_polyfit_1_parameterizations[42:].ravel()))   
                 
                 
         # if you have passed 1d parametrizations just copy
@@ -4080,7 +4127,7 @@ def create_parInit(allparameters_proposal,multi=None,pupil_parameters=None,allpa
     if zmax>=22:
         
         extra_Zernike_parameters_number=zmax-22
-        print('extra_Zernike_parameters_number:' +str(extra_Zernike_parameters_number))
+        print('extra_Zernike_parameters_number in parInit :' +str(extra_Zernike_parameters_number))
         if allparameters_proposal_err is None:
             if multi is None:
                 # 19 values describing z4-z22
@@ -4117,8 +4164,10 @@ def create_parInit(allparameters_proposal,multi=None,pupil_parameters=None,allpa
                                                      0.15,0.15,0.1,
                                                      0.1,0.64,0.05,0.2,
                                                      60000,0.95,0.014,
-                                                     0.2,0.14,0.015])     
-                extra_Zernike_proposal=0.05*np.ones((extra_Zernike_parameters_number*2,))
+                                                     0.2,0.14,0.015])    
+                
+                # at the moment zero because I do not want these to actually move around, but perhaps needs to be reconsidered in the future
+                extra_Zernike_proposal=0.0*np.ones((extra_Zernike_parameters_number*2,))
                 allparameters_proposal_err=np.concatenate((allparameters_proposal_err,extra_Zernike_proposal))
                 
 
@@ -4156,8 +4205,10 @@ def create_parInit(allparameters_proposal,multi=None,pupil_parameters=None,allpa
         else:
             zparameters_flatten=allparameters_proposal[0:(8+11)*2]
             zparameters_flatten_err=allparameters_proposal_err[0:(8+11)*2]
-            globalparameters_flatten=allparameters_proposal[(8+11)*2:]
-            globalparameters_flatten_err=allparameters_proposal_err[(8+11)*2:]        
+            globalparameters_flatten=allparameters_proposal[(8+11)*2:(8+11)*2+23]
+            globalparameters_flatten_err=allparameters_proposal_err[(8+11)*2:(8+11)*2+23]        
+            zparameters_extra_flatten=allparameters_proposal[(8+11)*2+23:]
+            zparameters_extra_flatten_err=allparameters_proposal_err[(8+11)*2+23:]
         
         
     #print(globalparameters_flatten)
@@ -4219,14 +4270,16 @@ def create_parInit(allparameters_proposal,multi=None,pupil_parameters=None,allpa
                 # if you are going for extra Zernike parameters
                 if zmax>22 :
                     for i in range(extra_Zernike_parameters_number*2):
-                        print(i)
-                        zparameters_extra_flat_single_par=np.random.normal(0,0.05,nwalkers)
-                        print(zparameters_extra_flat_single_par.shape)
+                        zparameters_extra_flat_single_par=np.concatenate(([zparameters_extra_flatten[i]],\
+                                                                         np.random.normal(zparameters_extra_flatten[i],zparameters_extra_flatten_err[i],nwalkers-1)))
+
+                        #zparameters_extra_flat_single_par=np.random.normal(0,0.05,nwalkers)
+                        #print(zparameters_extra_flat_single_par.shape)
                         if i==0:
                             zparameters_extra_flat=zparameters_extra_flat_single_par
                         else:
                             zparameters_extra_flat=np.column_stack((zparameters_extra_flat,zparameters_extra_flat_single_par))
-                        print(zparameters_extra_flat.shape)
+                        #print(zparameters_extra_flat.shape)
                         
             except NameError:
                 print('NameError!')        
@@ -4360,6 +4413,7 @@ def create_parInit(allparameters_proposal,multi=None,pupil_parameters=None,allpa
         """
         if pupil_parameters is None:
             if len(globalparameters_flatten)==23:
+                print('considering globalparameters_flatten 23 ')
                 globalparameters_flat=np.column_stack((globalparameters_flat_0,globalparameters_flat_1,globalparameters_flat_2,globalparameters_flat_3,
                                                    globalparameters_flat_4,globalparameters_flat_5,globalparameters_flat_6,globalparameters_flat_7,
                                                   globalparameters_flat_8,globalparameters_flat_9,globalparameters_flat_10,
@@ -4368,6 +4422,7 @@ def create_parInit(allparameters_proposal,multi=None,pupil_parameters=None,allpa
                                                    globalparameters_flat_17,globalparameters_flat_18,globalparameters_flat_19,
                                                    globalparameters_flat_20,globalparameters_flat_21,globalparameters_flat_22))
             else:
+                print('not considering globalparameters_flatten 23 !!! ')
                 globalparameters_flat=np.column_stack((globalparameters_flat_0,globalparameters_flat_1,globalparameters_flat_2,globalparameters_flat_3,
                                                    globalparameters_flat_4,globalparameters_flat_5,globalparameters_flat_6,globalparameters_flat_7,
                                                   globalparameters_flat_8,globalparameters_flat_9,globalparameters_flat_10,
@@ -4386,7 +4441,9 @@ def create_parInit(allparameters_proposal,multi=None,pupil_parameters=None,allpa
         print("NameError")
 
     
-    #print(globalparameters_flat.shape) 
+    print('globalparameters_flat.shape'+str(zparameters_flat.shape) )
+    print('globalparameters_flat.shape'+str(globalparameters_flat.shape) )
+    print('globalparameters_flat.shape'+str(zparameters_extra_flat.shape) )
     if zmax<=22:    
         allparameters=np.column_stack((zparameters_flat,globalparameters_flat))
     if zmax>22:    

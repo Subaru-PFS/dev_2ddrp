@@ -803,6 +803,8 @@ class Zernike_Analysis(object):
         
         wf_full=np.load(TESTING_WAVEFRONT_IMAGES_FOLDER+'wf_full.npy') 
         
+        
+        
         plt.figure(figsize=(36,6))
         plt.subplot(141)
         plt.imshow(wf_full)
@@ -821,10 +823,12 @@ class Zernike_Analysis(object):
         wf_full=np.load(TESTING_WAVEFRONT_IMAGES_FOLDER+'wf_full.npy') 
         wf_full_fake_0=np.load(TESTING_WAVEFRONT_IMAGES_FOLDER+'wf_full_fake_0.npy') 
         
+        midpoint=int(len(ilum)/2)
+        
         plt.figure(figsize=(26,6))
         
         plt.subplot(131)
-        plt.imshow(ilum,origin='lower',vmax=1,vmin=0)
+        plt.imshow(ilum[int(midpoint-len(ilum)/4):int(midpoint+len(ilum)/4),int(midpoint-len(ilum)/4):int(midpoint+len(ilum)/4)],origin='lower',vmax=1,vmin=0)
         plt.title('illumination of the pupil',fontsize=25)
         plt.subplot(132)
 
@@ -833,7 +837,8 @@ class Zernike_Analysis(object):
         
         wavefront=ilum_1*wf_full
         wavefront=wavefront/800
-        plt.imshow(wavefront,cmap=plt.get_cmap('bwr'),vmax=np.max(np.abs(wavefront))*0.75,vmin=-np.max(np.abs(wavefront))*0.75)
+        plt.imshow(wavefront[int(midpoint-len(ilum)/4):int(midpoint+len(ilum)/4),int(midpoint-len(ilum)/4):\
+                             int(midpoint+len(ilum)/4)],cmap=plt.get_cmap('bwr'),vmax=np.max(np.abs(wavefront))*0.75,vmin=-np.max(np.abs(wavefront))*0.75)
 
         plt.colorbar(fraction=0.046, pad=0.04)
         plt.title('wavefront [units of waves]',fontsize=25)
@@ -845,7 +850,7 @@ class Zernike_Analysis(object):
         
         wavefront=ilum_1*wf_full_fake_0
         wavefront=wavefront/800
-        plt.imshow(wavefront,cmap=plt.get_cmap('bwr'),vmax=np.max(np.abs(wavefront))*0.75,vmin=-np.max(np.abs(wavefront))*0.75)
+        plt.imshow(wavefront[int(midpoint-len(ilum)/4):int(midpoint+len(ilum)/4),int(midpoint-len(ilum)/4):int(midpoint+len(ilum)/4)],cmap=plt.get_cmap('bwr'),vmax=np.max(np.abs(wavefront))*0.75,vmin=-np.max(np.abs(wavefront))*0.75)
 
         plt.colorbar(fraction=0.046, pad=0.04)
         plt.title('wavefront w.o. defocus [u. of waves]',fontsize=25)        
