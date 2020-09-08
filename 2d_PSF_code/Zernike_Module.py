@@ -65,6 +65,7 @@ Jul 20, 2020: 0.31 -> 0.32 introduced renormalization_of_var_sum for multi_var a
 Jul 26, 2020: 0.32 -> 0.32a only changed last value of allparameters if len()==42
 Aug 10, 2020: 0.32a -> 0.33 added extra Zernike to parInit
 Aug 12, 2020: 0.33 -> 0.33a changed iters to 6 in fluxfit
+Sep 08, 2020: 0.33a -> 0.33b added test_run to help with debugging
 
 
 @author: Neven Caplar
@@ -139,7 +140,7 @@ __all__ = ['PupilFactory', 'Pupil','ZernikeFitter_PFS','LN_PFS_multi_same_spot',
            'sky_scale','sky_size','remove_pupil_parameters_from_all_parameters',\
            'resize','_interval_overlap','svd_invert']
 
-__version__ = "0.33a"
+__version__ = "0.33b"
 
 
 
@@ -706,7 +707,7 @@ class ZernikeFitter_PFS(object):
                  ilum_Image=None,dithering=None,save=None,
                  pupil_parameters=None,use_pupil_parameters=None,use_optPSF=None,
                  zmaxInit=None,extraZernike=None,simulation_00=None,verbosity=None,
-                 double_sources=None,double_sources_positions_ratios=None,*args):
+                 double_sources=None,double_sources_positions_ratios=None,test_run=None,*args):
         
         """
         @param image        image to analyze
@@ -830,12 +831,14 @@ class ZernikeFitter_PFS(object):
         self.double_sources=double_sources
         self.double_sources_positions_ratios=double_sources_positions_ratios
         
+        self.test_run=test_run
+        
         
         if self.verbosity==1:
             print('np.__version__' +str(np.__version__))
             print('skimage.__version__' +str(skimage.__version__))
             print('scipy.__version__' +str(scipy.__version__))
-            print('__version__' +str(__version__))
+            print('Zernike_Module.__version__' +str(__version__))
 
     
     def initParams(self,z4Init=None, dxInit=None,dyInit=None,hscFracInit=None,strutFracInit=None,
@@ -1886,7 +1889,7 @@ class LN_PFS_multi_same_spot(object):
     def __init__(self,list_of_sci_images,list_of_var_images,list_of_mask_images=None,dithering=None,save=None,verbosity=None,
              pupil_parameters=None,use_pupil_parameters=None,use_optPSF=None,
              zmax=None,extraZernike=None,pupilExplicit=None,simulation_00=None,
-             double_sources=None,double_sources_positions_ratios=None,npix=None,list_of_defocuses=None,fit_for_flux=True): 
+             double_sources=None,double_sources_positions_ratios=None,npix=None,list_of_defocuses=None,fit_for_flux=True,test_run=False): 
 
                 
         if verbosity is None:
@@ -1948,6 +1951,7 @@ class LN_PFS_multi_same_spot(object):
         self.npix=npix
         self.fit_for_flux=fit_for_flux
         self.list_of_defocuses=list_of_defocuses
+        self.test_run=test_run
         
     def move_parametrizations_from_1d_to_2d(self,allparameters_parametrizations_1d,zmax=None):
         
@@ -2223,7 +2227,8 @@ class LN_PFS_multi_same_spot(object):
                 model_single=LN_PFS_single(self.list_of_sci_images[i],self.list_of_var_images[i],self.list_of_mask_images[i],dithering=self.dithering,save=self.save,verbosity=self.verbosity,
                 pupil_parameters=self.pupil_parameters,use_pupil_parameters=self.use_pupil_parameters,use_optPSF=self.use_optPSF,
                 zmax=self.zmax,extraZernike=self.extraZernike,pupilExplicit=self.pupilExplicit,simulation_00=self.simulation_00,
-                double_sources=self.double_sources,double_sources_positions_ratios=self.double_sources_positions_ratios,npix=self.npix,fit_for_flux=self.fit_for_flux)
+                double_sources=self.double_sources,double_sources_positions_ratios=self.double_sources_positions_ratios,npix=self.npix,
+                fit_for_flux=self.fit_for_flux,test_run=self.test_run)
 
                 res_single_with_intermediate_images=model_single(list_of_allparameters[i],return_Image=True,return_intermediate_images=True)
                 if res_single_with_intermediate_images==-np.inf:
@@ -2249,7 +2254,8 @@ class LN_PFS_multi_same_spot(object):
                 model_single=LN_PFS_single(self.list_of_sci_images[i],self.list_of_var_images[i],self.list_of_mask_images[i],dithering=self.dithering,save=self.save,verbosity=self.verbosity,
                 pupil_parameters=self.pupil_parameters,use_pupil_parameters=self.use_pupil_parameters,use_optPSF=self.use_optPSF,
                 zmax=self.zmax,extraZernike=self.extraZernike,pupilExplicit=pupil_explicit_0,simulation_00=self.simulation_00,
-                double_sources=self.double_sources,double_sources_positions_ratios=self.double_sources_positions_ratios,npix=self.npix,fit_for_flux=self.fit_for_flux)
+                double_sources=self.double_sources,double_sources_positions_ratios=self.double_sources_positions_ratios,npix=self.npix,
+                fit_for_flux=self.fit_for_flux,test_run=self.test_run)
                 if return_Images==False:
                     res_single_without_intermediate_images=model_single(list_of_allparameters[i],return_Image=return_Images)
                     likelihood_result=res_single_without_intermediate_images
@@ -2332,7 +2338,7 @@ class LN_PFS_single(object):
     def __init__(self,sci_image,var_image,mask_image=None,dithering=None,save=None,verbosity=None,
                  pupil_parameters=None,use_pupil_parameters=None,use_optPSF=None,
                  zmax=None,extraZernike=None,pupilExplicit=None,simulation_00=None,
-                 double_sources=None,double_sources_positions_ratios=None,npix=None,fit_for_flux=None):    
+                 double_sources=None,double_sources_positions_ratios=None,npix=None,fit_for_flux=None,test_run=None):    
         """
         @param sci_image                               science image, 2d array
         @param var_image                               variance image, 2d array,same size as sci_image
@@ -2352,6 +2358,10 @@ class LN_PFS_single(object):
         @param double_sources_positions_ratios /       arrray with parameters describing relative position\
                                                        and relative flux of the secondary source(s)
         @param npxix                                   size of the pupil
+        
+        
+        @param test_run                                if True, skips the creation of model and return science image - useful for testing
+                                                       interaction of outputs of the module in broader setting quickly 
         """        
                 
         if verbosity is None:
@@ -2399,6 +2409,10 @@ class LN_PFS_single(object):
         self.double_sources=double_sources
         self.double_sources_positions_ratios=double_sources_positions_ratios
         self.fit_for_flux=fit_for_flux
+        if test_run==None:
+            self.test_run=False
+        else:
+            self.test_run=test_run
 
         # if npix is not specified automatically scale the image
         # this will create images which will have different pupil size for different sizes of science image
@@ -2428,14 +2442,18 @@ class LN_PFS_single(object):
             single_image_analysis=ZernikeFitter_PFS(sci_image,var_image,image_mask=mask_image,npix=npix,dithering=dithering,save=save,\
                                                     pupil_parameters=pupil_parameters,use_pupil_parameters=use_pupil_parameters,
                                                     use_optPSF=use_optPSF,zmaxInit=zmax,extraZernike=extraZernike,
-                                                    pupilExplicit=pupilExplicit,simulation_00=simulation_00,verbosity=verbosity,double_sources=double_sources,double_sources_positions_ratios=double_sources_positions_ratios)  
+                                                    pupilExplicit=pupilExplicit,simulation_00=simulation_00,verbosity=verbosity,\
+                                                    double_sources=double_sources,double_sources_positions_ratios=double_sources_positions_ratios,\
+                                                    test_run=test_run)  
             single_image_analysis.initParams(zmax)
             self.single_image_analysis=single_image_analysis
         else:
 
             single_image_analysis=ZernikeFitter_PFS(sci_image,var_image,image_mask=mask_image,npix=npix,dithering=dithering,save=save,\
                                                     pupil_parameters=pupil_parameters,use_pupil_parameters=use_pupil_parameters,
-                                                    extraZernike=extraZernike,simulation_00=simulation_00,verbosity=verbosity,double_sources=double_sources,double_sources_positions_ratios=double_sources_positions_ratios)  
+                                                    extraZernike=extraZernike,simulation_00=simulation_00,verbosity=verbosity,\
+                                                    double_sources=double_sources,double_sources_positions_ratios=double_sources_positions_ratios,\
+                                                    test_run=test_run)  
            
             single_image_analysis.initParams(zmax,hscFracInit=pupil_parameters[0],strutFracInit=pupil_parameters[1],
                    focalPlanePositionInit=(pupil_parameters[2],pupil_parameters[3]),slitFracInit=pupil_parameters[4],
@@ -2736,18 +2754,31 @@ class LN_PFS_single(object):
             if self.verbosity==1:
                 print('No extra Zernike (beyond zmax)')
                 
-
-        # this try statment avoids code crashing when code tries to analyze weird combination of parameters which fail to produce an image    
-        try:
+        # if it is not a test run, run the actual code        
+        if self.test_run==False:
+            # this try statment avoids code crashing when code tries to analyze weird combination of parameters which fail to produce an image    
+            try:
+                if return_intermediate_images==False:
+                    modelImg = self.single_image_analysis.constructModelImage_PFS_naturalResolution(self.single_image_analysis.params,\
+                                                                                                extraZernike=extra_Zernike_parameters,return_intermediate_images=return_intermediate_images)  
+                if return_intermediate_images==True:
+                    modelImg,ilum,wf_grid_rot = self.single_image_analysis.constructModelImage_PFS_naturalResolution(self.single_image_analysis.params,\
+                                                                                                extraZernike=extra_Zernike_parameters,return_intermediate_images=return_intermediate_images)                  
+            except IndexError:
+                return -np.inf
+        else:
             if return_intermediate_images==False:
-                modelImg = self.single_image_analysis.constructModelImage_PFS_naturalResolution(self.single_image_analysis.params,\
-                                                                                            extraZernike=extra_Zernike_parameters,return_intermediate_images=return_intermediate_images)  
-            if return_intermediate_images==True:
-                modelImg,ilum,wf_grid_rot = self.single_image_analysis.constructModelImage_PFS_naturalResolution(self.single_image_analysis.params,\
-                                                                                            extraZernike=extra_Zernike_parameters,return_intermediate_images=return_intermediate_images)                  
-        except IndexError:
-            return -np.inf
-        
+                modelImg=self.sci_image
+                print('this is a test_run')
+            else:
+                
+                ilum_test=np.ones((3072,3072))
+                #wf_grid_rot=np.load(TESTING_WAVEFRONT_IMAGES_FOLDER+'ilum.npy')
+                wf_grid_rot_test=np.ones((3072,3072))
+                modelImg,ilum,wf_grid_rot =self.sci_image,ilum_test,wf_grid_rot_test
+                print('test run with return_intermediate_images==True - this code could possibly break!')
+                 
+            
         
         if self.fit_for_flux==True:
             if self.verbosity==1:

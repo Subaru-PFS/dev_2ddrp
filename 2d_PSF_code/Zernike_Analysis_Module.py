@@ -12,6 +12,7 @@ Jun 17, 2020: 0.24a -> 0.24b cleaned the STAMPS_FOLDER specification
 Jun 25, 2020: 0.24b -> 0.25 improved create_res_data
 Jul 03, 2020: 0.25 -> 0.26 included multi analysis
 Jul 15, 2020: 0.26 -> 0.26a modified to include PSF_DIRECTORY
+Sep 08, 2020: 0.26a -> 0.26b small changed around create_chains functions
 
 @author: Neven Caplar
 @contact: ncaplar@princeton.edu
@@ -80,7 +81,7 @@ from typing import Tuple, Iterable
 
 __all__ = ['Zernike_Analysis','Zernike_result_analysis','create_mask','resize']
 
-__version__ = "0.26a"
+__version__ = "0.26b"
 
 ############################################################
 # name your directory where you want to have files!
