@@ -22,6 +22,10 @@ Jul 30, 2020: 0.32c -> 0.33 startedTokovinin implentation
 Jul 30, 2020: 0.33 -> 0.33a changed eps=6 to be test implementation
 Jul 31, 2020: 0.33a -> 0.33b implemented list_of_labelInput_without_focus_or_near_focus
 Aug 10, 2020: 0.33b -> 0.34 first implementation of the extra Zernike parameters
+Aug 11, 2020: 0.34 -> 0.34a multiple fixes in order to be able to run extra Zernike analysis
+Aug 12, 2020: 0.34a -> 0.34b increased initial variance of parameters in multiAnalysis
+Sep 09, 2020: 0.34b -> 0.35 added multi_var Tokovinin analysis
+Sep 16, 2020: 0.35 -> 0.35a added poor-mans analysis of fake images
 @author: Neven Caplar
 @contact: ncaplar@princeton.edu
 @web: www.ncaplar.com
@@ -76,7 +80,7 @@ import emcee
 #Zernike_Module
 from Zernike_Module import LN_PFS_single,LN_PFS_multi_same_spot,create_parInit,PFSLikelihoodModule,svd_invert
 
-__version__ = "0.34"
+__version__ = "0.35a"
 
 parser = argparse.ArgumentParser(description="Starting args import",
                                  formatter_class=argparse.RawTextHelpFormatter,
@@ -208,10 +212,16 @@ if dataset==3:
 # folder containing the data taken with F/2.8 stop in July 2019
 # dataset 4 (defocu) and 5 (fine defocus)
 if dataset==4 or dataset==5:
-    DATA_FOLDER='/tigress/ncaplar/ReducedData/Data_Aug_14/'        
+    DATA_FOLDER='/tigress/ncaplar/ReducedData/Data_Aug_14/'      
+    
+    if single_number==120:
+        DATA_FOLDER='/tigress/ncaplar/ReducedData/Data_Aug_14/'             
+    
 
 STAMPS_FOLDER=DATA_FOLDER+'Stamps_cleaned/'
 DATAFRAMES_FOLDER=DATA_FOLDER+'Dataframes/'
+
+
 RESULT_FOLDER='/tigress/ncaplar/Results/'
 ################################################ 
 arc=args.arc
@@ -274,6 +284,12 @@ if dataset==4:
 print('args.double_sources: '+str(args.double_sources))        
 
 def str2bool(v):
+    """ 
+    Small function that take a string and gives back boolean value
+    
+    """
+    
+    
     if isinstance(v, bool):
        return v
     if v.lower() in ('yes', 'true', 't', 'y', '1','True'):
@@ -311,17 +327,32 @@ print('date of output: '+str(date_of_output))
 parser.add_argument("analysis_type", help="analysis_type " )       
 analysis_type=args.analysis_type
 print('analysis_type: '+str(analysis_type))   
-################################################   
+################################################  
+
+# if you passing a fake stamps and dataframe (placed as index=120 and ``HgAr'' lamp)
+if single_number>=120 and arc=='HgAr':
+    STAMPS_FOLDER=DATA_FOLDER+'Stamps_cleaned_fake/'
+    DATAFRAMES_FOLDER=DATA_FOLDER+'Dataframes_fake/'   
+    
+    single_number_original=np.copy(single_number)    
+    single_number=120
+
+# here we should check that version of Zernike_Module one is using is correct?
+# not implemented
+
+
+
+ 
 
 # Finished with all arguments
 ################################################  
-# Tokovinin function at the moment here
+# Tokovinin function at the moment defined here
 
 def Tokovinin_algorithm_chi(sci_image,var_image,mask_image,allparameters_proposal):
    
     
     model = LN_PFS_single(sci_image,var_image,mask_image=mask_image,\
-                      dithering=1,save=0,zmax=22,verbosity=0,double_sources=None,\
+                      dithering=1,save=0,zmax=twentytwo_or_extra,verbosity=0,double_sources=None,\
                       double_sources_positions_ratios=double_sources_positions_ratios,fit_for_flux=True,npix=1536,pupil_parameters=None)  
 
 
@@ -352,13 +383,13 @@ def Tokovinin_algorithm_chi(sci_image,var_image,mask_image,allparameters_proposa
             thresh0 = 0.02
 
             # set number of extra Zernike
-            number_of_extra_zernike=0
+            #number_of_extra_zernike=0
             #twentytwo_or_extra=22
             # numbers that make sense are 11,22,37,56,79,106,137,172,211,254
-            if number_of_extra_zernike is None:
-                number_of_extra_zernike=0
-            else:
-                number_of_extra_zernike=twentytwo_or_extra-22
+            #if number_of_extra_zernike is None:
+            #    number_of_extra_zernike=0
+            #else:
+            number_of_extra_zernike=twentytwo_or_extra-22
 
         # list of how much to move Zernike coefficents
         list_of_delta_z=[]
@@ -374,7 +405,17 @@ def Tokovinin_algorithm_chi(sci_image,var_image,mask_image,allparameters_proposa
         # if this is the first iteration of the iterative algorithm
         if iteration_number==0:
             thresh=thresh0
-            all_wavefront_z_old=np.concatenate((allparameters_proposal[0:19],np.zeros(number_of_extra_zernike)))
+            
+            if number_of_extra_zernike==0:
+                all_wavefront_z_old=allparameters_proposal[0:19]
+            else:
+                # if you want more Zernike
+                if len(allparameters_proposal)==42:
+                    # if you did not pass explicit extra Zernike, start with zeroes
+                    all_wavefront_z_old=np.concatenate((allparameters_proposal[0:19],np.zeros(number_of_extra_zernike)))
+                else:
+                    all_wavefront_z_old=np.concatenate((allparameters_proposal[0:19],allparameters_proposal[19+23:]))
+                    
             pass
         # if this is not a first iteration
         else:
@@ -399,8 +440,9 @@ def Tokovinin_algorithm_chi(sci_image,var_image,mask_image,allparameters_proposa
 
         up_to_z22_start=all_wavefront_z_old[0:19]     
         from_z22_start=all_wavefront_z_old[19:]  
+        print('from_z22_start: '+str(from_z22_start))
 
-        initial_input_parameters=np.concatenate((up_to_z22_start,pre_input_parameters[19:],from_z22_start))
+        initial_input_parameters=np.concatenate((up_to_z22_start,pre_input_parameters[19:19+23],from_z22_start))
         print('initial input parameters in iteration '+str(iteration_number)+' is: '+str(initial_input_parameters))
         print('moving input parameters in iteration '+str(iteration_number)+' by: '+str(array_of_delta_z))        
         initial_model_result,image_0,initial_input_parameters,pre_chi2=model(initial_input_parameters,return_Image=True,return_intermediate_images=False)
@@ -544,7 +586,7 @@ def Tokovinin_algorithm_chi(sci_image,var_image,mask_image,allparameters_proposa
         print('#########################################################')
         #if chi_2_after_iteration/chi_2_before_iteration <1.02 :
             
-        if IM_final_std/IM_start_std <1.002 :
+        if IM_final_std/IM_start_std <1.0 :
             #when the quality measure did improve
             did_chi_2_improve=1
             number_of_non_decreses.append(0)
@@ -572,11 +614,601 @@ def Tokovinin_algorithm_chi(sci_image,var_image,mask_image,allparameters_proposa
     return likelihood_after_iteration,final_optpsf_image,allparameters_proposal_after_iteration,chi2_after_iteration_array        
     
 
+def move_parametrizations_from_2d_shape_to_1d_shape(allparameters_best_parametrization_shape_2d):
+    """ 
+    change the linear parametrization array in 2d shape to parametrization array in 1d
+    
+    @param allparameters_best_parametrization_shape_2d        linear parametrization, 2d array
+    
+    """    
+    
+    
+    if allparameters_best_parametrization_shape_2d.shape[0]>42:
+        #  if you are using above Zernike above 22
+        print('we are creating new result with Zernike above 22')
+        allparameters_best_parametrization_shape_1d=np.concatenate((allparameters_best_parametrization_shape_2d[:19].ravel(),
+                                                    allparameters_best_parametrization_shape_2d[19:19+23][:,1],\
+                                                        allparameters_best_parametrization_shape_2d[19+23:].ravel()))
+        
+    else:
+        print('we are creating new result with Zernike at 22')
+        allparameters_best_parametrization_shape_1d=np.concatenate((allparameters_best_parametrization_shape_2d[:19].ravel(),
+                                                    allparameters_best_parametrization_shape_2d[19:-1][:,1]))    
+        
+    return allparameters_best_parametrization_shape_1d
 
 
 
+################################################  
+################################################  
+################################################  
+################################################  
+################################################  
+
+def Tokovinin_algorithm_chi_multi(list_of_sci_images,list_of_var_images,list_of_mask_images,allparameters_parametrization_proposal):
+    
+    """ 
+    Tokovinin algorithm for analyzing multiple images at once
+    
+    @param list_of_sci_images                         list of science images
+    @param list_of_var_images                         list of variance images
+    @param list_of_mask_images                        list of mask images
+    @param allparameters_parametrization_proposal     1d array contaning parametrization    
+    """              
+    # possibly need to refactor so that the algorithm also takes list_of_defocuses
+        
+    #model = LN_PFS_single(sci_image,var_image,mask_image=mask_image,\
+    #                  dithering=1,save=0,zmax=twentytwo_or_extra,verbosity=0,double_sources=None,\
+    #                  double_sources_positions_ratios=double_sources_positions_ratios,fit_for_flux=True,npix=1536,pupil_parameters=None)  
+    
+    
+    #########################################################################################################
+    # Create initial modeling as basis for future effort
+    
+    model_multi=LN_PFS_multi_same_spot(list_of_sci_images,list_of_var_images,list_of_mask_images=list_of_mask_images,dithering=1,save=0,zmax=56,verbosity=1,\
+                          double_sources=False,double_sources_positions_ratios=double_sources_positions_ratios,npix=1536,test_run=False)   
+    
+    print('Initial testing proposal is: '+str(allparameters_parametrization_proposal))
+    time_start_single=time.time()
+    
+    # this uncommented line below will not work
+    # proper outputs
+    #    initial_model_result,list_of_initial_model_result,list_of_image_0,\
+    #                list_of_initial_input_parameters,list_of_pre_chi2=res_multi 
+    
+    # create list of minchains, one per each image
+    list_of_minchain=model_multi.create_list_of_allparameters(allparameters_parametrization_proposal,list_of_defocuses=list_of_defocuses_input_long,zmax=56)
+    # pre_model_result - mean likelihood per images
+    # model_results - likelihood per image
+    # pre_images - list of created model images
+    # pre_input_parameters - list of parameters per image?
+    # chi_2_before_iteration_array - list of lists describing quality of fitting    
+    pre_model_result,model_results,pre_images,pre_input_parameters,chi_2_before_iteration_array=model_multi(list_of_minchain,return_Images=True)
+    # this needs to change
+    chi_2_before_iteration=chi_2_before_iteration_array[2]
+    # extract the parameters which will not change in this function, i.e., not-wavefront parameters
+    nonwavefront_par=list_of_minchain[0][19:42]
+    time_end_single=time.time()
+    print('Total time taken was  '+str(time_end_single-time_start_single)+' seconds')
+    print('chi_2_pre_input_parameters is: '+str(chi_2_before_iteration_array[2]))  
+    
+    #########################################################################################################
+    # Start of the iterative process
+    
+    number_of_non_decreses=[0]
+    
+    for iteration_number in range(5): 
+    
+        
+        #########################################################################################################
+        # Start of the iterative process
+        # import science images and mask them 
+        if iteration_number==0:
+    
+            list_of_mean_value_of_background=[]
+            list_of_flux_mask=[]
+            list_of_sci_image_std=[]
+            for i in range(len(list_of_sci_images)):
+                sci_image=list_of_sci_images[i]
+    
+                mean_value_of_background=np.mean([np.median(sci_image[0]),np.median(sci_image[-1]),\
+                                                  np.median(sci_image[:,0]),np.median(sci_image[:,-1])])*10
+                list_of_mean_value_of_background.append(mean_value_of_background)
+                flux_mask=sci_image>(mean_value_of_background)
+           
+                
+                # normalized science image
+                var_image=list_of_var_images[i]
+                sci_image_std=sci_image/np.sqrt(var_image)
+                list_of_sci_image_std.append(sci_image_std)
+                list_of_flux_mask.append(flux_mask)
+            # perhaps also 
+            
+            
+            # initial SVD treshold
+            thresh0 = 0.02
+    
+            # set number of extra Zernike
+            #number_of_extra_zernike=0
+            #twentytwo_or_extra=22
+            # numbers that make sense are 11,22,37,56,79,106,137,172,211,254
+            
+            #if number_of_extra_zernike is None:
+            #    number_of_extra_zernike=0
+            #else:
+            number_of_extra_zernike=twentytwo_or_extra-22
+    
+        ######################################################################################################### 
+        # starting real iterative process here
+        # create changes in parametrizations    
+            
+        # list of how much to move Zernike coefficents
+        #list_of_delta_z=[]
+        #for z_par in range(3,22+number_of_extra_zernike):
+        #    list_of_delta_z.append(0.5/((np.sqrt(8.*(z_par+1.)-6.)-1.)/2.))
+    
+        # list of how much to move Zernike coefficents
+        list_of_delta_z_parametrizations=[]
+        for z_par in range(0,19*2+2*number_of_extra_zernike):
+            list_of_delta_z_parametrizations.append(0.5/((np.sqrt(8.*(z_par+1.)-6.)-1.)/2.))        
+            
+            
+            
+            
+        # array, randomized delta extra zernike
+        #array_of_delta_randomize=np.random.standard_normal(len(list_of_delta_z))*1.2+1
+        array_of_delta_parametrizations_randomize=np.random.standard_normal(len(list_of_delta_z_parametrizations))*1
+        array_of_delta_z_parametrizations=+np.array(list_of_delta_z_parametrizations)*array_of_delta_parametrizations_randomize
+    
+        # initialize 
+        # if this is the first iteration of the iterative algorithm
+        if iteration_number==0:
+            thresh=thresh0
+    
+            if number_of_extra_zernike==0:
+                all_wavefront_z_parametrization_old=allparameters_parametrization_proposal[0:19*2]
+            else:
+                # if you want more Zernike
+                if len(allparameters_parametrization_proposal)==19*2+23:
+                    # if you did not pass explicit extra Zernike, start with zeroes
+                    all_wavefront_z_parametrization_old=np.concatenate((allparameters_parametrization_proposal[0:19*2],np.zeros(2*number_of_extra_zernike)))
+                else:
+                    all_wavefront_z_parametrization_old=np.concatenate((allparameters_parametrization_proposal[0:19*2],allparameters_parametrization_proposal[19*2+23:]))
+    
+            pass
+        # if this is not a first iteration
+        else:
+            # errors in the typechecker for 10 lines below are fine
+            print('array_of_delta_z in '+str(iteration_number)+' '+str(array_of_delta_z_parametrizations))
+            # code analysis programs might suggest that there is an error here, but everything is ok
+            chi_2_before_iteration=np.copy(chi_2_after_iteration)
+            # copy wavefront from the end of the previous iteration
+            all_wavefront_z_parametrization_old=np.copy(all_wavefront_z_parametrization_new)
+            if did_chi_2_improve==1:
+                print('did_chi_2_improve: yes')
+            else:
+                print('did_chi_2_improve: no')                
+            if did_chi_2_improve==0:
+                thresh=thresh0
+            else:
+                thresh=thresh*0.5
+    
+        ######################################################################################################### 
+        # create a model with input parameters from previous iteration
+        
+        input_parameters=[]
+        list_of_all_wavefront_z_parameterization=[]
+    
+        up_to_z22_parametrization_start=all_wavefront_z_parametrization_old[0:19*2]     
+        from_z22_parametrization_start=all_wavefront_z_parametrization_old[19*2:]  
+        #print('from_z22_start: '+str(from_z22_start))
+        print(' iteration '+str(iteration_number)+' shape of up_to_z22_parametrization_start is: '+str(up_to_z22_parametrization_start.shape))
+        initial_input_parameterization=np.concatenate((up_to_z22_parametrization_start,nonwavefront_par,from_z22_parametrization_start))
+        print('initial input parameters in iteration '+str(iteration_number)+' is: '+str(initial_input_parameterization))
+        print('moving input parameters in iteration '+str(iteration_number)+' by: '+str(array_of_delta_z_parametrizations))
+        
+       
+        print('len initial_input_parameterization '+str(len(initial_input_parameterization)))
+        
+        list_of_minchain=model_multi.create_list_of_allparameters(allparameters_parametrization_proposal,list_of_defocuses=list_of_defocuses_input_long,zmax=56)
+        #list_of_minchain=model_multi.create_list_of_allparameters(minchain_parametrization,list_of_defocuses=['m4','p4'],zmax=56)
+        res_multi=model_multi(list_of_minchain,return_Images=True)
+        #mean_res_of_multi_same_spot_proposal,list_of_single_res_proposal,list_of_single_model_image_proposal,\
+        #            list_of_single_allparameters_proposal,list_of_single_chi_results_proposal=res_multi  
+        initial_model_result,list_of_initial_model_result,list_of_image_0,\
+                    list_of_initial_input_parameters,list_of_pre_chi2=res_multi      
+        
+        #initial_model_result,image_0,initial_input_parameters,pre_chi2=model(initial_input_parameters,return_Image=True,return_intermediate_images=False)
+    
+        
+        ######################################################################################################### 
+        # create list of new parameters to be tested
+        
+        
+        # put all new parameters in lists
+        # not sure if it is fine
+        
+        
+        list_of_input_parameterizations=[]
+        for z_par in range(len(all_wavefront_z_parametrization_old)):
+            all_wavefront_z_parametrization_list=np.copy(all_wavefront_z_parametrization_old)
+            all_wavefront_z_parametrization_list[z_par]=all_wavefront_z_parametrization_list[z_par]+array_of_delta_z_parametrizations[z_par]
+            list_of_all_wavefront_z_parameterization.append(all_wavefront_z_parametrization_list)
+    
+            up_to_z22_start=all_wavefront_z_parametrization_list[0:19*2]     
+            from_z22_start=all_wavefront_z_parametrization_list[19*2:]  
+
+            allparameters_proposal_int_22_test=np.concatenate((up_to_z22_start,nonwavefront_par,from_z22_start))
+            #print('len(allparameters_proposal_int_22_test)'+str(len(allparameters_proposal_int_22_test)))
+            # actually it is parametrization
+            list_of_input_parameterizations.append(allparameters_proposal_int_22_test)
+    
+    
+        ######################################################################################################### 
+        # divided model images by their standard deviations
+        
+        list_of_image_0_std=[]
+        for i in range(len(list_of_image_0)):
+            # normalizing by standard deviation image
+            STD=np.sqrt(list_of_var_images[i])    
+            image_0=list_of_image_0[i]
+            list_of_image_0_std.append(image_0/STD)
+        
+    
+        ######################################################################################################### 
+        # normalized and masked model images before this iteration
+        
+        
+        list_of_M0=[]
+        list_of_M0_std=[]
+        for i in range(len(list_of_image_0_std)):
+            
+            image_0=list_of_image_0[i]
+            image_0_std=list_of_image_0_std[i]
+            flux_mask=list_of_flux_mask[i]
+            # what is list_of_mask_images?
+            
+            M0=((image_0[flux_mask])/np.sum(image_0[flux_mask])).ravel()
+            M0_std=((image_0_std[flux_mask])/np.sum(image_0_std[flux_mask])).ravel()
+            
+            list_of_M0.append(M0)
+            list_of_M0_std.append(M0_std)
+    
+        # join all M0,M0_std from invidiual images into one uber M0,M0_std
+        uber_M0=[item for sublist in list_of_M0 for item in sublist]
+        uber_M0_std=[item for sublist in list_of_M0_std for item in sublist]    
+        
+        uber_M0=np.array(uber_M0)
+        uber_M0_std=np.array(uber_M0_std)
+        
+        ######################################################################################################### 
+        # normalized and masked science image
+        # why do I do this here, I could have done this at stage 0 
+        list_of_I=[]
+        list_of_I_std=[]    
+        
+        for i in range(len(list_of_sci_images)):
+            
+            sci_image=list_of_sci_images[i]
+            sci_image_std=list_of_sci_image_std[i]
+            flux_mask=list_of_flux_mask[i]
+            
+            I=((sci_image[flux_mask])/np.sum(sci_image[flux_mask])).ravel()
+            I_std=((sci_image_std[flux_mask])/np.sum(sci_image_std[flux_mask])).ravel()
+            
+            list_of_I.append(I)
+            list_of_I_std.append(I_std)
+    
+        # join all I,I_std from all individual images into one uber I,I_std  
+        uber_I=[item for sublist in list_of_I for item in sublist]
+        uber_I_std=[item for sublist in list_of_I_std for item in sublist]    
+        
+        uber_I=np.array(uber_I)
+        uber_I_std=np.array(uber_I_std)
+    
+        ######################################################################################################### 
+        # difference between model and science at start of this iteration
+        
+        
+        # non-std version
+        # not used, that is ok, we are at the moment using std version
+        IM_start=np.sum(np.abs(np.array(uber_I)-np.array(uber_M0)))        
+        # std version 
+        IM_start_std=np.sum(np.abs(np.array(uber_I_std)-np.array(uber_M0_std)))    
+        
+
+        
+        # maybe I have to go back, what am I doing here?
+        #list_of_IM_start=[]
+        #list_of_IM_start_std=[]
+        #for i in range(len(list_of_I)):
+        #    
+        #    I=list_of_I[i]
+        #    I_std=list_of_I_std[i]
+        #    M0=list_of_M0[i]
+        #    
+        #    
+        #    IM_start=np.sum(np.abs(I-M0))
+        #    IM_start_std=np.sum(np.abs(I_std-M0_std))
+        #    
+        #    list_of_IM_start.append(IM_start)
+        #    list_of_IM_start_std.append(IM_start_std)
+           
+        
+        # mean of differences of our images - should we use mean?; probably not... needs to be normalized?
+        unitary_IM_start=np.mean(IM_start)  
+        unitary_IM_start_std=np.mean(IM_start_std)  
+            
+        #print list_of_IM_start_std
+        print('np.sum(np.abs(I_std-M0_std)) before iteration '+str(iteration_number)+': '+str(unitary_IM_start_std))  
+    
+        ######################################################################################################### 
+        # Starting testing new set
+        # Creating new images
+        
+        out_ln=[]
+        out_ln_ind=[]
+        out_images=[]
+        out_parameters=[]
+        out_chi2=[]
+    
+    
+        print('We are inside of the pool loop number '+str(iteration_number)+' now')
+        # actually it is parametrization
+        # list of (56-3)*2 sublists, each one with (56-3)*2 + 23 values
+        print('len(list_of_input_parameterizations): '+str(len(list_of_input_parameterizations)))
+        print('len(list_of_input_parameterizations[0]): '+str(len(list_of_input_parameterizations[0])))
+        time_start=time.time()
+    
+    
+        #list_of_minchain=model_multi.create_list_of_allparameters(allparameters_parametrization_proposal,list_of_defocuses=list_of_defocuses_input_long,zmax=56)
+     
+        
+        # model multi actually takes list of parameters, not a parametrizations
+        # I need list that has 106 sublists, each one of those being 9x56
+        uber_list_of_input_parameters=[]
+       
+        for i in range(len(list_of_input_parameterizations)):
+
+           list_of_input_parameters=model_multi.create_list_of_allparameters(list_of_input_parameterizations[0],\
+                                                                             list_of_defocuses=list_of_defocuses_input_long,zmax=56)
+           uber_list_of_input_parameters.append(list_of_input_parameters)
+           
+       #list_of_input_parametres
+        
+        #a_pool = Pool()
+        #out1=a_pool.map(partial(model, return_Image=True), input_parameters)
+        out1=pool.map(partial(model_multi, return_Images=True), uber_list_of_input_parameters)
+        out1=list(out1)
+    
+    
+        #out1=map(partial(model, return_Image=True), input_parameters)
+        #out1=list(out1)
+    
+        #out1=a_pool.map(model,input_parameters,repeat(True))
+        for i in range(len(uber_list_of_input_parameters)):
+            print(i)
+            
+            #    initial_model_result,list_of_initial_model_result,list_of_image_0,\
+    #                list_of_initial_input_parameters,list_of_pre_chi2
+            
+            # outputs are 
+            # 0. mean likelihood
+            # 1. list of individual res (likelihood)
+            # 2. list of science images
+            # 3. list of parameters used
+            # 4. list of quality measurments
+            
+            
+            out_ln.append(out1[i][0])
+            out_ln_ind.append(out1[i][1])
+            out_images.append(out1[i][2])
+            out_parameters.append(out1[i][3])
+            out_chi2.append(out1[i][4])
+            
+            
+        time_end=time.time()
+        print('time_end-time_start '+str(time_end-time_start))
+    
+        
+        
+        ######################################################################################################### 
+        # Normalize created images
+        
+        #We created (zmax*2) x N images, where N is the number of defocused images
+        # loop over all of (zmax*2) combinations and double-normalize and ravel N images
+        
+        list_of_images_normalized_uber=[]
+        list_of_images_normalized_std_uber=[]
+        # go over zmax*2 images
+        for j in range(len(out_images)):
+            # two steps for what could have been achived in one, but to ease up transition from previous code 
+            out_images_single_parameter_change=out_images[j]
+            optpsf_list=out_images_single_parameter_change
+            ### breaking here
+            # flux image has to correct per image
+            # normalize and mask images that have been created in the fitting procedure
+            images_normalized=[]
+            for i in range(len(optpsf_list)):
+                
+                flux_mask=list_of_flux_mask[i]
+                
+                images_normalized.append((optpsf_list[i][flux_mask]/np.sum(optpsf_list[i][flux_mask])).ravel())
+                
+            images_normalized_flat=[item for sublist in images_normalized for item in sublist]  
+            images_normalized_flat=np.array(images_normalized_flat)/len(optpsf_list)        
+            
+            # list of (zmax-3)*2 raveled images
+            list_of_images_normalized_uber.append(images_normalized_flat)
+            
+            # same but divided by STD
+            images_normalized_std=[]
+            for i in range(len(optpsf_list)):   
+                # seems that I am a bit more verbose here with my definitions
+                optpsf_list_i=optpsf_list[i]
+                STD=list_of_sci_image_std[i]
+                optpsf_list_i_STD=optpsf_list_i/STD    
+                flux_mask=list_of_flux_mask[i]
+                images_normalized_std.append((optpsf_list_i_STD[flux_mask]/np.sum(optpsf_list_i_STD[flux_mask])).ravel())
+            
+            # join all images together
+            images_normalized_std_flat=[item for sublist in images_normalized_std for item in sublist]  
+            # normalize so that the sum is still one
+            images_normalized_std_flat=np.array(images_normalized_std_flat)/len(optpsf_list)
+            
+            list_of_images_normalized_std_uber.append(images_normalized_std_flat)
+            
+        # create uber images_normalized,images_normalized_std    
+        # images that have zmax*2 rows and very large number of columns (number of non-masked pixels from all N images)
+        uber_images_normalized=np.array(list_of_images_normalized_uber)    
+        uber_images_normalized_std=np.array(list_of_images_normalized_std_uber)          
+            
+        #single_wavefront_parameter_list=[]
+        #for i in range(len(out_parameters)):
+        #    single_wavefront_parameter_list.append(np.concatenate((out_parameters[i][:19],out_parameters[i][42:])) )
+    
+    
+        
+        ######################################################################################################### 
+        # Core Tokovinin algorithm
+    
+        
+    
+        print('images_normalized (uber).shape: '+str(uber_images_normalized.shape))
+        # equation A1 from Tokovinin 2006
+        H=np.transpose(np.array((uber_images_normalized-uber_M0))/array_of_delta_z_parametrizations[:,None])    
+        H_std=np.transpose(np.array((uber_images_normalized_std-uber_M0_std))/array_of_delta_z_parametrizations[:,None]) 
+    
+        HHt=np.matmul(np.transpose(H),H)
+        HHt_std=np.matmul(np.transpose(H_std),H_std) 
+        print('svd thresh is '+str(thresh))
+        invHHt=svd_invert(HHt,thresh)
+        invHHt_std=svd_invert(HHt_std,thresh)
+    
+        invHHtHt=np.matmul(invHHt,np.transpose(H))
+        invHHtHt_std=np.matmul(invHHt_std,np.transpose(H_std))
+    
+    
+        # I is uber_I now
+        # M0 is uber_M0 now
+        first_proposal_Tokovnin=np.matmul(invHHtHt,uber_I-uber_M0)
+        first_proposal_Tokovnin_std=np.matmul(invHHtHt_std,uber_I_std-uber_M0_std)
+    
+        #Tokovnin_proposal=0.9*first_proposal_Tokovnin
+        Tokovnin_proposal=0.7*first_proposal_Tokovnin_std
+        print('std of Tokovnin_proposal is: '+str(np.std(Tokovnin_proposal)))
+    
+        all_wavefront_z_parametrization_new=np.copy(all_wavefront_z_parametrization_old)
+        all_wavefront_z_parametrization_new=all_wavefront_z_parametrization_new+Tokovnin_proposal
+        up_to_z22_end=all_wavefront_z_parametrization_new[:19*2]
+        from_z22_end=all_wavefront_z_parametrization_new[19*2:]
+        allparameters_parametrization_proposal_after_iteration=np.concatenate((up_to_z22_end,nonwavefront_par,from_z22_end))
+    
+    
+        #########################
+        # Creating single exposure with new proposed parameters and seeing if there is improvment    
+        list_of_parameters_after_iteration=model_multi.create_list_of_allparameters(allparameters_parametrization_proposal_after_iteration,\
+                                                                                    list_of_defocuses=list_of_defocuses_input_long,zmax=56)
+    
+       
+        res_multi=model_multi(list_of_parameters_after_iteration,return_Images=True)
 
 
+
+        final_model_result,list_of_final_model_result,list_of_image_final,\
+                    list_of_finalinput_parameters,list_of_after_chi2=res_multi
+       
+        ######################################################################################################### 
+        # Have to move results into uber form 
+       
+       
+       
+        ######################################################################################################### 
+        # divided model images by their standard deviations
+        
+        list_of_image_final_std=[]
+        for i in range(len(list_of_image_0)):
+            # normalizing by standard deviation image
+            STD=np.sqrt(list_of_var_images[i])    
+            image_final=list_of_image_final[i]
+            list_of_image_final_std.append(image_final/STD)
+        
+    
+        ######################################################################################################### 
+        # normalized and masked model images after this iteration
+        
+        
+        list_of_M_final=[]
+        list_of_M_final_std=[]
+        for i in range(len(list_of_image_final_std)):
+            
+            image_final=list_of_image_final[i]
+            image_final_std=list_of_image_final_std[i]
+            flux_mask=list_of_flux_mask[i]
+            # what is list_of_mask_images?
+            
+            M_final=((image_final[flux_mask])/np.sum(image_final[flux_mask])).ravel()
+            M_final_std=((image_final_std[flux_mask])/np.sum(image_final_std[flux_mask])).ravel()
+            
+            list_of_M_final.append(M_final)
+            list_of_M_final_std.append(M_final_std)
+    
+        # join all M0,M0_std from invidiual images into one uber M0,M0_std
+        uber_M_final=[item for sublist in list_of_M_final for item in sublist]
+        uber_M_final_std=[item for sublist in list_of_M_final_std for item in sublist]   
+       
+       
+        
+        ####
+        # Seeing if there is improvment
+        
+        # non-std version
+        # not used, that is ok, we are at the moment using std version
+        IM_final=np.sum(np.abs(np.array(uber_I)-np.array(uber_M_final)))        
+        # std version 
+        IM_final_std=np.sum(np.abs(np.array(uber_I_std)-np.array(uber_M_final_std)))     
+    
+    
+        #print('I-M_final after iteration '+str(iteration_number)+': '+str(IM_final))
+        print('I_std-M_final_std after iteration '+str(iteration_number)+': '+str(IM_final_std))
+        #print('chi_2_after_iteration/chi_2_before_iteration '+str(chi_2_after_iteration/chi_2_before_iteration ))
+        print('IM_final_std/IM_start_std '+str(IM_final_std/IM_start_std))
+        print('#########################################################')
+        #if chi_2_after_iteration/chi_2_before_iteration <1.02 :
+    
+        ##################
+        # If improved take new parameters, if not dont
+        
+        
+        if IM_final_std/IM_start_std <1.0 :
+            #when the quality measure did improve
+            did_chi_2_improve=1
+            number_of_non_decreses.append(0)
+        else:
+            #when the quality measure did not improve
+            did_chi_2_improve=0
+            # resetting all parameters
+            all_wavefront_z_parametrization_new=np.copy(all_wavefront_z_parametrization_old)
+            chi_2_after_iteration=chi_2_before_iteration
+            up_to_z22_end=all_wavefront_z_parametrization_new[:19*2]
+            from_z22_start=all_wavefront_z_parametrization_new[19*2:]
+            allparameters_parametrization_proposal_after_iteration=np.concatenate((up_to_z22_start,nonwavefront_par,from_z22_start))
+            thresh=thresh0
+            number_of_non_decreses.append(1)
+            print('number_of_non_decreses:' + str(number_of_non_decreses))
+            print('current value of number_of_non_decreses is: '+str(np.sum(number_of_non_decreses)))
+            print('#############################################')
+    
+        if np.sum(number_of_non_decreses)==2:
+            break
+    
+        #if len(allparameters_proposal_after_iteration)==41:
+        #    allparameters_proposal_after_iteration=np.concatenate((allparameters_proposal_after_iteration,np.array([1])))
+                
+        #return likelihood_after_iteration,final_optpsf_image,allparameters_proposal_after_iteration,chi2_after_iteration_array        
+        
+        return final_model_result,list_of_final_model_result,list_of_image_final,\
+            allparameters_parametrization_proposal_after_iteration,list_of_finalinput_parameters,list_of_after_chi2
 
 ################################################  
 # import data
@@ -595,8 +1227,10 @@ for obs in list_of_obs:
     sci_image =np.load(STAMPS_FOLDER+'sci'+str(obs)+str(single_number)+str(arc)+'_Stacked.npy')
     mask_image =np.load(STAMPS_FOLDER+'mask'+str(obs)+str(single_number)+str(arc)+'_Stacked.npy')    
     var_image =np.load(STAMPS_FOLDER+'var'+str(obs)+str(single_number)+str(arc)+'_Stacked.npy')   
-    sci_image_focus_large =np.load(STAMPS_FOLDER+'sci'+str(single_number_focus)+str(single_number)+str(arc)+'_Stacked_large.npy')
-    var_image_focus_large =np.load(STAMPS_FOLDER+'var'+str(single_number_focus)+str(single_number)+str(arc)+'_Stacked_large.npy')
+    # for fake images below 120 I did not create _large images
+    if single_number<120:
+        sci_image_focus_large =np.load(STAMPS_FOLDER+'sci'+str(single_number_focus)+str(single_number)+str(arc)+'_Stacked_large.npy')
+        var_image_focus_large =np.load(STAMPS_FOLDER+'var'+str(single_number_focus)+str(single_number)+str(arc)+'_Stacked_large.npy')
 
     # If there is no science image, do not add images
     if int(np.sum(sci_image))==0:
@@ -612,8 +1246,9 @@ for obs in list_of_obs:
             list_of_sci_images.append(sci_image)
             list_of_mask_images.append(mask_image)
             list_of_var_images.append(var_image)
-            list_of_sci_images_focus.append(sci_image_focus_large)
-            list_of_var_images_focus.append(var_image_focus_large)
+            if single_number<120:
+                list_of_sci_images_focus.append(sci_image_focus_large)
+                list_of_var_images_focus.append(var_image_focus_large)
             # observation which are of good enough quality
             list_of_obs_cleaned.append(obs)
             
@@ -633,6 +1268,12 @@ list_of_NAME_OF_LIKELIHOOD_CHAIN=[]
 for obs in list_of_obs_cleaned:
     NAME_OF_CHAIN='chain'+str(date_of_output)+'20_Single_P_'+str(obs)+str(single_number)+str(eps)+str(arc)
     NAME_OF_LIKELIHOOD_CHAIN='likechain'+str(date_of_output)+'20_Single_P_'+str(obs)+str(single_number)+str(eps)+str(arc)
+    
+    # if you are passing higher than 120
+    if single_number>=120:
+        NAME_OF_CHAIN='chain'+str(date_of_output)+'20_Single_P_'+str(obs)+str(single_number_original)+str(eps)+str(arc)
+        NAME_OF_LIKELIHOOD_CHAIN='likechain'+str(date_of_output)+'20_Single_P_'+str(obs)+str(single_number_original)+str(eps)+str(arc)        
+    
     
     list_of_NAME_OF_CHAIN.append(NAME_OF_CHAIN)
     list_of_NAME_OF_LIKELIHOOD_CHAIN.append(NAME_OF_LIKELIHOOD_CHAIN)
@@ -706,6 +1347,10 @@ for obs in list_of_obs_cleaned:
     labelInput=label[list(obs_possibilites).index(obs)]
     list_of_labelInput.append(labelInput)
     
+# perhaps temporarily
+# list_of_defocuses_input_long input in Tokovinin algorith
+list_of_defocuses_input_long=list_of_labelInput
+    
 print('list_of_labelInput: '+str(list_of_labelInput))
     
 # list of labels without values near focus (for possible analysis with Tokovinin alrogithm)
@@ -731,7 +1376,7 @@ else:
     pass
 
 # Input the zmax that you wish to achieve in the analysis
-zmax=22
+zmax=twentytwo_or_extra
  
 # names for paramters - names if we go up to z11
 columns=['z4','z5','z6','z7','z8','z9','z10','z11',
@@ -776,7 +1421,7 @@ else:
     # otherwise, if you are passing multiple images
     model_multi = LN_PFS_multi_same_spot(list_of_sci_images=list_of_sci_images,list_of_var_images=list_of_var_images,list_of_mask_images=list_of_mask_images,\
                                          dithering=1,save=0,verbosity=0,npix=1536,list_of_defocuses=list_of_labelInput,zmax=zmax,double_sources=double_sources,\
-                                         double_sources_positions_ratios=double_sources_positions_ratios)           
+                                         double_sources_positions_ratios=double_sources_positions_ratios,test_run=False)           
 
 # if you are passing only one image
 if len(list_of_obs)==1:
@@ -800,7 +1445,7 @@ if len(list_of_obs)==1:
     # protect the parameters from changing and unintentional mistakes
     allparameters_proposal_22=np.copy(allparameters_proposal)
 else:
-
+    # you are apssing multiple images
     list_of_allparameters=[]
     list_of_defocuses=[]
     # search for the previous avaliable results 
@@ -809,6 +1454,10 @@ else:
         try:
             list_of_allparameters.append(results_of_fit_input[label].loc[int(single_number)].values)
             list_of_defocuses.append(label)
+            
+            
+            
+
         except:
             pass
         
@@ -816,10 +1465,26 @@ else:
     
     # based on the information from the previous step (results at list_of_defocuses), generate singular array_of_allparameters at list_of_labelInput positions        
     # has shape 2xN, N=number of parameters
+    
+    print('array_of_allparameters.shape: '+str(array_of_allparameters.shape))
+    print('twentytwo_or_extra: '+str(twentytwo_or_extra))
     array_of_polyfit_1_parameterizations_proposal=model_multi.create_resonable_allparameters_parametrizations(array_of_allparameters=array_of_allparameters,\
-                                                                list_of_defocuses_input=list_of_defocuses,zmax=zmax)
-    #list_of_allparameters_proposal=model_multi.create_list_of_allparameters(array_of_polyfit_1_parameterizations_proposal,list_of_defocuses=['m4','p4'])    
-
+                                                                list_of_defocuses_input=list_of_defocuses,zmax=twentytwo_or_extra,remove_last_n=2)
+    
+    # lets be explicit that the shape of the array is 2d
+    array_of_polyfit_1_parameterizations_proposal_shape_2d=array_of_polyfit_1_parameterizations_proposal
+    
+    # if you 
+    if single_number>=120:
+        proposal_number=single_number_original-120
+        
+        array_of_polyfit_1_parameterizations_proposal_shape_2d=\
+            np.load('/tigress/ncaplar/ReducedData/Data_Aug_14/Dataframes_fake/array_of_polyfit_1_parameterizations_proposal_shape_2d_proposal_'+str(proposal_number)+'.npy')
+        
+    
+    
+    
+    
 ###############################################    
 # "lower_limits" and "higher_limits" are only needed to initalize the cosmo_hammer code, but not used in the actual evaluation
 # so these are purely dummy values
@@ -841,7 +1506,7 @@ if zmax==11:
                   120000,3.5,0.5,
                   1.1,1.95,1.1])
     
-if zmax==22:
+if zmax>=22:
     lower_limits=np.array([z4Input-3,-1,-1,-1,-1,-1,-1,-1,
                            0,0,0,0,0,0,0,0,0,0,0,
                  0.5,0.05,-0.8,-0.8,0,-0.5,
@@ -864,21 +1529,23 @@ if zmax==22:
 
 # soon deprecated?
 # branch out here, depending if you are doing low- or high- Zernike analysis 
-if twentytwo_or_extra==22:      
+if twentytwo_or_extra>=22:  
+
+ 
     # initialize pool
     pool = MPIPool()
     if not pool.is_master():
         pool.wait()
         sys.exit(0)   
         
-    
+    number_of_extra_zernike=twentytwo_or_extra-22     
     #pool=Pool(processes=36)
     #pool=Pool()
        
     print('Name of machine is '+socket.gethostname())    
         
     
-    zmax_input=22
+    zmax_input=twentytwo_or_extra
     if multi_var==True:
         for i in range(len(list_of_obs_cleaned)):
             print('Adding image: '+str(i+1)+str('/')+str(len(list_of_obs_cleaned)))              
@@ -896,16 +1563,18 @@ if twentytwo_or_extra==22:
             print('Name: '+str(NAME_OF_CHAIN)) 
             print('Zmax is: '+str(zmax))
             print(str(socket.gethostname())+': Starting calculation at: '+time.ctime())    
+        
             
+        
         print('Testing proposal is: '+str(array_of_polyfit_1_parameterizations_proposal))
         time_start_single=time.time()
-        print('Likelihood for the testing proposal is: '+str(model_multi(array_of_polyfit_1_parameterizations_proposal)))
+        print('Likelihood for the testing proposal is: '+str(model_multi(array_of_polyfit_1_parameterizations_proposal_shape_2d)))
         time_end_single=time.time()
         print('Time for single calculation is '+str(time_end_single-time_start_single))
             
         #allparameters_proposal=allparameters_proposal_22
         # dirty hack to get things running
-        if zmax==22:
+        if zmax>=22:
             columns=columns22
         
         sys.stdout.flush()
@@ -980,22 +1649,22 @@ if twentytwo_or_extra==22:
             
             stronger_array_01=np.array([0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
                         0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-                        0.2,0.2,0.2,0.2,0.2,0.2,
+                        1.2,1.2,1.2,1.2,1.2,1.2,
                         0.0,0.0,0.0,0.0,
-                        0.2,0.2,0.2,
-                        0.2,0.2,0.2,0.2,
-                        0.2,0.2,0.2,
-                        0.2,0.2,1])            
+                        1.2,1.2,1.2,
+                        1.2,1.2,1.2,1.2,
+                        1.2,1.2,1.2,
+                        1.2,1.2,1])            
             
             
             
     
     # create inital parameters  
-    parInit1=create_parInit(allparameters_proposal=array_of_polyfit_1_parameterizations_proposal,multi=multi_var,pupil_parameters=None,allparameters_proposal_err=None,\
+    parInit1=create_parInit(allparameters_proposal=array_of_polyfit_1_parameterizations_proposal_shape_2d,multi=multi_var,pupil_parameters=None,allparameters_proposal_err=None,\
                             stronger=1*stronger_array_01,use_optPSF=None,deduced_scattering_slope=None,zmax=zmax_input)
     # the number of walkers is given by options array
     while len(parInit1)<options[0]:
-        parInit1_2=create_parInit(allparameters_proposal=array_of_polyfit_1_parameterizations_proposal,multi=multi_var,pupil_parameters=None,allparameters_proposal_err=None,\
+        parInit1_2=create_parInit(allparameters_proposal=array_of_polyfit_1_parameterizations_proposal_shape_2d,multi=multi_var,pupil_parameters=None,allparameters_proposal_err=None,\
                                   stronger= stronger_array_01,use_optPSF=None,deduced_scattering_slope=None,zmax=zmax_input)
         parInit1=np.vstack((parInit1,parInit1_2))
     
@@ -1016,12 +1685,13 @@ if twentytwo_or_extra==22:
     #swarms, gbests = pso.optimize(maxIter=nsteps,c1=options[1],c2=options[2])
     list_of_swarms_time_1=[]
     time_start_swarms_time_1=time.time()
-    
+    print(pso.gbest)
     swarms=[]
     gbests=[]
     num_iter = 0
     random_seed=42
     for swarm in pso.sample(nsteps):
+
         swarms.append(swarm)
         gbests.append(pso.gbest.copy())
         num_iter += 1
@@ -1037,7 +1707,7 @@ if twentytwo_or_extra==22:
                 swarm_positions_sum.append(np.sum(pso.swarm[i].position))
                 
             #pso.gbest.position[0]=-6   
-            print('pso.gbest in step'+str(num_iter)+' '+str(pso.gbest))    
+            print('pso.gbest in step: '+str(num_iter)+' '+str(pso.gbest))    
             #index_of_best_position=swarm_positions_sum.index(np.sum(pso.gbest.position))
             #print('pso.index_of_best_position in step'+str(num_iter)+' '+str(index_of_best_position))
             #print('pso.swarm[index_of_best_position] in step'+str(num_iter)+' '+str(pso.swarm[index_of_best_position]))            
@@ -1050,11 +1720,15 @@ if twentytwo_or_extra==22:
                 
             if num_iter % 5 ==1:
                 
+                
+                
                 # if this is first step, take the preprepered proposal 
                 if num_iter==0:
-                    array_of_polyfit_1_parameterizations_proposal=array_of_polyfit_1_parameterizations_proposal
+                    array_of_polyfit_1_parameterizations_proposal_shape_1d=move_parametrizations_from_2d_shape_to_1d_shape(array_of_polyfit_1_parameterizations_proposal_shape_2d)
                 else:  
-                    array_of_polyfit_1_parameterizations_proposal=model_multi.move_parametrizations_from_1d_to_2d(pso.gbest.position)
+                    array_of_polyfit_1_parameterizations_proposal_shape_1d=pso.gbest.position
+          
+                    #array_of_polyfit_1_parameterizations_proposal=model_multi.move_parametrizations_from_1d_to_2d(pso.gbest.position)
                        
                 
                 #print('swarm: '+str(len(swarm)))
@@ -1065,6 +1739,11 @@ if twentytwo_or_extra==22:
                     swarm_positions_sum.append(np.sum(swarm[i].position))
                  
                 # analyze only images which are outside focus with Tokovinin method    
+                
+
+                
+                # single images
+                """
                 for index_of_single_image in index_of_list_of_labelInput_without_focus_or_near_focus:
                     
                     print('index_of_single_image: '+str(index_of_single_image))
@@ -1083,49 +1762,101 @@ if twentytwo_or_extra==22:
                     
                     # need to move between parametrizations and parameters
                     likelihood_after_iteration,final_optpsf_image,allparameters_proposal_after_iteration,chi2_after_iteration_array=\
-            Tokovinin_algorithm_chi(sci_image,var_image,mask_image,list_of_allparameters_proposal[index_of_single_image])    
+                    Tokovinin_algorithm_chi(sci_image,var_image,mask_image,list_of_allparameters_proposal[index_of_single_image])    
                     print('chi2_after_iteration_array:'+str(chi2_after_iteration_array))
                 
                     list_of_Tokovin_results.append([likelihood_after_iteration,final_optpsf_image,allparameters_proposal_after_iteration,chi2_after_iteration_array])      
+                """
+
+                # multi version
+                # I changed so that you take all images here
+                
+                
+                
+                # need to move between parametrizations and parameters
+                #likelihood_after_iteration,final_optpsf_image,allparameters_proposal_after_iteration,chi2_after_iteration_array=\
+                #Tokovinin_algorithm_chi(sci_image,var_image,mask_image,list_of_allparameters_proposal[index_of_single_image])    
+        
+        
+                # 0. likelihood_after_iteration - mean out all of the images
+                # 1. list_of_likelihoods_after_iteration - likelihood per images
+                # 2. list_of_images_final previously named ``final_optpsf_image'' - list of generated images
+                # 3. allparameters_parametrization_final - output parametrizations
+                # 4. list_of_finalinput_parameters - list of parameters per image
+                # 5. list_of_after_chi2 - list of arrays giving quality 
+                likelihood_after_iteration,list_of_likelihoods_after_iteration,list_of_images_final,\
+                allparameters_parametrization_final,list_of_finalinput_parameters,list_of_after_chi2=\
+                    Tokovinin_algorithm_chi_multi(list_of_sci_images,list_of_var_images,list_of_mask_images,array_of_polyfit_1_parameterizations_proposal_shape_1d)
+                #print('chi2_after_iteration_array:'+str(chi2_after_iteration_array))
+            
+
+            
+                list_of_Tokovin_results.append([likelihood_after_iteration,list_of_likelihoods_after_iteration,\
+                                                list_of_images_final,allparameters_parametrization_final,
+                                                list_of_finalinput_parameters,list_of_after_chi2])      
+  
+                """
+                # this step is not needed in this algorithm 
 
                 
-                
-                
+                # adding parametrizations
                 array_of_Tokovin_results=[]
                 for i in range(len(list_of_Tokovin_results)):
-                    array_of_Tokovin_results.append(list_of_Tokovin_results[i][2])
+                    array_of_Tokovin_results.append(list_of_Tokovin_results[i][3])
                 array_of_Tokovin_results=np.array(array_of_Tokovin_results)        
         
                 print('array_of_Tokovin_results shape: ' + str(array_of_Tokovin_results.shape))
+                print('array_of_Tokovin_results: ' + str(array_of_Tokovin_results))
+
+                
                 # array_of_Tokovin_results has shape 6x42, we need 60x1
                 allparameters_best_parametrization_2d=model_multi.create_resonable_allparameters_parametrizations(array_of_Tokovin_results,\
-                                                                    list_of_defocuses_input=list_of_labelInput_without_focus_or_near_focus,zmax=22,remove_last_n=0)
-                
+                                                                    list_of_defocuses_input=list_of_labelInput_without_focus_or_near_focus,zmax=zmax_input,remove_last_n=0)
+                print('allparameters_best_parametrization_2d: '+str(allparameters_best_parametrization_2d))
                 if allparameters_best_parametrization_2d.shape[0]>42:
-                
+                    #  if you are using above Zernike above 22
+                    print('we are creating new result with Zernike above 22')
                     allparameters_best_parametrization_1d=np.concatenate((allparameters_best_parametrization_2d[:19].ravel(),
-                                                                allparameters_best_parametrization_2d[19:19+23][:,1],allparameters_best_parametrization_2d[19+23:].ravel()))
+                                                                allparameters_best_parametrization_2d[19:19+23][:,1],\
+                                                                    allparameters_best_parametrization_2d[19+23:].ravel()))
                     
                 else:
+                    print('we are creating new result with Zernike at 22')
                     allparameters_best_parametrization_1d=np.concatenate((allparameters_best_parametrization_2d[:19].ravel(),
                                                                 allparameters_best_parametrization_2d[19:-1][:,1]))    
-                print(allparameters_best_parametrization_1d)    
+                    
+                """
+                
+                # replacing the playing above from many images above with this substitution
+                allparameters_best_parametrization_shape_1d=allparameters_parametrization_final
+
+                print('allparameters_best_parametrization_1d: '+str(allparameters_best_parametrization_shape_1d))    
                 #index_of_best_position=swarm_positions_sum.index(np.sum(pso.gbest.position))
                 #print('index_of_best_position '+str(index_of_best_position))
                 #print('pso.gbest: '+str(pso.gbest.position))
                 
                 
-                # replacing only the best position 
-                pso.gbest.position=allparameters_best_parametrization_1d
+                # replacing the best position 
+                pso.gbest.position=allparameters_best_parametrization_shape_1d
+                # set up velocity the wavefront up to z22
+                pso.gbest.velocity[:19*2]=np.zeros(((19*2),))
+                # set up velocity to zero (for all? for some?)
+                if zmax>22:
+                    pso.gbest.velocity[-(number_of_extra_zernike*2+1):]=np.zeros(((number_of_extra_zernike*2+1),))
+                    
+                
+                
                 #pso.swarm[index_of_best_position].position[0]=allparameters_parametrizations
                 #print('swarm[index_of_best_position]'+str(pso.swarm[index_of_best_position]))
 
                 # replacing all the wavefront component in all of the particles                
                 for i in range(len(pso.swarm)):
-                    pso.swarm[i].position[0:19*2]=allparameters_best_parametrization_1d[0:19*2]     
+                    print(allparameters_best_parametrization_shape_1d)
+                    pso.swarm[i].position[0:19*2]=allparameters_best_parametrization_shape_1d[0:19*2]     
                     
                     if zmax>22:
-                        pso.swarm[i].position[19*2+23:]=allparameters_best_parametrization_1d[19*2+23:]   
+                        pso.swarm[i].position[19*2+23:]=allparameters_best_parametrization_shape_1d[19*2+23:]
+                        pso.swarm[i].velocity[-(number_of_extra_zernike*2+1):]=np.zeros(((number_of_extra_zernike*2+1),))
                         
 
                
