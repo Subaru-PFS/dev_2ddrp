@@ -673,7 +673,9 @@ class PFSPupilFactory(PupilFactory):
             x = pos[0] + camX
             y = pos[1] + camY
             self._cutRay(pupil, (x, y), angle, subaruStrutThick,'rad')
+        
             
+        
         # cut out slit shadow
         self._cutRay(pupil, (2,slitFrac_dy/18),-np.pi,subaruSlit,'rad') 
         
@@ -705,7 +707,7 @@ class ZernikeFitter_PFS(object):
                  diam_sic=None,npix=None,pupilExplicit=None,
                  wf_full_Image=None,radiometricEffectArray_Image=None,
                  ilum_Image=None,dithering=None,save=None,
-                 pupil_parameters=None,use_pupil_parameters=None,use_optPSF=None,
+                 pupil_parameters=None,use_pupil_parameters=None,use_optPSF=None,use_wf_grid=None,
                  zmaxInit=None,extraZernike=None,simulation_00=None,verbosity=None,
                  double_sources=None,double_sources_positions_ratios=None,test_run=None,
                  explicit_psf_position=None,*args):
@@ -820,6 +822,8 @@ class ZernikeFitter_PFS(object):
             self.use_optPSF=use_optPSF
         else:
             self.use_optPSF=use_optPSF
+            
+        self.use_wf_grid=use_wf_grid    
             
         self.zmax=zmaxInit
         
@@ -1705,7 +1709,7 @@ class ZernikeFitter_PFS(object):
             optics_screen = galsim.phase_screens.OpticalScreen(diam=diam_sic,aberrations=aberrations_extended,lam_0=self.wavelength)      
             
         screens = galsim.PhaseScreenList(optics_screen)   
-        if self.save==1:
+        if self.save==1 and self.extraZernike==None:
             # only create fake with abberations 0 if we are going to save i.e., if we presenting the results
             screens_fake_0 = galsim.PhaseScreenList(optics_screen_fake_0)  
         
@@ -1717,14 +1721,28 @@ class ZernikeFitter_PFS(object):
         
 
         # apply wavefront to the array describing illumination
-        wf = screens.wavefront(u, v, None, 0)
-        if self.save==1:
-            wf_full = screens.wavefront(u_manual, v_manual, None, 0)
-        wf_grid = np.zeros_like(ilum_radiometric_apodized_bool, dtype=np.float32)
-        wf_grid[ilum_radiometric_apodized_bool] = (wf/self.wavelength)
-        wf_grid_rot=wf_grid
+        #print(self.use_wf_grid)
+
+        if self.use_wf_grid is None:
+            
+            wf = screens.wavefront(u, v, None, 0)
+            if self.save==1:
+                wf_full = screens.wavefront(u_manual, v_manual, None, 0)
+            wf_grid = np.zeros_like(ilum_radiometric_apodized_bool, dtype=np.float32)
+            wf_grid[ilum_radiometric_apodized_bool] = (wf/self.wavelength)
+            wf_grid_rot=wf_grid
+        else:
+            # if you want to pass an explit wavefront, it goes here
+
+            wf_grid=self.use_wf_grid
+            wf_grid_rot=wf_grid
         
-        if self.save==1:
+
+        
+        #wf_grid_rot[756+1200:756+1215,756+1200:756+1215]=1.1*(wf_grid_rot[756+1200:756+1215,756+1200:756+1215])
+        
+        
+        if self.save==1 and self.extraZernike==None:
             # only create fake with abberations 0 if we are going to save i.e., if we presenting the results
             wf_full_fake_0 = screens_fake_0.wavefront(u_manual, v_manual, None, 0)
         
@@ -1800,8 +1818,10 @@ class ZernikeFitter_PFS(object):
                 np.save(TESTING_WAVEFRONT_IMAGES_FOLDER+'v',v) 
                 
                 np.save(TESTING_WAVEFRONT_IMAGES_FOLDER+'wf_grid',wf_grid)  
-                np.save(TESTING_WAVEFRONT_IMAGES_FOLDER+'wf_full',wf_full) 
-                np.save(TESTING_WAVEFRONT_IMAGES_FOLDER+'wf_full_fake_0',wf_full_fake_0)       
+                if self.use_wf_grid is None:
+                    np.save(TESTING_WAVEFRONT_IMAGES_FOLDER+'wf_full',wf_full) 
+                if self.extraZernike==None:
+                    np.save(TESTING_WAVEFRONT_IMAGES_FOLDER+'wf_full_fake_0',wf_full_fake_0)       
                 
                 np.save(TESTING_WAVEFRONT_IMAGES_FOLDER+'expwf_grid',expwf_grid)   
 
@@ -1895,7 +1915,7 @@ class LN_PFS_multi_same_spot(object):
     
     
     def __init__(self,list_of_sci_images,list_of_var_images,list_of_mask_images=None,dithering=None,save=None,verbosity=None,
-             pupil_parameters=None,use_pupil_parameters=None,use_optPSF=None,
+             pupil_parameters=None,use_pupil_parameters=None,use_optPSF=None,list_of_wf_grid=None,
              zmax=None,extraZernike=None,pupilExplicit=None,simulation_00=None,
              double_sources=None,double_sources_positions_ratios=None,npix=None,
              list_of_defocuses=None,fit_for_flux=True,test_run=False,list_of_psf_positions=None): 
@@ -1964,6 +1984,7 @@ class LN_PFS_multi_same_spot(object):
         if list_of_psf_positions is None:
             list_of_psf_positions=[None]*len(list_of_sci_images)
         self.list_of_psf_positions=list_of_psf_positions
+        self.list_of_wf_grid=list_of_wf_grid
         
     def move_parametrizations_from_1d_to_2d(self,allparameters_parametrizations_1d,zmax=None):
         
@@ -2240,6 +2261,7 @@ class LN_PFS_multi_same_spot(object):
             if i==0:
                 model_single=LN_PFS_single(self.list_of_sci_images[i],self.list_of_var_images[i],self.list_of_mask_images[i],dithering=self.dithering,save=self.save,verbosity=self.verbosity,
                 pupil_parameters=self.pupil_parameters,use_pupil_parameters=self.use_pupil_parameters,use_optPSF=self.use_optPSF,
+                use_wf_grid=self.list_of_wf_grid[i],
                 zmax=self.zmax,extraZernike=self.extraZernike,pupilExplicit=self.pupilExplicit,simulation_00=self.simulation_00,
                 double_sources=self.double_sources,double_sources_positions_ratios=self.double_sources_positions_ratios,npix=self.npix,
                 fit_for_flux=self.fit_for_flux,test_run=self.test_run,explicit_psf_position=self.list_of_psf_positions[i])
@@ -2270,6 +2292,7 @@ class LN_PFS_multi_same_spot(object):
                 model_single=LN_PFS_single(self.list_of_sci_images[i],self.list_of_var_images[i],self.list_of_mask_images[i],\
                                            dithering=self.dithering,save=self.save,verbosity=self.verbosity,
                 pupil_parameters=self.pupil_parameters,use_pupil_parameters=self.use_pupil_parameters,use_optPSF=self.use_optPSF,
+                use_wf_grid=self.list_of_wf_grid[i],
                 zmax=self.zmax,extraZernike=self.extraZernike,pupilExplicit=pupil_explicit_0,simulation_00=self.simulation_00,
                 double_sources=self.double_sources,double_sources_positions_ratios=self.double_sources_positions_ratios,npix=self.npix,
                 fit_for_flux=self.fit_for_flux,test_run=self.test_run,explicit_psf_position=self.list_of_psf_positions[i])
@@ -2367,7 +2390,7 @@ class LN_PFS_single(object):
     """
         
     def __init__(self,sci_image,var_image,mask_image=None,dithering=None,save=None,verbosity=None,
-                 pupil_parameters=None,use_pupil_parameters=None,use_optPSF=None,
+                 pupil_parameters=None,use_pupil_parameters=None,use_optPSF=None,use_wf_grid=None,
                  zmax=None,extraZernike=None,pupilExplicit=None,simulation_00=None,
                  double_sources=None,double_sources_positions_ratios=None,npix=None,
                  fit_for_flux=None,test_run=None,explicit_psf_position=None):    
@@ -2475,7 +2498,7 @@ class LN_PFS_single(object):
         if pupil_parameters is None:
             single_image_analysis=ZernikeFitter_PFS(sci_image,var_image,image_mask=mask_image,npix=npix,dithering=dithering,save=save,\
                                                     pupil_parameters=pupil_parameters,use_pupil_parameters=use_pupil_parameters,
-                                                    use_optPSF=use_optPSF,zmaxInit=zmax,extraZernike=extraZernike,
+                                                    use_optPSF=use_optPSF,use_wf_grid=use_wf_grid,zmaxInit=zmax,extraZernike=extraZernike,
                                                     pupilExplicit=pupilExplicit,simulation_00=simulation_00,verbosity=verbosity,\
                                                     double_sources=double_sources,double_sources_positions_ratios=double_sources_positions_ratios,\
                                                     test_run=test_run,explicit_psf_position=explicit_psf_position)  
@@ -2583,7 +2606,10 @@ class LN_PFS_single(object):
         # internal parameter for debugging change value to 1 to see which parameters are failling
         test_print=0
         if self.verbosity==1:
-            test_print=1
+            test_print=1    
+            
+        """    
+            
         #When running big fits these are limits which ensure that the code does not wander off in totally non physical region
         # hsc frac
         if globalparameters[0]<=0.6 or globalparameters[0]>0.8:
@@ -2770,7 +2796,7 @@ class LN_PFS_single(object):
             if globalparameters[22]>1.02:
                 print('globalparameters[22] outside limits') if test_print == 1 else False 
                 return -np.inf      
-
+        """
 
         x=self.create_x(zparameters,globalparameters)       
         for i in range(len(self.columns)):
@@ -3676,10 +3702,15 @@ class Psf_position(object):
                     y_2sources_limits=[(offset_initial_and_sci[1]-2)*self.oversampling,(offset_initial_and_sci[1]+2)*self.oversampling]
                     x_2sources_limits=[(offset_initial_and_sci[0]-1)*self.oversampling,(offset_initial_and_sci[0]+1)*self.oversampling]
                     # search for best positioning
-                    primary_position_and_ratio=scipy.optimize.shgo(self.create_complete_realization,bounds=\
+                    primary_position_and_ratio_shgo=scipy.optimize.shgo(self.create_complete_realization,bounds=\
                                                                              [(x_2sources_limits[0],x_2sources_limits[1]),(y_2sources_limits[0],y_2sources_limits[1])],n=10,sampling_method='sobol',\
                                                                              options={'ftol':1e-3,'maxev':10})
-        
+                        
+                    primary_position_and_ratio=primary_position_and_ratio_shgo
+                    #primary_position_and_ratio=scipy.optimize.minimize(self.create_complete_realization,x0=primary_position_and_ratio_shgo.x,\
+                    #                                                   method='Nelder-Mead',options={'xatol': 0.00001, 'fatol': 0.00001})    
+                    
+                    print('primary_position_and_ratio: '+str(primary_position_and_ratio))    
     
                     # return the best result, based on the result of the conducted search
                     mean_res,single_realization_primary_renormalized,single_realization_secondary_renormalized,complete_realization_renormalized \
@@ -3778,6 +3809,8 @@ class Psf_position(object):
                                                                               what is x_primary and y_primary?
         @bol       return_full_result                                         if True, returns the images iteself (not just chi**2)
         """
+        
+        print('x passed to create_complete_realization is: '+str(x))
         
         
         image=self.image
