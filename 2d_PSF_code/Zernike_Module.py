@@ -3707,9 +3707,10 @@ class Psf_position(object):
                                                                              [(x_2sources_limits[0],x_2sources_limits[1]),(y_2sources_limits[0],y_2sources_limits[1])],n=10,sampling_method='sobol',\
                                                                              options={'ftol':1e-3,'maxev':10})
                         
-                    primary_position_and_ratio=primary_position_and_ratio_shgo
-                    #primary_position_and_ratio=scipy.optimize.minimize(self.create_complete_realization,x0=primary_position_and_ratio_shgo.x,\
-                    #                                                   method='Nelder-Mead',options={'xatol': 0.00001, 'fatol': 0.00001})    
+                    
+                    #primary_position_and_ratio=primary_position_and_ratio_shgo
+                    primary_position_and_ratio=scipy.optimize.minimize(self.create_complete_realization,x0=primary_position_and_ratio_shgo.x,\
+                                                                       method='Nelder-Mead',options={'xatol': 0.00001, 'fatol': 0.00001})    
                     
                     print('primary_position_and_ratio: '+str(primary_position_and_ratio))    
     
