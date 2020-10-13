@@ -66,6 +66,7 @@ Aug 12, 2020: 0.33 -> 0.33a changed iters to 6 in fluxfit
 Sep 08, 2020: 0.33a -> 0.33b added test_run to help with debugging
 Oct 05, 2020: 0.33b -> 0.33c trying to always output flux multiplier when fit_for_flux
 Oct 06, 2020: 0.33c -> 0.34 added posibility to specify position of created psf
+Oct 13, 2020: 0.34 -> 0.34b added finishing step of centering, done with Nelder-Mead
 
 
 @author: Neven Caplar
@@ -140,7 +141,7 @@ __all__ = ['PupilFactory', 'Pupil','ZernikeFitter_PFS','LN_PFS_multi_same_spot',
            'sky_scale','sky_size','remove_pupil_parameters_from_all_parameters',\
            'resize','_interval_overlap','svd_invert']
 
-__version__ = "0.34"
+__version__ = "0.34b"
 
 
 
