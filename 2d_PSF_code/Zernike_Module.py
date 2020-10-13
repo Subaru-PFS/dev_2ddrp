@@ -3712,7 +3712,7 @@ class Psf_position(object):
                     primary_position_and_ratio=scipy.optimize.minimize(self.create_complete_realization,x0=primary_position_and_ratio_shgo.x,\
                                                                        method='Nelder-Mead',options={'xatol': 0.00001, 'fatol': 0.00001})    
                     
-                    print('primary_position_and_ratio: '+str(primary_position_and_ratio))    
+                    #print('primary_position_and_ratio: '+str(primary_position_and_ratio))    
     
                     # return the best result, based on the result of the conducted search
                     mean_res,single_realization_primary_renormalized,single_realization_secondary_renormalized,complete_realization_renormalized \
@@ -3812,7 +3812,7 @@ class Psf_position(object):
         @bol       return_full_result                                         if True, returns the images iteself (not just chi**2)
         """
         
-        print('x passed to create_complete_realization is: '+str(x))
+        #print('x passed to create_complete_realization is: '+str(x))
         
         
         image=self.image
