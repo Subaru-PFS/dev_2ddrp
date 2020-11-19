@@ -108,13 +108,13 @@ class Zernike_Analysis(object):
         """!
 
         @param[in] date                                           date
-        @param[in] obs                                            date
-        @param[in] single_number                                  date
-        @param[in] eps                                            date
-        @param[in] arc                                            date
-        @param[in] dataset                                        date        
-        @param[in] multi_var                                      date
-        @param[in] list_of_defocuses                              date           
+        @param[in] obs                                            observatio
+        @param[in] single_number                                  single number determining which spot we are analyzing
+        @param[in] eps                                            analysis parameter
+        @param[in] arc                                            arc-lamp used
+        @param[in] dataset                                        dataset number
+        @param[in] multi_var                                      is this multi analysis
+        @param[in] list_of_defocuses                              at which defocuses we are analyzing           
         
         """
         
@@ -255,8 +255,9 @@ class Zernike_Analysis(object):
             labelInput=label_fine_defocus[list(obs_possibilites).index(obs_int)]
             
         if multi_var==True:
-            print('labelInput: ' + str(labelInput))
-            print('self.single_number: '+str(self.single_number))
+            if self.verbosity==1:
+                print('labelInput: ' + str(labelInput))
+                print('self.single_number: '+str(self.single_number))
             index_of_single_image_in_list_of_images=self.list_of_defocuses.index(labelInput)
             self.index_of_single_image_in_list_of_images=index_of_single_image_in_list_of_images
             
@@ -439,6 +440,7 @@ class Zernike_Analysis(object):
         
         if self.verbosity==1:
             print('analyzing label: '+str(obs))
+            print('double_sources_positions_ratios for this spot is: '+str(double_sources_positions_ratios))
             
             
             
@@ -459,6 +461,30 @@ class Zernike_Analysis(object):
 
     def return_columns(self):
         return self.columns,self.columns22,self.columns22_analysis
+    
+    def create_list_of_var_or_ln_sums(self,sigma_offset=0):
+        list_of_var_sums=[]
+        for i in range(len(self.list_of_var_images)):
+            # taking from create_chi_2_almost function in LN_PFS_single
+    
+    
+            mask_image=self.list_of_mask_images[i]
+            var_image=self.list_of_var_images[i]
+            # array that has True for values which are good and False for bad values
+            inverted_mask=~mask_image.astype(bool)
+    
+            #         
+            var_image_masked=var_image*inverted_mask
+            var_image_masked_without_nan = var_image_masked.ravel()[var_image_masked.ravel()>0]
+    
+            var_sum=-(1/2)*(len(var_image_masked_without_nan)*sigma_offset+np.sum(np.log(2*np.pi*var_image_masked_without_nan)))
+    
+            list_of_var_sums.append(var_sum)  
+            
+        array_of_var_sums=np.array(list_of_var_sums)    
+        return array_of_var_sums        
+        
+    
     
     def create_likelihood(self):
 
@@ -511,7 +537,8 @@ class Zernike_Analysis(object):
             #    likechain0_Emcee3=likechain_Emcee3
             #    chain0_Emcee3=chain_Emcee3
             # check the shape of the chain (number of walkers, number of steps, number of parameters)
-            print('(number of walkers, number of steps, number of parameters for Emcee): '+str(chain_Emcee2.shape))
+            if self.verbosity==1:
+                print('(number of walkers, number of steps, number of parameters for Emcee): '+str(chain_Emcee2.shape))
             
             # see the best chain
             minchain=chain_Emcee2[np.abs(likechain_Emcee2)==np.min(np.abs(likechain_Emcee2))][0]
@@ -533,11 +560,32 @@ class Zernike_Analysis(object):
             self.minchain=minchain
             
             like_min=like_min_swarm1            
+            
+        list_of_var_sums=self.create_list_of_var_or_ln_sums(0)
+        
+        array_of_var_sum=np.array(list_of_var_sums)
+        max_of_array_of_var_sum=np.max(array_of_var_sum)
+        renormalization_of_var_sum=array_of_var_sum/max_of_array_of_var_sum
+        
+        zero_sigma_ln=np.mean(list_of_var_sums/renormalization_of_var_sum)
+        self.zero_sigma_ln=zero_sigma_ln
+        list_of_var_sums_1=self.create_list_of_var_or_ln_sums(1)
+        one_sigma_ln=np.mean(list_of_var_sums_1/renormalization_of_var_sum)
+        self.one_sigma_ln=one_sigma_ln
 
-        #print(len(like_min))                
-        print('minimal likelihood is: '+str(np.min(like_min)))   
+        #print(len(like_min))      
+        if self.verbosity==1:                  
+            print('minimal likelihood is: '+str(np.min(like_min)))   
+        
+        min_like_min=np.min(like_min)
+        self.min_like_min=min_like_min
+        
+        
         chi2=(np.array(like_min)*(2)-np.sum(np.log(2*np.pi*self.var_image)))/(self.sci_image.shape[0])**2
-        print('minimal chi2 reduced is (makes no sense for multi_var): '+str(np.min(chi2)))
+       
+        min_chi2=-(min_like_min+zero_sigma_ln)/(one_sigma_ln-zero_sigma_ln)
+        
+        print('average chi2 reduced is: '+str(min_chi2))
         
         return minchain,like_min
 
@@ -696,6 +744,8 @@ class Zernike_Analysis(object):
                                      str(self.single_number)+str(self.eps)+str(self.arc)+'Swarm1.npy')
         except:
             print('Swarm1 or likechainSwarm1 not found')
+            print('Path searched was: '+str(self.RESULT_FOLDER+'chain'+str(self.date)+'_Single_'+str(self.method)+'_'+str(self.obs)+\
+                                 str(self.single_number)+str(self.eps)+str(self.arc)+'Swarm1.npy'))
 
         
         self.chain_Swarm1=chain_Swarm1
@@ -916,7 +966,7 @@ class Zernike_Analysis(object):
         
         #size=self.chain_swarm1.shape[1]
         matplotlib.rcParams.update({'font.size': 18})
-        plt.figure(figsize=(18,10))
+        plt.figure(figsize=(24,12))
         plt.subplot(211)
         plt.plot(np.linspace(1,len(like_min),len(like_min)),like_min,'blue',ls='-',marker='o')
         plt.ylabel('likelihood')
@@ -924,6 +974,10 @@ class Zernike_Analysis(object):
         plt.axvline(np.sum(len_of_chains[:1])+0.5,ls='--')
         plt.axvline(np.sum(len_of_chains[:2])+0.5,ls='--')
         plt.axvline(np.sum(len_of_chains[:3])+0.5,ls='--')
+        plt.ylim(-self.zero_sigma_ln,1.05*np.max(like_min))
+        plt.axhline(self.min_like_min,ls='--')
+        plt.axhline(-self.one_sigma_ln,ls='--',color='black')        
+        
         plt.subplot(212)
         plt.plot(np.linspace(1,len(like_min),len(like_min)),np.log10(like_min),'blue',ls='-',marker='o')
         plt.ylabel('log10(likelihood)')
@@ -933,7 +987,8 @@ class Zernike_Analysis(object):
         plt.axvline(np.sum(len_of_chains[:3])+0.5,ls='--')
 
     
-    def create_basic_comparison_plot(self,custom_model_image=None,custom_mask=None,custom_sci_image=None,custom_var_image=None,use_max_chi_scaling=False): 
+    def create_basic_comparison_plot(self,custom_model_image=None,custom_mask=None,\
+                                     custom_sci_image=None,custom_var_image=None,use_max_chi_scaling=False,show_flux_mask=False): 
         
         if custom_model_image is None:
             optPsf_cut_fiber_convolved_downsampled=np.load(TESTING_FINAL_IMAGES_FOLDER+'optPsf_cut_fiber_convolved_downsampled.npy')
@@ -947,6 +1002,12 @@ class Zernike_Analysis(object):
             sci_image=self.sci_image
         else:
             sci_image=custom_sci_image
+            
+        mean_value_of_background=np.mean([np.median(sci_image),np.median(sci_image),\
+                              np.median(sci_image),np.median(sci_image)])*3
+            
+        flux_mask=sci_image>(mean_value_of_background)
+            
 
         if custom_var_image is None:           
             var_image=self.var_image
@@ -975,6 +1036,9 @@ class Zernike_Analysis(object):
         plt.imshow(res_iapetus,origin='lower',vmax=np.max(np.abs(sci_image)))
         plt.plot(np.ones(len(sci_image))*(left_limit),np.array(range(len(sci_image))),'--',color='white')
         plt.plot(np.ones(len(sci_image))*(right_limit),np.array(range(len(sci_image))),'--',color='white')
+        if show_flux_mask==True:
+            plt.imshow(flux_mask,alpha=0.4)    
+        
         plt.colorbar(fraction=0.046, pad=0.04)
         plt.title('Model')
         plt.grid(False)
@@ -983,11 +1047,15 @@ class Zernike_Analysis(object):
         plt.plot(np.ones(len(sci_image))*(left_limit),np.array(range(len(sci_image))),'--',color='white')
         plt.plot(np.ones(len(sci_image))*(right_limit),np.array(range(len(sci_image))),'--',color='white')
         plt.colorbar(fraction=0.046, pad=0.04)
+        if show_flux_mask==True:
+            plt.imshow(flux_mask,alpha=0.4)   
+            
         plt.title('Data')
         plt.grid(False)
         plt.subplot(223)
         plt.imshow(sci_image-res_iapetus,origin='lower',cmap='bwr',vmin=-np.max(np.abs(sci_image))/20,vmax=np.max(np.abs(sci_image))/20)
-
+        if show_flux_mask==True:
+            plt.imshow(flux_mask,alpha=0.55)   
 
         plt.plot(np.ones(len(sci_image))*(left_limit),np.array(range(len(sci_image))),'--',color='black')
         plt.plot(np.ones(len(sci_image))*(right_limit),np.array(range(len(sci_image))),'--',color='black')
@@ -1004,13 +1072,16 @@ class Zernike_Analysis(object):
         plt.grid(False)
         plt.subplot(224)
         #plt.imshow((res_iapetus-sci_image)/np.sqrt(var_image),origin='lower',cmap='bwr',vmax=np.max(np.abs((res_iapetus-sci_image)/np.sqrt(var_image))),vmin=-np.max(np.abs((res_iapetus-sci_image)/np.sqrt(var_image))))
-        
+       
 
         if use_max_chi_scaling==False:
             plt.imshow((sci_image-res_iapetus)/np.sqrt(var_image),origin='lower',cmap='bwr',vmax=5,vmin=-5)
         else:
             max_chi=np.max(np.abs((sci_image-res_iapetus)/np.sqrt(var_image)))
             plt.imshow((sci_image-res_iapetus)/np.sqrt(var_image),origin='lower',cmap='bwr',vmax=-max_chi,vmin=max_chi)            
+
+        if show_flux_mask==True:
+            plt.imshow(flux_mask,alpha=0.55)    
 
         plt.plot(np.ones(len(sci_image))*(left_limit),np.array(range(len(sci_image))),'--',color='black')
         plt.plot(np.ones(len(sci_image))*(right_limit),np.array(range(len(sci_image))),'--',color='black')
@@ -1027,7 +1098,8 @@ class Zernike_Analysis(object):
         print('Abs of residual divided by total flux is: '+str(np.sum(np.abs((res_iapetus-sci_image)))/np.sum((res_iapetus))))
         print('Abs of residual divided by largest value of a flux in the image is: '+str(np.max(np.abs((res_iapetus-sci_image)/np.max(res_iapetus)))))
   
-    def create_basic_comparison_plot_log(self,custom_model_image=None,custom_mask=None,custom_sci_image=None,custom_var_image=None,use_max_chi_scaling=False):   
+    def create_basic_comparison_plot_log(self,custom_model_image=None,custom_mask=None,custom_sci_image=None,custom_var_image=None,use_max_chi_scaling=False,\
+                                         show_flux_mask=False):   
         
         
         if custom_model_image is None:
@@ -1041,6 +1113,12 @@ class Zernike_Analysis(object):
             sci_image=self.sci_image
         else:
             sci_image=custom_sci_image
+
+        mean_value_of_background=np.mean([np.median(sci_image),np.median(sci_image),\
+                              np.median(sci_image),np.median(sci_image)])*3
+            
+        flux_mask=sci_image>(mean_value_of_background)
+
 
         if custom_var_image is None:           
             var_image=self.var_image
@@ -1072,6 +1150,10 @@ class Zernike_Analysis(object):
         cbar=plt.colorbar(fraction=0.046, pad=0.04)
         cbar.set_ticks([10,10**2,10**3,10**4,10**5])
         plt.title('Model')
+        
+        if show_flux_mask==True:
+            plt.imshow(flux_mask,alpha=0.55)    
+        
         plt.grid(False)
         plt.subplot(222)
         plt.imshow(sci_image,origin='lower',vmin=1,vmax=np.max(np.abs(sci_image)),norm=LogNorm())
@@ -1080,6 +1162,9 @@ class Zernike_Analysis(object):
         cbar=plt.colorbar(fraction=0.046, pad=0.04)
         cbar.set_ticks([10,10**2,10**3,10**4,10**5])
         plt.title('Data')
+        if show_flux_mask==True:
+            plt.imshow(flux_mask,alpha=0.55)    
+            
         plt.grid(False)
         plt.subplot(223)
         plt.imshow(np.abs(sci_image-res_iapetus),origin='lower',vmax=np.max(np.abs(sci_image))/20,norm=LogNorm())
@@ -1088,6 +1173,9 @@ class Zernike_Analysis(object):
         cbar=plt.colorbar(fraction=0.046, pad=0.04)
         cbar.set_ticks([10,10**2,10**3,10**4,10**5])
         plt.title('abs(Residual (  data-model))')
+        if show_flux_mask==True:
+            plt.imshow(flux_mask,alpha=0.55)        
+
         plt.grid(False)
         plt.subplot(224)
         plt.imshow((sci_image-res_iapetus)**2/((1)*var_image),origin='lower',vmin=1,norm=LogNorm())
@@ -1095,6 +1183,9 @@ class Zernike_Analysis(object):
         plt.plot(np.ones(len(sci_image))*(right_limit),np.array(range(len(sci_image))),'--',color='white')
         cbar=plt.colorbar(fraction=0.046, pad=0.04)
         cbar.set_ticks([10,10**2,10**3,10**4,10**5])
+        if show_flux_mask==True:
+            plt.imshow(flux_mask,alpha=0.55)    
+        
         plt.title('chi**2 map')
         print('chi**2 max reduced is: '+str(np.sum((res_iapetus)**2/((var_image.shape[0]*var_image.shape[1])*var_image))))
         np.sum(np.abs((res_iapetus-sci_image)))/np.sum((res_iapetus))

@@ -72,8 +72,8 @@ Nov 03, 2020: 0.35 -> 0.35a create parInit up to z=22, with larger parametrizati
 Nov 05, 2020: 0.35a -> 0.35b return same value if Tokovinin does not work
 Nov 16, 2020: 0.35b -> 0.35c modified movement of parameters
 Nov 17, 2020: 0.35c -> 0.35d small fixes in check_global_parameters with paramters 0 and 1
-Nov 19, 2020: 0.35d -> 0.35e realized that vertical strut is different than others - first, simplest implementation
-Nov 19, 2020: 0.35e -> 0.35f modified parInit movements for multi (mostly reduced)
+Nov 19, 2020: 0.35d -> 0.36 realized that vertical strut is different than others - first, simplest implementation
+Nov 19, 2020: 0.36 -> 0.36a modified parInit movements for multi (mostly reduced)
 
 @author: Neven Caplar
 @contact: ncaplar@princeton.edu
@@ -150,7 +150,7 @@ __all__ = ['PupilFactory', 'Pupil','ZernikeFitter_PFS','LN_PFS_multi_same_spot',
            'sky_scale','sky_size','remove_pupil_parameters_from_all_parameters',\
            'resize','_interval_overlap','svd_invert','Tokovinin_multi']
 
-__version__ = "0.35e"
+__version__ = "0.36a"
 
 
 
