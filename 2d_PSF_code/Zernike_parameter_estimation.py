@@ -29,7 +29,12 @@ Sep 16, 2020: 0.35 -> 0.35a added poor-man analysis of fake images
 Sep 19, 2020: 0.35a -> 0.35b changed variations of Zernike in Tokovinin multi analysis
 Sep 22, 2020: 0.35b -> 0.36 large changes on how the _std version of the images is treated
 Oct 06, 2020: 0.36 -> 0.37 when creating Tokovinin test images, keep normalization and position
-
+Nov 03, 2020: 0.37 -> 0.37a adding that zmax is controlled by input in Tokovinin
+Nov 05, 2020: 0.37a -> 0.37b removing Tokovinin function, which is now imported from the Module
+Nov 09, 2020: 0.37b -> 0.38 added first implementation of going Tokovin via previous best
+Nov 11, 2020: 0.38 -> 0.38a parallelizing Tokovinin
+Nov 16, 2020: 0.38a -> 0.38b first version of Tokovinin via previous beest that works
+Nov 17, 2020: 0.38b -> 0.38c modified speeds so the code does not get outside limits
 
 @author: Neven Caplar
 @contact: ncaplar@princeton.edu
@@ -64,7 +69,7 @@ import pickle
 
 # MPI imports, depending on configuration
 from schwimmbad import MPIPool
-#from schwimmbad import MultiPool
+from schwimmbad import MultiPool
 #import mpi4py
 from functools import partial
 
@@ -83,9 +88,9 @@ import cosmoHammer
 import emcee
 
 #Zernike_Module
-from Zernike_Module import LN_PFS_single,LN_PFS_multi_same_spot,create_parInit,PFSLikelihoodModule,svd_invert
+from Zernike_Module import LN_PFS_single,LN_PFS_multi_same_spot,create_parInit,PFSLikelihoodModule,svd_invert,Tokovinin_multi,check_global_parameters
 
-__version__ = "0.37"
+__version__ = "0.38c"
 
 parser = argparse.ArgumentParser(description="Starting args import",
                                  formatter_class=argparse.RawTextHelpFormatter,
@@ -181,7 +186,7 @@ if eps==4:
 if eps==5:
     options=[390,2.793,1.593]
 if eps==6:
-    options=[120,2.793,1.193]
+    options=[240,2.793,1.193]
 if eps==7:
     options=[480,2.793,1.193]
 if eps==8:
@@ -355,505 +360,8 @@ else:
  
 
 # Finished with all arguments
-################################################  
-# Tokovinin function at the moment defined here
 
-def Tokovinin_algorithm_chi(sci_image,var_image,mask_image,allparameters_proposal):
-   
-    
-    model = LN_PFS_single(sci_image,var_image,mask_image=mask_image,\
-                      dithering=1,save=0,zmax=twentytwo_or_extra,verbosity=0,double_sources=None,\
-                      double_sources_positions_ratios=double_sources_positions_ratios,fit_for_flux=True,npix=1536,pupil_parameters=None)  
 
-
-   
-
-
-    print('Initial testing proposal is: '+str(allparameters_proposal))
-    time_start_single=time.time()
-    pre_model_result,pre_image,pre_input_parameters,chi_2_before_iteration_array=model(allparameters_proposal,return_Image=True,return_intermediate_images=False)
-    chi_2_before_iteration=chi_2_before_iteration_array[2]
-    time_end_single=time.time()
-    print('Total time taken was  '+str(time_end_single-time_start_single)+' seconds')
-    print('pre_model_result is: '+str(pre_model_result))  
-
-    number_of_non_decreses=[0]
-     
-    for iteration_number in range(5): 
-        
-        # import values
-        if iteration_number==0:
-
-            mean_value_of_background=np.mean([np.median(sci_image[0]),np.median(sci_image[-1]),np.median(sci_image[:,0]),np.median(sci_image[:,-1])])*10
-            mask=sci_image>(mean_value_of_background)
-
-            # normalized science image
-            sci_image_std=sci_image/np.sqrt(var_image)
-            # initial SVD treshold
-            thresh0 = 0.02
-
-            # set number of extra Zernike
-            #number_of_extra_zernike=0
-            #twentytwo_or_extra=22
-            # numbers that make sense are 11,22,37,56,79,106,137,172,211,254
-            #if number_of_extra_zernike is None:
-            #    number_of_extra_zernike=0
-            #else:
-            number_of_extra_zernike=twentytwo_or_extra-22
-
-        # list of how much to move Zernike coefficents
-        list_of_delta_z=[]
-        for z_par in range(3,22+number_of_extra_zernike):
-            list_of_delta_z.append(0.5/((np.sqrt(8.*(z_par+1.)-6.)-1.)/2.))
-
-        # array, randomized delta extra zernike
-        #array_of_delta_randomize=np.random.standard_normal(len(list_of_delta_z))*1.2+1
-        #array_of_delta_randomize=np.random.standard_normal(len(list_of_delta_z))*1
-        #array_of_delta_z=+np.array(list_of_delta_z)*array_of_delta_randomize
-        array_of_delta_z=np.array(list_of_delta_z)
-        
-        
-        # initialize 
-        # if this is the first iteration of the iterative algorithm
-        if iteration_number==0:
-            thresh=thresh0
-            
-            if number_of_extra_zernike==0:
-                all_wavefront_z_old=allparameters_proposal[0:19]
-            else:
-                # if you want more Zernike
-                if len(allparameters_proposal)==42:
-                    # if you did not pass explicit extra Zernike, start with zeroes
-                    all_wavefront_z_old=np.concatenate((allparameters_proposal[0:19],np.zeros(number_of_extra_zernike)))
-                else:
-                    all_wavefront_z_old=np.concatenate((allparameters_proposal[0:19],allparameters_proposal[19+23:]))
-                    
-            pass
-        # if this is not a first iteration
-        else:
-            print('array_of_delta_z in '+str(iteration_number)+' '+str(array_of_delta_z))
-            # code analysis programs might suggest that there is an error here, but everything is ok
-            chi_2_before_iteration=np.copy(chi_2_after_iteration)
-            # copy wavefront from the end of the previous iteration
-            all_wavefront_z_old=np.copy(all_wavefront_z_new)
-            if did_chi_2_improve==1:
-                print('did_chi_2_improve: yes')
-            else:
-                print('did_chi_2_improve: no')                
-            if did_chi_2_improve==0:
-                thresh=thresh0
-            else:
-                thresh=thresh*0.5
-
-        
-      
-        input_parameters=[]
-        list_of_all_wavefront_z=[]
-
-        up_to_z22_start=all_wavefront_z_old[0:19]     
-        from_z22_start=all_wavefront_z_old[19:]  
-        print('from_z22_start: '+str(from_z22_start))
-
-        initial_input_parameters=np.concatenate((up_to_z22_start,pre_input_parameters[19:19+23],from_z22_start))
-        print('initial input parameters in iteration '+str(iteration_number)+' is: '+str(initial_input_parameters))
-        print('moving input parameters in iteration '+str(iteration_number)+' by: '+str(array_of_delta_z))        
-        initial_model_result,image_0,initial_input_parameters,pre_chi2=model(initial_input_parameters,return_Image=True,return_intermediate_images=False)
-
-
-
-        # put all new parameters in lists
-        for z_par in range(len(all_wavefront_z_old)):
-            all_wavefront_z_list=np.copy(all_wavefront_z_old)
-            all_wavefront_z_list[z_par]=all_wavefront_z_list[z_par]+array_of_delta_z[z_par]
-            list_of_all_wavefront_z.append(all_wavefront_z_list)
-
-            up_to_z22_start=all_wavefront_z_list[0:19]     
-            from_z22_start=all_wavefront_z_list[19:]  
-
-            list_of_all_wavefront_z.append(all_wavefront_z_list)
-            allparameters_proposal_int_22_test=np.concatenate((up_to_z22_start,pre_input_parameters[19:42],from_z22_start))
-            input_parameters.append(allparameters_proposal_int_22_test)
-            
-
-        # standard deviation image
-        STD=np.sqrt(var_image)      
-        
-        # model and science image divided by the STD
-        image_0_std=image_0/STD
-        sci_image_std=sci_image/STD
-        
-
-        # normalized and masked model image before this iteration
-        M0=((image_0[mask])/np.sum(image_0[mask])).ravel()
-        M0_std=((image_0_std[mask])/np.sum(image_0_std[mask])).ravel()
-        # normalized and masked science image
-        I=((sci_image[mask])/np.sum(sci_image[mask])).ravel()
-        I_std=((sci_image_std[mask])/np.sum(sci_image_std[mask])).ravel()
-        
-        IM_start=np.sum(np.abs(I-M0))
-        IM_start_std=np.sum(np.abs(I_std-M0_std))
-
-        #print('np.sum(np.abs(I-M0)) before iteration '+str(iteration_number)+': '+str(IM_start))  
-        print('IM_start_std before iteration '+str(iteration_number)+': '+str(IM_start_std))  
-
-        out_ln=[]
-        out_images=[]
-        out_parameters=[]
-        out_chi2=[]
-
-
-        print('We are inside of the pool loop number '+str(iteration_number)+' now')
-        print('len(input_parameters): '+str(len(input_parameters)))
-        time_start=time.time()
-        
-        #a_pool = Pool()
-        #out1=a_pool.map(partial(model, return_Image=True), input_parameters)
-        out1=pool.map(partial(model, return_Image=True), input_parameters)
-        out1=list(out1)
-        
-        
-        #out1=map(partial(model, return_Image=True), input_parameters)
-        #out1=list(out1)
-        
-        #out1=a_pool.map(model,input_parameters,repeat(True))
-        for i in range(len(input_parameters)):
-            print(i)
-
-            out_ln.append(out1[i][0])
-            out_images.append(out1[i][1])
-            out_parameters.append(out1[i][2])
-            out_chi2.append(out1[i][3])
-        
-
-            #for i in range(len(input_parameters)):
-            #    print(i)
-            #out1=model_return(input_parameters[i])
-            #    out_ln.append(out1[0])
-            #    out_images.append(out1[1])
-            #    out_parameters.append(out1[2])
-            #    out_chi2.append(out1[3])
-        time_end=time.time()
-        print('time_end-time_start '+str(time_end-time_start))
-        
-        optpsf_list=out_images
-        single_wavefront_parameter_list=[]
-        for i in range(len(out_parameters)):
-            single_wavefront_parameter_list.append(np.concatenate((out_parameters[i][:19],out_parameters[i][42:])) )
-
-        # normalize and mask images that have been created in the fitting procedure
-        images_normalized=[]
-        for i in range(len(optpsf_list)):
-            images_normalized.append((optpsf_list[i][mask]/np.sum(optpsf_list[i][mask])).ravel())
-        images_normalized=np.array(images_normalized)
-        # same but divided by STD
-        images_normalized_std=[]
-        for i in range(len(optpsf_list)):      
-            optpsf_list_i=optpsf_list[i]
-            optpsf_list_i_STD=optpsf_list_i/STD    
-            images_normalized_std.append((optpsf_list_i_STD[mask]/np.sum(optpsf_list_i_STD[mask])).ravel())
-        images_normalized_std=np.array(images_normalized_std)
-        
-        
-        
-        #print('images_normalized.shape: '+str(images_normalized.shape))
-        # equation A1 from Tokovinin 2006
-        H=np.transpose(np.array((images_normalized-M0))/array_of_delta_z[:,None])    
-        H_std=np.transpose(np.array((images_normalized_std-M0_std))/array_of_delta_z[:,None]) 
-
-        HHt=np.matmul(np.transpose(H),H)
-        HHt_std=np.matmul(np.transpose(H_std),H_std) 
-        #print('svd thresh is '+str(thresh))
-        invHHt=svd_invert(HHt,thresh)
-        invHHt_std=svd_invert(HHt_std,thresh)
-        
-        invHHtHt=np.matmul(invHHt,np.transpose(H))
-        invHHtHt_std=np.matmul(invHHt_std,np.transpose(H_std))
-
-        first_proposal_Tokovnin=np.matmul(invHHtHt,I-M0)
-        first_proposal_Tokovnin_std=np.matmul(invHHtHt_std,I_std-M0_std)
-        
-        #Tokovnin_proposal=0.9*first_proposal_Tokovnin
-        Tokovnin_proposal=0.7*first_proposal_Tokovnin_std
-        #print('std of Tokovnin_proposal is: '+str(np.std(Tokovnin_proposal)))
-
-        all_wavefront_z_new=np.copy(all_wavefront_z_old)
-        all_wavefront_z_new=all_wavefront_z_new+Tokovnin_proposal
-        up_to_z22_end=all_wavefront_z_new[:19]
-        from_z22_end=all_wavefront_z_new[19:]
-        allparameters_proposal_after_iteration=np.concatenate((up_to_z22_end,pre_input_parameters[19:42],from_z22_end))
-        
-        print('allparameters_proposal_after_iteration: '+str(allparameters_proposal_after_iteration))
-
-        likelihood_after_iteration,final_optpsf_image,allparameters_proposal_after_iteration,chi2_after_iteration_array=model(allparameters_proposal_after_iteration,return_Image=True)
-
-        M_final=(final_optpsf_image[mask]/np.sum(final_optpsf_image[mask])).ravel()
-        IM_final=np.sum(np.abs(I-M_final))
-        # STD version 
-        final_optpsf_image_std=final_optpsf_image/STD    
-        M_final_std=(final_optpsf_image_std[mask]/np.sum(final_optpsf_image_std[mask])).ravel()
-        IM_final_std=np.sum(np.abs(I_std-M_final_std))        
-        
-        #print('I-M_final after iteration '+str(iteration_number)+': '+str(IM_final))
-        print('I_std-M_final_std after iteration '+str(iteration_number)+': '+str(IM_final_std))
-
-        chi_2_after_iteration=chi2_after_iteration_array[2]
-        #print('chi_2_after_iteration/chi_2_before_iteration '+str(chi_2_after_iteration/chi_2_before_iteration ))
-        print('IM_final_std/IM_start_std '+str(IM_final_std/IM_start_std))
-        print('#########################################################')
-        #if chi_2_after_iteration/chi_2_before_iteration <1.02 :
-            
-        if IM_final_std/IM_start_std <1.0 :
-            #when the quality measure did improve
-            did_chi_2_improve=1
-            number_of_non_decreses.append(0)
-        else:
-            #when the quality measure did not improve
-            did_chi_2_improve=0
-            # resetting all parameters
-            all_wavefront_z_new=np.copy(all_wavefront_z_old)
-            chi_2_after_iteration=chi_2_before_iteration
-            up_to_z22_end=all_wavefront_z_new[:19]
-            from_z22_start=all_wavefront_z_new[19:]
-            allparameters_proposal_after_iteration=np.concatenate((up_to_z22_start,pre_input_parameters[19:42],from_z22_start))
-            thresh=thresh0
-            number_of_non_decreses.append(1)
-            print('number_of_non_decreses:' + str(number_of_non_decreses))
-            print('current value of number_of_non_decreses is: '+str(np.sum(number_of_non_decreses)))
-            print('#############################################')
-         
-        if np.sum(number_of_non_decreses)==2:
-            break
-            
-        if len(allparameters_proposal_after_iteration)==41:
-            allparameters_proposal_after_iteration=np.concatenate((allparameters_proposal_after_iteration,np.array([1])))
-            
-    return likelihood_after_iteration,final_optpsf_image,allparameters_proposal_after_iteration,chi2_after_iteration_array        
-    
-
-
-def move_parametrizations_from_2d_shape_to_1d_shape(allparameters_best_parametrization_shape_2d):
-    """ 
-    change the linear parametrization array in 2d shape to parametrization array in 1d
-    
-    @param allparameters_best_parametrization_shape_2d        linear parametrization, 2d array
-    
-    """    
-    
-    
-    if allparameters_best_parametrization_shape_2d.shape[0]>42:
-        #  if you are using above Zernike above 22
-        print('we are creating new result with Zernike above 22')
-        allparameters_best_parametrization_shape_1d=np.concatenate((allparameters_best_parametrization_shape_2d[:19].ravel(),
-                                                    allparameters_best_parametrization_shape_2d[19:19+23][:,1],\
-                                                        allparameters_best_parametrization_shape_2d[19+23:].ravel()))
-        
-    else:
-        print('we are creating new result with Zernike at 22')
-        allparameters_best_parametrization_shape_1d=np.concatenate((allparameters_best_parametrization_shape_2d[:19].ravel(),
-                                                    allparameters_best_parametrization_shape_2d[19:-1][:,1]))    
-        
-    return allparameters_best_parametrization_shape_1d
-
-
-def check_global_parameters(globalparameters,test_print=None,fit_for_flux=None):
-    #When running big fits these are limits which ensure that the code does not wander off in totally non physical region
-
-
-    globalparameters_output=np.copy(globalparameters)
-    # hsc frac
-    if globalparameters[0]<0.6 or globalparameters[0]>0.8:
-        print('globalparameters[0] outside limits; value: '+str(globalparameters[0])) if test_print == 1 else False 
-    if globalparameters[0]<=0.6:
-        globalparameters_output=0.6
-    if globalparameters[0]>0.8:
-        globalparameters_output=0.8
-
-     #strut frac
-    if globalparameters[1]<0.07 or globalparameters[1]>0.13:
-        print('globalparameters[1] outside limits') if test_print == 1 else False 
-    if globalparameters[1]<=0.07:
-        globalparameters_output=0.07
-    if globalparameters[1]>0.13:
-        globalparameters_output=0.13
-
-    #slit_frac < strut frac 
-    #if globalparameters[4]<globalparameters[1]:
-        #print('globalparameters[1] not smaller than 4 outside limits')
-        #return -np.inf
-
-     #dx Focal
-    if globalparameters[2]<-0.4 or globalparameters[2]>0.4:
-        print('globalparameters[2] outside limits') if test_print == 1 else False 
-    if globalparameters[2]<-0.4:
-        globalparameters_output[2]=-0.4
-    if globalparameters[2]>0.4:
-        globalparameters_output[2]=0.4
-
-    # dy Focal
-    if globalparameters[3]>0.4:
-        print('globalparameters[3] outside limits') if test_print == 1 else False 
-        globalparameters_output[3]=0.4
-    if globalparameters[3]<-0.4:
-        print('globalparameters[3] outside limits') if test_print == 1 else False 
-        globalparameters_output[3]=-0.4
-
-    # slitFrac
-    if globalparameters[4]<0.05:
-        print('globalparameters[4] outside limits') if test_print == 1 else False 
-        globalparameters_output[4]=0.05
-    if globalparameters[4]>0.09:
-        print('globalparameters[4] outside limits') if test_print == 1 else False 
-        globalparameters_output[4]=0.09
-
-    # slitFrac_dy
-    if globalparameters[5]<-0.5:
-        print('globalparameters[5] outside limits') if test_print == 1 else False 
-        globalparameters_output[5]=-0.5
-    if globalparameters[5]>0.5:
-        print('globalparameters[5] outside limits') if test_print == 1 else False 
-        globalparameters_output[5]=+0.5
-
-    # radiometricEffect
-    if globalparameters[6]<0:
-        print('globalparameters[6] outside limits') if test_print == 1 else False 
-        globalparameters_output[6]=0
-    if globalparameters[6]>1:
-        print('globalparameters[6] outside limits') if test_print == 1 else False 
-        globalparameters_output[6]=1
-
-    # radiometricExponent
-    if globalparameters[7]<0:
-        print('globalparameters[7] outside limits') if test_print == 1 else False 
-        globalparameters_output[7]=0
-    if globalparameters[7]>2:
-        print('globalparameters[7] outside limits') if test_print == 1 else False 
-        globalparameters_output[7]=2
-
-    # x_ilum
-    if globalparameters[8]<0.5:
-        print('globalparameters[8] outside limits') if test_print == 1 else False 
-        globalparameters_output[8]=0.5
-    if globalparameters[8]>1.5:
-        print('globalparameters[8] outside limits') if test_print == 1 else False 
-        globalparameters_output[8]=1.5
-
-    # y_ilum
-    if globalparameters[9]<0.5:
-        print('globalparameters[9] outside limits') if test_print == 1 else False 
-        globalparameters_output[9]=0.5
-    if globalparameters[9]>1.5:
-        print('globalparameters[9] outside limits') if test_print == 1 else False 
-        globalparameters_output[9]=1.5
-
-    # x_fiber
-    if globalparameters[10]<-0.4:
-        print('globalparameters[10] outside limits') if test_print == 1 else False 
-        globalparameters_output[10]=-0.4
-    if globalparameters[10]>0.4:
-        print('globalparameters[10] outside limits') if test_print == 1 else False 
-        globalparameters_output[10]=0.4
-
-    # y_fiber
-    if globalparameters[11]<-0.4:
-        print('globalparameters[11] outside limits') if test_print == 1 else False 
-        globalparameters_output[11]=-0.4
-    if globalparameters[11]>0.4:
-        print('globalparameters[11] outside limits') if test_print == 1 else False 
-        globalparameters_output[11]=0.4      
-
-    # effective_radius_illumination
-    if globalparameters[12]<0.7:
-        print('globalparameters[12] outside limits') if test_print == 1 else False 
-        globalparameters_output[12]=0.7
-    if globalparameters[12]>1.0:
-        print('globalparameters[12] outside limits') if test_print == 1 else False 
-        globalparameters_output[12]=1
-
-    # frd_sigma
-    if globalparameters[13]<0.01:
-        print('globalparameters[13] outside limits') if test_print == 1 else False 
-        globalparameters_output[13]=0.01
-    if globalparameters[13]>.4:
-        print('globalparameters[13] outside limits') if test_print == 1 else False 
-        globalparameters_output[13]=0.4 
-
-    #frd_lorentz_factor
-    if globalparameters[14]<0.01:
-        print('globalparameters[14] outside limits') if test_print == 1 else False 
-        globalparameters_output[14]=0.01
-    if globalparameters[14]>1:
-        print('globalparameters[14] outside limits') if test_print == 1 else False 
-        globalparameters_output[14]=1 
-
-    # det_vert
-    if globalparameters[15]<0.85:
-        print('globalparameters[15] outside limits') if test_print == 1 else False 
-        globalparameters_output[15]=0.85
-    if globalparameters[15]>1.15:
-        print('globalparameters[15] outside limits') if test_print == 1 else False 
-        globalparameters_output[15]=1.15
-
-    # slitHolder_frac_dx
-    if globalparameters[16]<-0.8:
-        print('globalparameters[16] outside limits') if test_print == 1 else False 
-        globalparameters_output[16]=-0.8
-    if globalparameters[16]>0.8:
-        print('globalparameters[16] outside limits') if test_print == 1 else False 
-        globalparameters_output[16]=0.8 
-
-    # grating_lines
-    if globalparameters[17]<1200:
-        print('globalparameters[17] outside limits') if test_print == 1 else False 
-        globalparameters[17]=1200
-    if globalparameters[17]>120000:
-        print('globalparameters[17] outside limits') if test_print == 1 else False 
-        globalparameters_output[17]=120000 
-
-    # scattering_slope
-    if globalparameters[18]<1.5:
-        print('globalparameters[18] outside limits') if test_print == 1 else False 
-        globalparameters_output[18]=1.5
-    if globalparameters[18]>+3.0:
-        print('globalparameters[18] outside limits') if test_print == 1 else False 
-        globalparameters_output[18]=3 
-
-    # scattering_amplitude
-    if globalparameters[19]<0:
-        print('globalparameters[19] outside limits') if test_print == 1 else False 
-        globalparameters_output[19]=0
-    if globalparameters[19]>+0.4:
-        print('globalparameters[19] outside limits') if test_print == 1 else False 
-        globalparameters_output[19]=0.4          
-
-    # pixel_effect
-    if globalparameters[20]<0.35:
-        print('globalparameters[20] outside limits') if test_print == 1 else False 
-        globalparameters_output[20]=0.35
-    if globalparameters[20]>+0.8:
-        print('globalparameters[20] outside limits') if test_print == 1 else False 
-        globalparameters_output[20]=0.8
-
-    # fiber_r
-    if globalparameters[21]<1.78:
-        print('globalparameters[21] outside limits') if test_print == 1 else False 
-        globalparameters_output[21]=1.78
-    if globalparameters[21]>+1.98:
-        print('globalparameters[21] outside limits') if test_print == 1 else False 
-        globalparameters_output[21] =1.98
-
-    # flux
-    if fit_for_flux==True:
-        globalparameters_output[22]=1
-    else:          
-        if globalparameters[22]<0.98:
-            print('globalparameters[22] outside limits') if test_print == 1 else False 
-            globalparameters_output[22] =0.98
-        if globalparameters[22]>1.02:
-            print('globalparameters[22] outside limits') if test_print == 1 else False 
-            globalparameters_output[22] =1.02
-
-                
-    return globalparameters_output
     
 
 
@@ -862,881 +370,6 @@ def check_global_parameters(globalparameters,test_print=None,fit_for_flux=None):
 ################################################  
 ################################################  
 ################################################  
-
-def Tokovinin_algorithm_chi_multi(list_of_sci_images,list_of_var_images,list_of_mask_images,allparameters_parametrization_proposal,\
-                                  num_iter=None,move_allparameters=None):
-    
-    """ 
-    Tokovinin algorithm for analyzing multiple images at once
-    
-    @param list_of_sci_images                         list of science images
-    @param list_of_var_images                         list of variance images
-    @param list_of_mask_images                        list of mask images
-    @param allparameters_parametrization_proposal     1d array contaning parametrization 
-    @param num_iter                                   optional parameters only used for naming intermediate outputs
-    """              
-    # possibly need to refactor so that the algorithm also takes list_of_defocuses
-        
-    #model = LN_PFS_single(sci_image,var_image,mask_image=mask_image,\
-    #                  dithering=1,save=0,zmax=twentytwo_or_extra,verbosity=0,double_sources=None,\
-    #                  double_sources_positions_ratios=double_sources_positions_ratios,fit_for_flux=True,npix=1536,pupil_parameters=None)  
-    
-    
-    #########################################################################################################
-    # Create initial modeling as basis for future effort
-    
-    model_multi=LN_PFS_multi_same_spot(list_of_sci_images,list_of_var_images,list_of_mask_images=list_of_mask_images,\
-                                       dithering=1,save=0,zmax=56,verbosity=0,double_sources=False,\
-                                       double_sources_positions_ratios=double_sources_positions_ratios,npix=1536,fit_for_flux=True,test_run=False)   
-    print('****************************')        
-    print('Starting Tokovinin procedure')
-    print('Initial testing proposal is: '+str(allparameters_parametrization_proposal))
-    time_start_single=time.time()
-    
-    # this uncommented line below will not work
-    # proper outputs
-    #    initial_model_result,list_of_initial_model_result,list_of_image_0,\
-    #                list_of_initial_input_parameters,list_of_pre_chi2=res_multi 
-    
-    # create list of minchains, one per each image
-    list_of_minchain=model_multi.create_list_of_allparameters(allparameters_parametrization_proposal,list_of_defocuses=list_of_defocuses_input_long,zmax=56)
-    # pre_model_result - mean likelihood per images
-    # model_results - likelihood per image
-    # pre_images - list of created model images
-    # pre_input_parameters - list of parameters per image?
-    # chi_2_before_iteration_array - list of lists describing quality of fitting    
-    pre_model_result,model_results,pre_images,pre_input_parameters,chi_2_before_iteration_array,list_of_psf_positions=model_multi(list_of_minchain,return_Images=True)
-    print('list_of_psf_positions at the input stage: '+str(list_of_psf_positions))
-    
-    if num_iter!=None:
-        np.save('/tigress/ncaplar/Results/allparameters_parametrization_proposal',\
-                allparameters_parametrization_proposal)   
-        np.save('/tigress/ncaplar/Results/pre_images',\
-                pre_images)   
-        np.save('/tigress/ncaplar/Results/pre_input_parameters',\
-                pre_input_parameters)   
-        np.save('/tigress/ncaplar/Results/list_of_sci_images',\
-                list_of_sci_images)  
-        np.save('/tigress/ncaplar/Results/list_of_var_images',\
-                list_of_var_images)  
-        np.save('/tigress/ncaplar/Results/list_of_mask_images',\
-                list_of_mask_images)  
-            
-
-    
-
-    # this needs to change - do I ever use this?!?
-    chi_2_before_iteration=chi_2_before_iteration_array[2]
-    # extract the parameters which will not change in this function, i.e., not-wavefront parameters
-    nonwavefront_par=list_of_minchain[0][19:42]
-    time_end_single=time.time()
-    print('Total time taken was  '+str(time_end_single-time_start_single)+' seconds')
-    print('chi_2_pre_input_parameters is: '+str(chi_2_before_iteration_array[2]))  
-    
-    # import science images and mask them     
-    list_of_mean_value_of_background=[]
-    list_of_flux_mask=[]
-    list_of_sci_image_std=[]
-    for i in range(len(list_of_sci_images)):
-        sci_image=list_of_sci_images[i]
-
-        mean_value_of_background=np.mean([np.median(sci_image[0]),np.median(sci_image[-1]),\
-                                          np.median(sci_image[:,0]),np.median(sci_image[:,-1])])*5
-            
-        if move_allparameters==True:
-            mean_value_of_background=np.mean([np.median(sci_image[0]),np.median(sci_image[-1]),\
-                                  np.median(sci_image[:,0]),np.median(sci_image[:,-1])])*3
-            
-
-        list_of_mean_value_of_background.append(mean_value_of_background)
-        flux_mask=sci_image>(mean_value_of_background)
-   
-        
-        # normalized science image
-        var_image=list_of_var_images[i]
-        sci_image_std=sci_image/np.sqrt(var_image)
-        list_of_sci_image_std.append(sci_image_std)
-        list_of_flux_mask.append(flux_mask)
-    # perhaps also 
-    
-    ######################################################################################################### 
-    # masked science image
-    list_of_I=[]
-    list_of_I_std=[]    
-    list_of_std_image=[]
-    for i in range(len(list_of_sci_images)):
-        
-        sci_image=list_of_sci_images[i]
-        sci_image_std=list_of_sci_image_std[i]
-        flux_mask=list_of_flux_mask[i]
-        std_image=np.sqrt(list_of_var_images[i][flux_mask]).ravel()
-        
-        I=sci_image[flux_mask].ravel()        
-        #I=((sci_image[flux_mask])/np.sum(sci_image[flux_mask])).ravel()
-        I_std=((sci_image_std[flux_mask])/1).ravel()
-        #I_std=((sci_image_std[flux_mask])/np.sum(sci_image_std[flux_mask])).ravel()
-        
-        list_of_I.append(I)
-        list_of_std_image.append(std_image)
-        list_of_I_std.append(I_std)
-
-    # join all I,I_std from all individual images into one uber I,I_std  
-    uber_I=[item for sublist in list_of_I for item in sublist]
-    uber_std=[item for sublist in list_of_std_image for item in sublist]
-    uber_I_std=[item for sublist in list_of_I_std for item in sublist]    
-    
-    uber_I=np.array(uber_I)
-    uber_std=np.array(uber_std)
-    #uber_I_std=np.array(uber_I_std) 
-    
-    # removing normalization in 0.36
-    #uber_I=uber_I/np.sum(uber_I)
-    #uber_I_std=uber_I_std/np.sum(uber_I_std)    
-    
-    if num_iter!=None:
-        np.save('/tigress/ncaplar/Results/list_of_sci_images',\
-                list_of_sci_images)   
-        np.save('/tigress/ncaplar/Results/list_of_flux_mask',\
-                list_of_flux_mask)   
-        np.save('/tigress/ncaplar/Results/uber_std',\
-                uber_std)               
-        np.save('/tigress/ncaplar/Results/uber_I',\
-                uber_I)   
-            
-            
-        
-    #np.save('/tigress/ncaplar/Results/uber_I_std',\
-    #        uber_I_std)              
-            
-    # set number of extra Zernike
-    #number_of_extra_zernike=0
-    #twentytwo_or_extra=22
-    # numbers that make sense are 11,22,37,56,79,106,137,172,211,254
-    
-    #if number_of_extra_zernike is None:
-    #    number_of_extra_zernike=0
-    #else:
-    number_of_extra_zernike=twentytwo_or_extra-22
-    
-    
-    
-    #########################################################################################################
-    # Start of the iterative process
-    
-    number_of_non_decreses=[0]
-    
-    for iteration_number in range(5): 
-
-
-        if iteration_number==0:
-            
-            # initial SVD treshold
-            thresh0 = 0.02
-            
-    
-
-    
-        ######################################################################################################### 
-        # starting real iterative process here
-        # create changes in parametrizations    
-            
-        # list of how much to move Zernike coefficents
-        #list_of_delta_z=[]
-        #for z_par in range(3,22+number_of_extra_zernike):
-        #    list_of_delta_z.append(0.5/((np.sqrt(8.*(z_par+1.)-6.)-1.)/2.))
-    
-        # list of how much to move Zernike coefficents
-        # possibly needs to me modified to be smarther and take into account that every second parameter gets ``amplified'' in defocus
-        #list_of_delta_z_parametrizations=[]
-        #for z_par in range(0,19*2+2*number_of_extra_zernike):
-        #    list_of_delta_z_parametrizations.append(0.5/((np.sqrt(8.*(z_par+1.)-6.)-1.)/2.))        
-
-        # this should produce reasonable changes in multi analysis
-        list_of_delta_z_parametrizations=[]
-        for z_par in range(0,19*2+2*number_of_extra_zernike):
-            z_par_i=z_par+4
-            # if this is the parameter that change
-            if np.mod(z_par_i,2)==0:
-                list_of_delta_z_parametrizations.append(0.25*0.25/np.sqrt(z_par_i))
-            if np.mod(z_par_i,2)==1:
-                list_of_delta_z_parametrizations.append(0.25/np.sqrt(z_par_i))
-                    
-
-        array_of_delta_global_parametrizations=np.array([0.1,0.02,0.1,0.1,0.1,0.1,
-                                        0.3,1,0.1,0.1,
-                                        0.15,0.15,0.1,
-                                        0.07,0.05,0.05,0.4,
-                                        30000,0.5,0.001,
-                                        0.05,0.05,0.01])
-        array_of_delta_global_parametrizations=array_of_delta_global_parametrizations/10
-
-        # array, randomized delta extra zernike
-        #array_of_delta_randomize=np.random.standard_normal(len(list_of_delta_z))*1.2+1
-        #array_of_delta_parametrizations_randomize=np.random.standard_normal(len(list_of_delta_z_parametrizations))*1
-        #array_of_delta_z_parametrizations=+np.array(list_of_delta_z_parametrizations)*array_of_delta_parametrizations_randomize
-        
-        
-        array_of_delta_z_parametrizations=np.array(list_of_delta_z_parametrizations)*(1)
-        
-        if move_allparameters==True:
-            array_of_delta_all_parametrizations=np.concatenate((array_of_delta_z_parametrizations[0:19*2],\
-                                                                array_of_delta_global_parametrizations, array_of_delta_z_parametrizations[19*2:]))
-
-        if num_iter!=None:
-            np.save('/tigress/ncaplar/Results/array_of_delta_z_parametrizations_'+str(num_iter)+'_'+str(iteration_number),\
-                    array_of_delta_z_parametrizations)        
-            np.save('/tigress/ncaplar/Results/array_of_delta_global_parametrizations_'+str(num_iter)+'_'+str(iteration_number),\
-                    array_of_delta_global_parametrizations)      
-            if move_allparameters==True:
-                np.save('/tigress/ncaplar/Results/array_of_delta_all_parametrizations_'+str(num_iter)+'_'+str(iteration_number),\
-                        array_of_delta_all_parametrizations)                      
-                
-                
-                   
-    
-        # initialize 
-        # if this is the first iteration of the iterative algorithm
-        if iteration_number==0:
-            thresh=thresh0
-            all_global_parametrization_old=allparameters_parametrization_proposal[19*2:19*2+23]
-            if number_of_extra_zernike==0:
-                all_wavefront_z_parametrization_old=allparameters_parametrization_proposal[0:19*2]
-            else:
-                # if you want more Zernike
-                if len(allparameters_parametrization_proposal)==19*2+23:
-                    # if you did not pass explicit extra Zernike, start with zeroes
-                    all_wavefront_z_parametrization_old=np.concatenate((allparameters_parametrization_proposal[0:19*2],np.zeros(2*number_of_extra_zernike)))
-                else:
-                    all_wavefront_z_parametrization_old=np.concatenate((allparameters_parametrization_proposal[0:19*2],allparameters_parametrization_proposal[19*2+23:]))
-    
-            pass
-        # if this is not a first iteration
-        else:
-            # errors in the typechecker for 10 lines below are fine
-            print('array_of_delta_z in '+str(iteration_number)+' '+str(array_of_delta_z_parametrizations))
-            # code analysis programs might suggest that there is an error here, but everything is ok
-            #chi_2_before_iteration=np.copy(chi_2_after_iteration)
-            # copy wavefront from the end of the previous iteration
-            
-            
-            all_wavefront_z_parametrization_old=np.copy(all_wavefront_z_parametrization_new)
-            if move_allparameters==True:
-                all_global_parametrization_old=np.copy(all_global_parametrization_new)
-            if did_chi_2_improve==1:
-                print('did_chi_2_improve: yes')
-            else:
-                print('did_chi_2_improve: no')                
-            if did_chi_2_improve==0:
-                thresh=thresh0
-            else:
-                thresh=thresh*0.5
-    
-        ######################################################################################################### 
-        # create a model with input parameters from previous iteration
-        
-        list_of_all_wavefront_z_parameterization=[]
-    
-        up_to_z22_parametrization_start=all_wavefront_z_parametrization_old[0:19*2]     
-        from_z22_parametrization_start=all_wavefront_z_parametrization_old[19*2:]  
-        global_parametrization_start=all_global_parametrization_old
-        #print('from_z22_start: '+str(from_z22_start))
-        #print('iteration '+str(iteration_number)+' shape of up_to_z22_parametrization_start is: '+str(up_to_z22_parametrization_start.shape))
-        if move_allparameters==True:
-            initial_input_parameterization=np.concatenate((up_to_z22_parametrization_start,global_parametrization_start,from_z22_parametrization_start))
-        else:
-            initial_input_parameterization=np.concatenate((up_to_z22_parametrization_start,nonwavefront_par,from_z22_parametrization_start))
-        print('initial input parameters in iteration '+str(iteration_number)+' is: '+str(initial_input_parameterization))
-        print('moving input parameters in iteration '+str(iteration_number)+' by: '+str(array_of_delta_z_parametrizations))
-        if move_allparameters==True:
-            print('moving global input parameters in iteration '+str(iteration_number)+' by: '+str(array_of_delta_global_parametrizations))
-            
-        
-        if num_iter!=None:
-            np.save('/tigress/ncaplar/Results/initial_input_parameterization_'+str(num_iter)+'_'+str(iteration_number),\
-                    initial_input_parameterization)                        
-
-        #print('len initial_input_parameterization '+str(len(initial_input_parameterization)))
-        
-        list_of_minchain=model_multi.create_list_of_allparameters(initial_input_parameterization,list_of_defocuses=list_of_defocuses_input_long,zmax=56)
-        #list_of_minchain=model_multi.create_list_of_allparameters(allparameters_parametrization_proposal,list_of_defocuses=list_of_defocuses_input_long,zmax=56)
-
-        
-
-        res_multi=model_multi(list_of_minchain,return_Images=True)
-        #mean_res_of_multi_same_spot_proposal,list_of_single_res_proposal,list_of_single_model_image_proposal,\
-        #            list_of_single_allparameters_proposal,list_of_single_chi_results_proposal=res_multi  
-        initial_model_result,list_of_initial_model_result,list_of_image_0,\
-                    list_of_initial_input_parameters,list_of_pre_chi2,list_of_psf_positions=res_multi      
-        
-        #initial_model_result,image_0,initial_input_parameters,pre_chi2=model(initial_input_parameters,return_Image=True,return_intermediate_images=False)
-        if num_iter!=None:
-            np.save('/tigress/ncaplar/Results/list_of_initial_model_result_'+str(num_iter)+'_'+str(iteration_number),\
-                    list_of_initial_model_result)                        
-            np.save('/tigress/ncaplar/Results/list_of_image_0_'+str(num_iter)+'_'+str(iteration_number),\
-                    list_of_image_0)    
-            np.save('/tigress/ncaplar/Results/list_of_initial_input_parameters_'+str(num_iter)+'_'+str(iteration_number),\
-                    list_of_initial_input_parameters)   
-            np.save('/tigress/ncaplar/Results/list_of_pre_chi2_'+str(num_iter)+'_'+str(iteration_number),\
-                    list_of_pre_chi2)      
-            np.save('/tigress/ncaplar/Results/list_of_psf_positions_'+str(num_iter)+'_'+str(iteration_number),\
-                    list_of_psf_positions)     
-
-        ######################################################################################################### 
-        # divided model images by their standard deviations
-        
-        list_of_image_0_std=[]
-        for i in range(len(list_of_image_0)):
-            # normalizing by standard deviation image
-            STD=np.sqrt(list_of_var_images[i])    
-            image_0=list_of_image_0[i]
-            list_of_image_0_std.append(image_0/STD)
-        
-    
-        ######################################################################################################### 
-        # masked model images at the start of this iteration, before modifying parameters
-        
-        
-        list_of_M0=[]
-        list_of_M0_std=[]
-        for i in range(len(list_of_image_0_std)):
-            
-            image_0=list_of_image_0[i]
-            image_0_std=list_of_image_0_std[i]
-            flux_mask=list_of_flux_mask[i]
-            # what is list_of_mask_images?
-
-            M0=image_0[flux_mask].ravel()            
-            #M0=((image_0[flux_mask])/np.sum(image_0[flux_mask])).ravel()
-            M0_std=((image_0_std[flux_mask])/1).ravel()
-            #M0_std=((image_0_std[flux_mask])/np.sum(image_0_std[flux_mask])).ravel()
-            
-            list_of_M0.append(M0)
-            list_of_M0_std.append(M0_std)
-    
-        # join all M0,M0_std from invidiual images into one uber M0,M0_std
-        uber_M0=[item for sublist in list_of_M0 for item in sublist]
-        uber_M0_std=[item for sublist in list_of_M0_std for item in sublist]    
-        
-        uber_M0=np.array(uber_M0)
-        uber_M0_std=np.array(uber_M0_std)
-        
-        #uber_M0=uber_M0/np.sum(uber_M0)
-        #uber_M0_std=uber_M0_std/np.sum(uber_M0_std)
-    
-        if num_iter!=None:
-            np.save('/tigress/ncaplar/Results/uber_M0_'+str(num_iter)+'_'+str(iteration_number),\
-                    uber_M0)             
-            np.save('/tigress/ncaplar/Results/uber_M0_std_'+str(num_iter)+'_'+str(iteration_number),\
-                    uber_M0_std)     
-
-
-    
-        ######################################################################################################### 
-        # difference between model (uber_M0) and science (uber_I) at start of this iteration
-        
-        # non-std version
-        # not used, that is ok, we are at the moment using std version
-        IM_start=np.sum(np.abs(np.array(uber_I)-np.array(uber_M0)))        
-        # std version 
-        IM_start_std=np.sum(np.abs(np.array(uber_I_std)-np.array(uber_M0_std)))    
-        
-        # mean of differences of our images - should we use mean?; probably not... needs to be normalized?
-        unitary_IM_start=np.mean(IM_start)  
-        #unitary_IM_start_std=np.mean(IM_start_std)  
-            
-        #print list_of_IM_start_std
-        print('np.sum(np.abs(I-M0)) before iteration '+str(iteration_number)+': '+str(unitary_IM_start))  
-        #print('np.sum(np.abs(I_std-M0_std)) before iteration '+str(iteration_number)+': '+str(unitary_IM_start_std))  
-    
-    
-                
-        ######################################################################################################### 
-        # create list of new parametrizations to be tested
-        # combine the old wavefront parametrization with the delta_z_parametrization 
-        
-        # create two lists:
-        # 1. one contains only wavefront parametrizations
-        # 2. second contains the whole parametrizations
-        
-        if move_allparameters==True:
-            list_of_all_wavefront_z_parameterization=[]
-            list_of_input_parameterizations=[]
-            for z_par in range(19*2):
-                all_wavefront_z_parametrization_list=np.copy(all_wavefront_z_parametrization_old)
-                all_wavefront_z_parametrization_list[z_par]=all_wavefront_z_parametrization_list[z_par]+array_of_delta_z_parametrizations[z_par]
-                list_of_all_wavefront_z_parameterization.append(all_wavefront_z_parametrization_list)
-        
-                up_to_z22_start=all_wavefront_z_parametrization_list[0:19*2]     
-                from_z22_start=all_wavefront_z_parametrization_list[19*2:]  
-    
-                parametrization_proposal=np.concatenate((up_to_z22_start,nonwavefront_par,from_z22_start))
-                # actually it is parametrization
-                list_of_input_parameterizations.append(parametrization_proposal)  
-
-            for g_par in range(23):
-                all_global_parametrization_list=np.copy(all_global_parametrization_old)
-                all_global_parametrization_list[g_par]=all_global_parametrization_list[g_par]+array_of_delta_global_parametrizations[g_par]
-                #list_of_all_wavefront_z_parameterization.append(all_wavefront_z_parametrization_list)
-        
-                up_to_z22_start=all_wavefront_z_parametrization_old[0:19*2]     
-                from_z22_start=all_wavefront_z_parametrization_old[19*2:]  
-    
-                parametrization_proposal=np.concatenate((up_to_z22_start,all_global_parametrization_list,from_z22_start))
-                # actually it is parametrization
-                list_of_input_parameterizations.append(parametrization_proposal)  
-
-            for z_par in range(19*2,len(all_wavefront_z_parametrization_old)):
-                all_wavefront_z_parametrization_list=np.copy(all_wavefront_z_parametrization_old)
-                all_wavefront_z_parametrization_list[z_par]=all_wavefront_z_parametrization_list[z_par]+array_of_delta_z_parametrizations[z_par]
-                list_of_all_wavefront_z_parameterization.append(all_wavefront_z_parametrization_list)
-        
-                up_to_z22_start=all_wavefront_z_parametrization_list[0:19*2]     
-                from_z22_start=all_wavefront_z_parametrization_list[19*2:]  
-    
-                parametrization_proposal=np.concatenate((up_to_z22_start,nonwavefront_par,from_z22_start))
-                # actually it is parametrization
-                list_of_input_parameterizations.append(parametrization_proposal)  
-
-            
-        else:
-            list_of_all_wavefront_z_parameterization=[]
-            list_of_input_parameterizations=[]
-            for z_par in range(len(all_wavefront_z_parametrization_old)):
-                all_wavefront_z_parametrization_list=np.copy(all_wavefront_z_parametrization_old)
-                all_wavefront_z_parametrization_list[z_par]=all_wavefront_z_parametrization_list[z_par]+array_of_delta_z_parametrizations[z_par]
-                list_of_all_wavefront_z_parameterization.append(all_wavefront_z_parametrization_list)
-        
-                up_to_z22_start=all_wavefront_z_parametrization_list[0:19*2]     
-                from_z22_start=all_wavefront_z_parametrization_list[19*2:]  
-    
-                parametrization_proposal=np.concatenate((up_to_z22_start,nonwavefront_par,from_z22_start))
-                # actually it is parametrization
-                list_of_input_parameterizations.append(parametrization_proposal)    
-        
-        ######################################################################################################### 
-        # Starting testing new set
-        # Creating new images
-        
-        out_ln=[]
-        out_ln_ind=[]
-        out_images=[]
-        out_parameters=[]
-        out_chi2=[]
-        out_pfs_positions=[]
-    
-    
-        print('We are inside of the pool loop number '+str(iteration_number)+' now')
-        # actually it is parametrization
-        # list of (56-3)*2 sublists, each one with (56-3)*2 + 23 values
-        time_start=time.time()
-    
-    
-        #list_of_minchain=model_multi.create_list_of_allparameters(allparameters_parametrization_proposal,list_of_defocuses=list_of_defocuses_input_long,zmax=56)
-     
-        # I need to pass each of 106 parametrization to model_multi BUT
-        # model_multi actually takes list of parameters, not a parametrizations
-        # I need list that has 106 sublists, each one of those being 9x(53+23)
-        uber_list_of_input_parameters=[]
-        for i in range(len(list_of_input_parameterizations)):
-
-           list_of_input_parameters=model_multi.create_list_of_allparameters(list_of_input_parameterizations[i],\
-                                                                             list_of_defocuses=list_of_defocuses_input_long,zmax=56)
-           uber_list_of_input_parameters.append(list_of_input_parameters)
-           
-        #save the uber_list_of_input_parameters
-        if num_iter!=None:
-            np.save('/tigress/ncaplar/Results/uber_list_of_input_parameters_'+str(num_iter)+'_'+str(iteration_number),\
-                    uber_list_of_input_parameters)            
-       
-        # pass new model_multi that has fixed pos (October 6)   
-        model_multi_out=LN_PFS_multi_same_spot(list_of_sci_images,list_of_var_images,list_of_mask_images=list_of_mask_images,\
-                             dithering=1,save=0,zmax=56,verbosity=0,double_sources=False,\
-                             double_sources_positions_ratios=double_sources_positions_ratios,npix=1536,
-                             fit_for_flux=True,test_run=False,list_of_psf_positions=list_of_psf_positions)   
-                
-        
-
-        
-
-        out1=pool.map(partial(model_multi_out, return_Images=True), uber_list_of_input_parameters)
-        # out1=pool.map(partial(model_multi, return_Images=True), uber_list_of_input_parameters)
-        out1=list(out1)
-    
-        #out1=map(partial(model, return_Image=True), input_parameters)
-        #out1=list(out1)
-    
-        # normalization of the preinput run
-        pre_input_parameters=np.array(pre_input_parameters)
-        print(pre_input_parameters.shape)
-        print(pre_input_parameters[0])
-        
-        array_of_normalizations_pre_input=pre_input_parameters[:,41]
-    
-    
-    
-    
-    
-        #out1=a_pool.map(model,input_parameters,repeat(True))
-        for i in range(len(uber_list_of_input_parameters)):
-            #print(i)
-            
-            #    initial_model_result,list_of_initial_model_result,list_of_image_0,\
-            #                list_of_initial_input_parameters,list_of_pre_chi2
-            
-            # outputs are 
-            # 0. mean likelihood
-            # 1. list of individual res (likelihood)
-            # 2. list of science images
-            # 3. list of parameters used
-            # 4. list of quality measurments
-            
-            
-            out_images_pre_renormalization=np.array(out1[i][2])
-            out_parameters_single_move=np.array(out1[i][3])
-            array_of_normalizations_out=out_parameters_single_move[:,41]
-            
-            out_renormalization_parameters=array_of_normalizations_pre_input/array_of_normalizations_out
-            
-            
-            out_ln.append(out1[i][0])
-            out_ln_ind.append(out1[i][1])
-            out_images.append(out_images_pre_renormalization*out_renormalization_parameters)
-            out_parameters.append(out1[i][3])
-            out_chi2.append(out1[i][4])
-            out_pfs_positions.append(out1[i][5])
-            
-            # we use these out_images to study the differences due to changing parameters,
-            # so we do not want the normalization to affect things (and position of optical center)
-            # so we renormalize to that multiplication constants are the same as in the input 
-            
-            
-            
-            
-        time_end=time.time()
-        print('time_end-time_start '+str(time_end-time_start))
-    
-        if num_iter!=None:
-            np.save('/tigress/ncaplar/Results/out_images_'+str(num_iter)+'_'+str(iteration_number),\
-                    out_images)    
-            np.save('/tigress/ncaplar/Results/out_parameters_'+str(num_iter)+'_'+str(iteration_number),\
-                    out_parameters)  
-            np.save('/tigress/ncaplar/Results/out_chi2_'+str(num_iter)+'_'+str(iteration_number),\
-                    out_chi2) 
-        
-        ######################################################################################################### 
-        # Normalize created images
-        
-        #We created (zmax*2) x N images, where N is the number of defocused images
-        # loop over all of (zmax*2) combinations and double-normalize and ravel N images
-        # double-normalize = set sum of each image to 1 and then set the sum of all raveled images to 1
-        
-        list_of_images_normalized_uber=[]
-        list_of_images_normalized_std_uber=[]
-        # go over zmax*2 images
-        for j in range(len(out_images)):
-            # two steps for what could have been achived in one, but to ease up transition from previous code 
-            out_images_single_parameter_change=out_images[j]
-            optpsf_list=out_images_single_parameter_change
-            ### breaking here
-            # flux image has to correct per image
-            # normalize and mask images that have been created in the fitting procedure
-            images_normalized=[]
-            for i in range(len(optpsf_list)):
-                
-                flux_mask=list_of_flux_mask[i]
-                images_normalized.append((optpsf_list[i][flux_mask]).ravel())                
-                #images_normalized.append((optpsf_list[i][flux_mask]/np.sum(optpsf_list[i][flux_mask])).ravel())
-                
-            images_normalized_flat=[item for sublist in images_normalized for item in sublist]  
-            images_normalized_flat=np.array(images_normalized_flat)
-            #images_normalized_flat=np.array(images_normalized_flat)/len(optpsf_list)        
-            
-            # list of (zmax-3)*2 raveled images
-            list_of_images_normalized_uber.append(images_normalized_flat)
-            
-            # same but divided by STD
-            images_normalized_std=[]
-            for i in range(len(optpsf_list)):   
-                # seems that I am a bit more verbose here with my definitions
-                optpsf_list_i=optpsf_list[i]
-                STD=list_of_sci_image_std[i]
-                optpsf_list_i_STD=optpsf_list_i/STD    
-                flux_mask=list_of_flux_mask[i]
-                #images_normalized_std.append((optpsf_list_i_STD[flux_mask]/np.sum(optpsf_list_i_STD[flux_mask])).ravel())
-            
-            # join all images together
-            #images_normalized_std_flat=[item for sublist in images_normalized_std for item in sublist]  
-            # normalize so that the sum is still one
-            #images_normalized_std_flat=np.array(images_normalized_std_flat)/len(optpsf_list)
-            
-            #list_of_images_normalized_std_uber.append(images_normalized_std_flat)
-            
-        # create uber images_normalized,images_normalized_std    
-        # images that have zmax*2 rows and very large number of columns (number of non-masked pixels from all N images)
-        uber_images_normalized=np.array(list_of_images_normalized_uber)    
-        #uber_images_normalized_std=np.array(list_of_images_normalized_std_uber)          
-
-        if num_iter!=None:
-            np.save('/tigress/ncaplar/Results/uber_images_normalized_'+str(num_iter)+'_'+str(iteration_number),\
-                    uber_images_normalized)  
-        
-        #np.save('/tigress/ncaplar/Results/uber_images_normalized_std_'+str(num_iter)+'_'+str(iteration_number),\
-        #        uber_images_normalized_std)  
-
-
-        
-        
-        #single_wavefront_parameter_list=[]
-        #for i in range(len(out_parameters)):
-        #    single_wavefront_parameter_list.append(np.concatenate((out_parameters[i][:19],out_parameters[i][42:])) )
-    
-    
-        
-        ######################################################################################################### 
-        # Core Tokovinin algorithm
-    
-        
-    
-        print('images_normalized (uber).shape: '+str(uber_images_normalized.shape))
-        # equation A1 from Tokovinin 2006
-        # new model minus old model
-        if move_allparameters==True:
-            H=np.transpose(np.array((uber_images_normalized-uber_M0))/array_of_delta_all_parametrizations[:,None])    
-            #H_std=np.transpose(np.array((uber_images_normalized_std-uber_M0_std))/array_of_delta_z_parametrizations[:,None]) 
-            H_std=np.transpose(np.array((uber_images_normalized-uber_M0))/array_of_delta_all_parametrizations[:,None])/uber_std.ravel()[:,None]               
-        else:                
-            H=np.transpose(np.array((uber_images_normalized-uber_M0))/array_of_delta_z_parametrizations[:,None])    
-            #H_std=np.transpose(np.array((uber_images_normalized_std-uber_M0_std))/array_of_delta_z_parametrizations[:,None]) 
-            H_std=np.transpose(np.array((uber_images_normalized-uber_M0))/array_of_delta_z_parametrizations[:,None])/uber_std.ravel()[:,None]     
-
-        if num_iter!=None:
-            np.save('/tigress/ncaplar/Results/H_'+str(num_iter)+'_'+str(iteration_number),\
-                    H)  
-        if num_iter!=None:
-            np.save('/tigress/ncaplar/Results/H_std_'+str(num_iter)+'_'+str(iteration_number),\
-                    H_std)                  
-        
-        singlular_parameters=np.arange(H.shape[1])[np.abs((np.mean(H,axis=0)))<0.01]
-        non_singlular_parameters=np.arange(H.shape[1])[np.abs((np.mean(H,axis=0)))>0.01]
-        
-        H=H[:,non_singlular_parameters]
-        H_std=H_std[:,non_singlular_parameters]
-    
-        HHt=np.matmul(np.transpose(H),H)
-        HHt_std=np.matmul(np.transpose(H_std),H_std) 
-        #print('svd thresh is '+str(thresh))
-        #invHHt=svd_invert(HHt,thresh)
-        #invHHt_std=svd_invert(HHt_std,thresh)
-        invHHt=np.linalg.inv(HHt)        
-        invHHt_std=np.linalg.inv(HHt_std)
-    
-        invHHtHt=np.matmul(invHHt,np.transpose(H))
-        invHHtHt_std=np.matmul(invHHt_std,np.transpose(H_std))
-
-    
-        # I is uber_I now (science images)
-        # M0 is uber_M0 now (set of models before the iteration)
-        first_proposal_Tokovnin=np.matmul(invHHtHt,uber_I-uber_M0)
-        #first_proposal_Tokovnin_std=np.matmul(invHHtHt_std,uber_I_std-uber_M0_std)
-        first_proposal_Tokovnin_std=np.matmul(invHHtHt_std,(uber_I-uber_M0)/uber_std.ravel())    
-    
-    
-        #Tokovnin_proposal=0.7*first_proposal_Tokovnin
-        if move_allparameters==True:
-            Tokovnin_proposal=np.zeros((129,))
-            #Tokovnin_proposal[non_singlular_parameters]=0.7*first_proposal_Tokovnin_std            
-            Tokovnin_proposal[non_singlular_parameters]=1*first_proposal_Tokovnin_std     
-            
-            all_parametrization_new=np.copy(initial_input_parameterization)
-            allparameters_parametrization_proposal_after_iteration_before_global_check=all_parametrization_new+Tokovnin_proposal
-            # tests if the global parameters would be out of bounds - if yes, reset them to the limit values
-            global_parametrization_proposal_after_iteration_before_global_check=\
-                allparameters_parametrization_proposal_after_iteration_before_global_check[19*2:19*2+23]
-            checked_global_parameters=check_global_parameters(global_parametrization_proposal_after_iteration_before_global_check,test_print=1)
-            
-            allparameters_parametrization_proposal_after_iteration=np.copy(allparameters_parametrization_proposal_after_iteration_before_global_check)
-            allparameters_parametrization_proposal_after_iteration[19*2:19*2+23]=checked_global_parameters
-
-            
-            
-        else:
-            #Tokovnin_proposal=0.7*first_proposal_Tokovnin_std
-            Tokovnin_proposal=1*first_proposal_Tokovnin_std
-
-        
-        print('Tokovnin_proposal[:5] is: '+str(Tokovnin_proposal[:5]))
-        print('Tokovnin_proposal[38:43] is: '+str(Tokovnin_proposal[38:43]))
-        #print('std of Tokovnin_proposal is: '+str(np.std(Tokovnin_proposal)))
-        if move_allparameters==True:
-            #all_wavefront_z_parametrization_new=np.copy(all_wavefront_z_parametrization_old)    
-            #all_global_parametrization_new=np.copy(all_global_parametrization_old)
-            #all_parametrization_new=np.copy(initial_input_parameterization)
-            
-            #allparameters_parametrization_proposal_after_iteration=all_parametrization_new+Tokovnin_proposal
-            
-            up_to_z22_end=allparameters_parametrization_proposal_after_iteration[:19*2]
-            from_z22_end=allparameters_parametrization_proposal_after_iteration[19*2+23:]
-            all_wavefront_z_parametrization_new=np.concatenate((up_to_z22_end,from_z22_end))
-            
-            all_global_parametrization_new=allparameters_parametrization_proposal_after_iteration[19*2:19*2+23]
-            
-            
-        else:
-            all_wavefront_z_parametrization_new=np.copy(all_wavefront_z_parametrization_old)
-            all_wavefront_z_parametrization_new=all_wavefront_z_parametrization_new+Tokovnin_proposal
-            up_to_z22_end=all_wavefront_z_parametrization_new[:19*2]
-            from_z22_end=all_wavefront_z_parametrization_new[19*2:]
-            allparameters_parametrization_proposal_after_iteration=np.concatenate((up_to_z22_end,nonwavefront_par,from_z22_end))
-    
-        if num_iter!=None:
-            np.save('/tigress/ncaplar/Results/first_proposal_Tokovnin'+str(num_iter)+'_'+str(iteration_number),\
-                    first_proposal_Tokovnin) 
-            np.save('/tigress/ncaplar/Results/first_proposal_Tokovnin_std'+str(num_iter)+'_'+str(iteration_number),\
-                    first_proposal_Tokovnin_std)   
-            np.save('/tigress/ncaplar/Results/allparameters_parametrization_proposal_after_iteration_'+str(num_iter)+'_'+str(iteration_number),\
-                    allparameters_parametrization_proposal_after_iteration)    
-    
-        #########################
-        # Creating single exposure with new proposed parameters and seeing if there is improvment    
-        list_of_parameters_after_iteration=model_multi.create_list_of_allparameters(allparameters_parametrization_proposal_after_iteration,\
-                                                                                    list_of_defocuses=list_of_defocuses_input_long,zmax=56)
-        res_multi=model_multi(list_of_parameters_after_iteration,return_Images=True)
-
-
-
-        final_model_result,list_of_final_model_result,list_of_image_final,\
-                    list_of_finalinput_parameters,list_of_after_chi2,list_of_final_psf_positions=res_multi
-
-        if num_iter!=None:
-            np.save('/tigress/ncaplar/Results/list_of_final_model_result_'+str(num_iter)+'_'+str(iteration_number),\
-                    list_of_final_model_result)                        
-            np.save('/tigress/ncaplar/Results/list_of_image_final_'+str(num_iter)+'_'+str(iteration_number),\
-                    list_of_image_final)    
-            np.save('/tigress/ncaplar/Results/list_of_finalinput_parameters_'+str(num_iter)+'_'+str(iteration_number),\
-                    list_of_finalinput_parameters)   
-            np.save('/tigress/ncaplar/Results/list_of_after_chi2_'+str(num_iter)+'_'+str(iteration_number),\
-                    list_of_after_chi2)        
-            np.save('/tigress/ncaplar/Results/list_of_final_psf_positions_'+str(num_iter)+'_'+str(iteration_number),\
-                    list_of_final_psf_positions)                       
-
-        print('list_of_final_psf_positions : '+str(list_of_psf_positions))
-              
-       
-        ######################################################################################################### 
-        # divided model images by their standard deviations
-        
-        list_of_image_final_std=[]
-        for i in range(len(list_of_image_0)):
-            # normalizing by standard deviation image
-            STD=np.sqrt(list_of_var_images[i])    
-            image_final=list_of_image_final[i]
-            list_of_image_final_std.append(image_final/STD)
-        
-    
-        ######################################################################################################### 
-        #  masked model images after this iteration
-        
-        
-        list_of_M_final=[]
-        list_of_M_final_std=[]
-        for i in range(len(list_of_image_final_std)):
-            
-            image_final=list_of_image_final[i]
-            image_final_std=list_of_image_final_std[i]
-            flux_mask=list_of_flux_mask[i]
-            # what is list_of_mask_images?
-            
-            #M_final=((image_final[flux_mask])/np.sum(image_final[flux_mask])).ravel()
-            M_final=(image_final[flux_mask]).ravel()
-            #M_final_std=((image_final_std[flux_mask])/np.sum(image_final_std[flux_mask])).ravel()
-            M_final_std=((image_final_std[flux_mask])/1).ravel()
-            
-            list_of_M_final.append(M_final)
-            list_of_M_final_std.append(M_final_std)
-    
-        # join all M0,M0_std from invidiual images into one uber M0,M0_std
-        uber_M_final=[item for sublist in list_of_M_final for item in sublist]
-        uber_M_final_std=[item for sublist in list_of_M_final_std for item in sublist]   
-       
-        uber_M_final=np.array(uber_M_final)
-        uber_M_final_std=np.array(uber_M_final_std)
-        
-        uber_M_final=uber_M_final
-        #uber_M_final_std=uber_M_final_std/np.sum(uber_M_final_std)
-
-        if num_iter!=None:
-            np.save('/tigress/ncaplar/Results/uber_M_final_'+str(num_iter)+'_'+str(iteration_number),\
-                    uber_M_final)                        
-            #np.save('/tigress/ncaplar/Results/uber_M_final_std_'+str(num_iter)+'_'+str(iteration_number),\
-            #        uber_M_final_std)    
-
-        
-        ####
-        # Seeing if there is improvment
-        
-        # non-std version
-        # not used, that is ok, we are at the moment using std version
-        IM_final=np.sum(np.abs(np.array(uber_I)-np.array(uber_M_final)))        
-        # std version 
-        IM_final_std=np.sum(np.abs(np.array(uber_I_std)-np.array(uber_M_final_std)))     
-    
-        print('I-M_start before iteration '+str(iteration_number)+': '+str(IM_start))    
-        print('I-M_final after iteration '+str(iteration_number)+': '+str(IM_final))
-        
-        print('I_std-M_start_std after iteration '+str(iteration_number)+': '+str(IM_start_std))        
-        print('I_std-M_final_std after iteration '+str(iteration_number)+': '+str(IM_final_std))
-        
-        print('Likelihood before iteration '+str(iteration_number)+': '+str(initial_model_result))
-        print('Likelihood after iteration '+str(iteration_number)+': '+str(final_model_result))
-        
-        #print('chi_2_after_iteration/chi_2_before_iteration '+str(chi_2_after_iteration/chi_2_before_iteration ))
-        print('IM_final/IM_start '+str(IM_final/IM_start))
-        print('IM_final_std/IM_start_std '+str(IM_final_std/IM_start_std))
-        print('#########################################################')
-        #if chi_2_after_iteration/chi_2_before_iteration <1.02 :
-    
-        ##################
-        # If improved take new parameters, if not dont
-        
-        if IM_final_std/IM_start_std <1.0 :        
-        #if IM_final_std/IM_start_std <1.0 :
-            #when the quality measure did improve
-            did_chi_2_improve=1
-            number_of_non_decreses.append(0)
-        else:
-            #when the quality measure did not improve
-            did_chi_2_improve=0
-            # resetting all parameters
-            if move_allparameters==True:
-                all_wavefront_z_parametrization_new=np.copy(all_wavefront_z_parametrization_old)
-                all_global_parametrization_new=np.copy(all_global_parametrization_old)
-                allparameters_parametrization_proposal_after_iteration=initial_input_parameterization
-            else:
-                all_wavefront_z_parametrization_new=np.copy(all_wavefront_z_parametrization_old)
-                chi_2_after_iteration=chi_2_before_iteration
-                up_to_z22_end=all_wavefront_z_parametrization_new[:19*2]
-                from_z22_start=all_wavefront_z_parametrization_new[19*2:]
-                allparameters_parametrization_proposal_after_iteration=np.concatenate((up_to_z22_start,nonwavefront_par,from_z22_start))
-            thresh=thresh0
-            number_of_non_decreses.append(1)
-            print('number_of_non_decreses:' + str(number_of_non_decreses))
-            print('current value of number_of_non_decreses is: '+str(np.sum(number_of_non_decreses)))
-            print('#############################################')
-    
-        if np.sum(number_of_non_decreses)==1:
-            return final_model_result,list_of_final_model_result,list_of_image_final,\
-                allparameters_parametrization_proposal_after_iteration,list_of_finalinput_parameters,list_of_after_chi2,list_of_final_psf_positions
-            
-            break
-    
-        #if len(allparameters_proposal_after_iteration)==41:
-        #    allparameters_proposal_after_iteration=np.concatenate((allparameters_proposal_after_iteration,np.array([1])))
-                
-        #return likelihood_after_iteration,final_optpsf_image,allparameters_proposal_after_iteration,chi2_after_iteration_array        
-        
-    return final_model_result,list_of_final_model_result,list_of_image_final,\
-            allparameters_parametrization_proposal_after_iteration,list_of_finalinput_parameters,list_of_after_chi2,list_of_final_psf_positions
-
 ################################################  
 # import data
 
@@ -1944,6 +577,13 @@ else:
     print("what has happened here? Only HgAr, Neon and Krypton implemented")
 
 
+#pool = MPIPool()
+#if not pool.is_master():
+#    pool.wait()
+#    sys.exit(0)   
+from multiprocessing import Pool
+pool=Pool()
+
 # if you are passing only image    
 if len(list_of_obs)==1:
         
@@ -1957,6 +597,18 @@ else:
     model_multi = LN_PFS_multi_same_spot(list_of_sci_images=list_of_sci_images,list_of_var_images=list_of_var_images,list_of_mask_images=list_of_mask_images,\
                                          dithering=1,save=0,verbosity=0,npix=1536,list_of_defocuses=list_of_labelInput,zmax=zmax,double_sources=double_sources,\
                                          double_sources_positions_ratios=double_sources_positions_ratios,test_run=False)           
+
+    Tokovinin_multi_instance_with_pool=Tokovinin_multi(list_of_sci_images,list_of_var_images,list_of_mask_images=list_of_mask_images,\
+                                        dithering=1,save=0,verbosity=0,npix=1536,zmax=twentytwo_or_extra,\
+                                        list_of_defocuses=list_of_defocuses_input_long,double_sources=double_sources,\
+                                        double_sources_positions_ratios=double_sources_positions_ratios,fit_for_flux=True,test_run=False, \
+                                        num_iter=None,pool=pool)
+        
+    Tokovinin_multi_instance_without_pool=Tokovinin_multi(list_of_sci_images,list_of_var_images,list_of_mask_images=list_of_mask_images,\
+                                        dithering=1,save=0,verbosity=0,npix=1536,zmax=twentytwo_or_extra,\
+                                        list_of_defocuses=list_of_defocuses_input_long,double_sources=double_sources,\
+                                        double_sources_positions_ratios=double_sources_positions_ratios,fit_for_flux=True,test_run=False,\
+                                        num_iter=None,pool=None)    
 
 # if you are passing only one image
 if len(list_of_obs)==1:
@@ -2153,10 +805,10 @@ if twentytwo_or_extra>=22:
 
  
     # initialize pool
-    pool = MPIPool()
-    if not pool.is_master():
-        pool.wait()
-        sys.exit(0)   
+    #pool = MPIPool()
+    #if not pool.is_master():
+    #    pool.wait()
+    #    sys.exit(0)   
         
     number_of_extra_zernike=twentytwo_or_extra-22     
     #pool=Pool(processes=36)
@@ -2185,19 +837,14 @@ if twentytwo_or_extra>=22:
             print(str(socket.gethostname())+': Starting calculation at: '+time.ctime())    
         
             
-        
-        print('Testing proposal is: '+str(array_of_polyfit_1_parameterizations_proposal_shape_2d))
-        time_start_single=time.time()
-        print('Likelihood for the testing proposal is: '+str(model_multi(array_of_polyfit_1_parameterizations_proposal_shape_2d)))
-        time_end_single=time.time()
-        print('Time for single calculation is '+str(time_end_single-time_start_single))
-            
         #allparameters_proposal=allparameters_proposal_22
         # dirty hack to get things running
         if zmax>=22:
             columns=columns22
         
         sys.stdout.flush()
+        
+
     
     ##################################################################################################################### 
     # Determining the scattering_slope before anything
@@ -2291,117 +938,211 @@ if twentytwo_or_extra>=22:
                                   stronger= stronger_array_01,use_optPSF=None,deduced_scattering_slope=None,zmax=zmax_input)
         parInit1=np.vstack((parInit1,parInit1_2))
     
-    chain = cosmoHammer.LikelihoodComputationChain()
-    if multi_var==True:
-        chain.addLikelihoodModule(PFSLikelihoodModule(model_multi))
-    else:
-        chain.addLikelihoodModule(PFSLikelihoodModule(model))
+    # number of particles and number of parameters
+    particleCount=options[0]  
+    paramCount=len(parInit1[0])
     
-    # number of walkers - as specified in options
-    # number of steps - as specified in options
-    pso = cosmoHammer.ParticleSwarmOptimizer(chain, low=np.min(parInit1,axis=0), high=np.max(parInit1,axis=0),particleCount=options[0],pool=pool)
     
-    for i in range(len(pso.swarm)):
-        pso.swarm[i].position=parInit1[i]
+    # initialize the particle
+    particle_likelihood=np.array([-9999999])
+    particle_position=np.zeros(paramCount)
+    particle_velocity=np.zeros(paramCount)
+    best_particle_likelihood=particle_likelihood[0]    
+
+    # 
+    array_of_particle_position_proposal=parInit1[0:particleCount]
+    array_of_particle_velocity_proposal=np.zeros((particleCount,paramCount))
+    list_of_swarm=[]
+    list_of_best_particle=[]
     
-    #returns all swarms and the best particle for all iterations
-    #swarms, gbests = pso.optimize(maxIter=nsteps,c1=options[1],c2=options[2])
-    list_of_swarms_time_1=[]
-    time_start_swarms_time_1=time.time()
-    print('pso.gbest before any nsteps: '+str(pso.gbest))
-    swarms=[]
-    gbests=[]
-    num_iter = 0
-    random_seed=42
-    for swarm in pso.sample(nsteps):
-        print('starting num_iter: '+str(num_iter))
-        swarms.append(swarm)
-        gbests.append(pso.gbest.copy())
-        num_iter += 1
-        if pso.isMaster():
-            time_end_swarms_time_1=time.time()
-            list_of_swarms_time_1.append([num_iter,time_end_swarms_time_1-time_start_swarms_time_1])
-            
-            print('num_iter % 5: '+str(num_iter % 5))
-            #print('pso.swarm[0] in step'+str(num_iter)+' '+str(pso.swarm[0]))
-            #print('pso.swarm[1] in step'+str(num_iter)+' '+str(pso.swarm[1]))
-            #swarm_positions_sum=[]
-            #for i in range(len(pso.swarm)):
-            #    swarm_positions_sum.append(np.sum(pso.swarm[i].position))
-                 
-            print('pso.gbest in step: '+str(num_iter)+' '+str(pso.gbest))    
-            print('pso.swarm[0] in step: '+str(num_iter)+' '+str(pso.swarm[0]))  
-            print('pso.swarm[1] in step: '+str(num_iter)+' '+str(pso.swarm[1]))  
-            #index_of_best_position=swarm_positions_sum.index(np.sum(pso.gbest.position))
-            #print('pso.index_of_best_position in step'+str(num_iter)+' '+str(index_of_best_position))
-            #print('pso.swarm[index_of_best_position] in step'+str(num_iter)+' '+str(pso.swarm[index_of_best_position]))            
-            
-            
+    
+    print('Starting work on the initial best result')
+    time_start_initial=time.time()
+    best_result=Tokovinin_multi_instance_with_pool(array_of_polyfit_1_parameterizations_proposal_shape_2d,return_Images=True,num_iter='m1',previous_best_result=None)    
+    time_end_initial=time.time()
+    print('time for the initial evaluation is '+str(time_end_initial-time_start_initial))
+        
+   
+    
+    
+    print('Finished work on the initial best result') 
+    
+    
+    c1=1.193
+    c2=1.193
+    
+    for step in range(nsteps):
+        
+        
+         
+        np.save(RESULT_FOLDER+'array_of_particle_position_proposal'+str(step),array_of_particle_position_proposal)       
+        np.save(RESULT_FOLDER+'best_result_m1'+str(step),best_result[-1])    
+        
+        print('Starting step '+str(step)+' out of '+str(nsteps))
+        time_start_evo_step=time.time()
+        print('pool is: '+str(pool))
+        out1=pool.map(partial(Tokovinin_multi_instance_without_pool, return_Images=True,previous_best_result=best_result[-1]), array_of_particle_position_proposal)        
+        out2=np.array(list(out1))
+        time_end_evo_step=time.time()
+        print('time for the evaluation of a step '+str(step)+' is '+str(time_end_evo_step-time_start_evo_step))        
+        
 
+        
+        #print('out2.shape '+str(out2.shape))
+        np.save(RESULT_FOLDER+'out2'+str(step),out2)
 
-            print("First swarm: "+str(100*num_iter/(nsteps)))
-            sys.stdout.flush()
+        ##################
+        # create a swarm here  
+        # swarm contains each particle and its likelihood, position (after computation), velocity (that brought you here, i.e., before computation)
+        swarm_list=[]
+        for i in range(particleCount):
+            likelihood_single_particle=out2[i][0]
+            position_single_particle=out2[i][3]
+            
+            
+            if step==0:
+                velocity_single_particle=array_of_particle_velocity_proposal[i]
+            else:
+            # it is ok, because by the time you reach this line in second iteration, swarm will be defined
+                velocity_single_particle=swarm[:,2][i]
+
                 
-            if num_iter % 5 ==1:
-                
-                
-                
-                # if this is first step, take the prepared proposal - but than it would be num_iter=1!!! 
-                if num_iter==0:
-                    array_of_polyfit_1_parameterizations_proposal_shape_1d=move_parametrizations_from_2d_shape_to_1d_shape(array_of_polyfit_1_parameterizations_proposal_shape_2d)
-                else:  
-                    array_of_polyfit_1_parameterizations_proposal_shape_1d=pso.gbest.position
+            swarm_list.append([likelihood_single_particle,position_single_particle,velocity_single_particle])
             
-                list_of_Tokovin_results=[]
+        swarm=np.array(swarm_list)
+        np.save(RESULT_FOLDER+'swarm'+str(step),swarm)  
 
-                # 0. likelihood_after_iteration - mean out all of the images
-                # 1. list_of_likelihoods_after_iteration - likelihood per images
-                # 2. list_of_images_final previously named ``final_optpsf_image'' - list of generated images
-                # 3. allparameters_parametrization_final - output parametrizations
-                # 4. list_of_finalinput_parameters - list of parameters per image
-                # 5. list_of_after_chi2 - list of arrays giving quality 
-                likelihood_after_iteration,list_of_likelihoods_after_iteration,list_of_images_final,\
-                allparameters_parametrization_final,list_of_finalinput_parameters,list_of_after_chi2,list_of_psf_positions=\
-                    Tokovinin_algorithm_chi_multi(list_of_sci_images,list_of_var_images,list_of_mask_images,\
-                                                  array_of_polyfit_1_parameterizations_proposal_shape_1d,num_iter=num_iter)
+        ##################
+        # find the best particle in the swarm           
+        swarm_likelihood=swarm[:,0]
+    
+        index_of_best=np.arange(len(swarm_likelihood))[swarm_likelihood==np.max(swarm_likelihood)][0]
+        best_particle_this_step=swarm[index_of_best]      
+        best_particle_likelihood_this_step=best_particle_this_step[0]
+        np.save(RESULT_FOLDER+'best_particle_this_step'+str(step),best_particle_this_step)  
+        
+        # if the best particle from the swarm is suspected to be best particle overall
+        # compute the best_result 
+        if best_particle_likelihood_this_step>best_particle_likelihood:
+            # if the suggested likelihood is better than the best particle likelihood calculate and see if it is true
+            best_particle_proposal=best_particle_this_step
+            best_particle_proposal_position=best_particle_proposal[1]
             
-                list_of_Tokovin_results.append([likelihood_after_iteration,list_of_likelihoods_after_iteration,\
-                                                list_of_images_final,allparameters_parametrization_final,
-                                                list_of_finalinput_parameters,list_of_after_chi2,list_of_psf_positions])    
-                """    
-                likelihood_after_iteration,list_of_likelihoods_after_iteration,list_of_images_final,\
-                allparameters_parametrization_final,list_of_finalinput_parameters,list_of_after_chi2=\
-                    Tokovinin_algorithm_chi_multi(list_of_sci_images,list_of_var_images,list_of_mask_images,\
-                                                  allparameters_parametrization_final,num_iter=None,move_allparameters=True)
+            # update best_result
+            print('Starting work on the best result in step '+str(step))
+            print('Proposing best result: '+str(best_particle_proposal_position[:5]))
+            time_start_best=time.time()
+            best_result=Tokovinin_multi_instance_with_pool(best_particle_proposal_position,return_Images=True,num_iter=None,previous_best_result=None)    
+            time_end_best=time.time()
+            print('time for the best evaluation in step '+str(step)+' is '+str(time_end_best-time_start_best))
+
+            best_particle_likelihood_this_step=best_result[0]
+            best_particle_position_this_step=best_result[3]
             
-                list_of_Tokovin_results.append([likelihood_after_iteration,list_of_likelihoods_after_iteration,\
-                                                list_of_images_final,allparameters_parametrization_final,
-                                                list_of_finalinput_parameters,list_of_after_chi2])      
-                """  
-       
-                # replacing the playing above from many images above with this substitution
-                allparameters_best_parametrization_shape_1d=allparameters_parametrization_final
+            print('Best result output is: '+str(best_particle_proposal_position[:5]))
+            print('best_particle_likelihood until now: '+str(best_particle_likelihood))            
+            print('best_particle_likelihood_this_step: '+str(best_particle_likelihood_this_step))
 
-                print('result from Tokovinin (pso.gbest.position) in num_iter '+str(num_iter)+' is: '+str(allparameters_best_parametrization_shape_1d))
+            # if it is true, replace the best particle
+            if best_particle_likelihood_this_step>best_particle_likelihood:
+                best_particle_likelihood=best_particle_likelihood_this_step
+                best_particle_position=best_particle_position_this_step
+                best_particle=[best_particle_likelihood,best_particle_position,np.zeros(paramCount)]
+        
 
-                # replacing the best position 
-                pso.gbest.fitness=likelihood_after_iteration
-                pso.gbest.position=allparameters_best_parametrization_shape_1d
-                # set up velocity the wavefront up to z22
-                pso.gbest.velocity[:19*2]=np.zeros(((19*2),))
-                # set up velocity to zero (for all wavefront parameters)
-                if zmax>22:
-                    pso.gbest.velocity[-(number_of_extra_zernike*2+1):]=np.zeros(((number_of_extra_zernike*2+1),))
-                    
-                # replacing all the wavefront component in all of the particles                
-                for i in range(len(pso.swarm)):
-                    #print(allparameters_best_parametrization_shape_1d)
-                    pso.swarm[i].position[0:19*2]=allparameters_best_parametrization_shape_1d[0:19*2]     
-                    
-                    if zmax>22:
-                        pso.swarm[i].position[19*2+23:]=allparameters_best_parametrization_shape_1d[19*2+23:]
-                        pso.swarm[i].velocity[-(number_of_extra_zernike*2+1):]=np.zeros(((number_of_extra_zernike*2+1),))
-                        
+        # save result of the search for the best particle and result
+        np.save(RESULT_FOLDER+'best_particle'+str(step),best_particle)   
+        np.save(RESULT_FOLDER+'best_result'+str(step),best_result)    
+    
+    
+        best_particle_position=best_particle[1]
+        list_of_best_particle.append(best_particle)      
+
+        # updating velocity    
+        list_of_particle_position_proposal=[]
+        for i in range(particleCount):
+            
+
+            particle_likelihood=np.array(swarm[i][0])
+            particle_position=np.array(swarm[i][1])
+            
+            # if the particle failed (because it went outside global range), reduce its velocity
+            #if particle_likelihood<=-9999999:
+            #    particle_velocity=np.array(swarm[i][2])/5
+            #else:
+            #    particle_velocity=np.array(swarm[i][2])  
+              
+            particle_velocity=np.array(swarm[i][2]) 
+
+            w = 0.5 + np.random.uniform(0,1,size=paramCount)/2
+            #w=0.72
+            part_vel = w * particle_velocity
+            #cog_vel = c1 * numpy.random.uniform(0,1,size=paramCount) * (particle.pbest.position - particle.position)   
+            cog_vel = c1 * np.random.uniform(0,1,size=paramCount) * (particle_position - particle_position)         
+    
+            #soc_vel = c2 * np.random.uniform(0,1,size=paramCount) * (best_particle_position - particle_position)
+            soc_vel = c2 * w * (best_particle_position - particle_position)
+            
+            
+            proposed_particle_velocity = part_vel + cog_vel + soc_vel
+            #print('part_vel, cog_vel,soc_vel:' +str([part_vel[0:5],cog_vel[0:5],soc_vel[0:5]]))
+            
+            # prpose the postion for next step and check if it within limits
+            # modify if it tries to venture outside limits
+            proposed_particle_position = particle_position + proposed_particle_velocity
+            proposed_global_parameters=proposed_particle_position[38:38+23]
+            checked_global_parameters=check_global_parameters(proposed_global_parameters)
+            new_particle_position=np.copy(proposed_particle_position)
+            new_particle_position[38:38+23]=checked_global_parameters
+            
+            particle_velocity=new_particle_position-particle_position            
+            
+            
+            # update velocities here
+            swarm[i][2]=particle_velocity
+            # create list/array of new proposed positions
+            list_of_particle_position_proposal.append(new_particle_position)
+    
+ 
+        list_of_swarm.append(swarm)
+        array_of_particle_position_proposal=np.array(list_of_particle_position_proposal)
+        time_end=time.time()
+        print('time for the whole evaluation until step '+str(step)+' is '+str(time_end-time_start))
+        
+    
+    gbests=np.array(list_of_best_particle) 
+    swarms=np.array(list_of_swarm)
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
 
                
                 
@@ -2416,37 +1157,37 @@ if twentytwo_or_extra>=22:
                 
                 
                 
-        
+    print('Managed to reach this point')    
     
-    minchain=gbests[-1].position
-    minln=gbests[-1].fitness
+    minchain=gbests[-1][1]
+    minln=gbests[-1][0]
     
     res=[]
     for i in range(len(swarms)):
         for j in range(len(swarms[0])):
-            res.append(swarms[i][j].position)     
+            res.append(swarms[i][j][1])     
     res=np.array(res)
     chains=res.reshape(len(swarms),len(swarms[0]),parInit1.shape[1])
     
     res=[]
     for i in range(len(swarms)):
         for j in range(len(swarms[0])):
-            res.append(swarms[i][j].fitness)         
+            res.append(swarms[i][j][0])         
     res=np.array(res)
     ln_chains=res.reshape(len(swarms),len(swarms[0]))
     
     res=[]
     for i in range(len(swarms)):
         for j in range(len(swarms[0])):
-            res.append(swarms[i][j].velocity)         
+            res.append(swarms[i][j][2])         
     res=np.array(res)
     v_chains=res.reshape(len(swarms),len(swarms[0]),parInit1.shape[1])
     
     res_gbests_position=[]
     res_gbests_fitness=[]
     for i in range(len(swarms)):
-            minchain_i=gbests[i].position
-            minln_i=gbests[i].fitness
+            minchain_i=gbests[i][1]
+            minln_i=gbests[i][0]
             res_gbests_position.append(minchain_i)
             res_gbests_fitness.append(minln_i)
         
@@ -2457,7 +1198,7 @@ if twentytwo_or_extra>=22:
     
     np.save(RESULT_FOLDER+NAME_OF_CHAIN+'Swarm1',chains)
     np.save(RESULT_FOLDER+NAME_OF_CHAIN+'velocity_Swarm1',v_chains)
-    np.save(RESULT_FOLDER+NAME_OF_CHAIN+'list_of_Tokovin_results',list_of_Tokovin_results)    
+    #np.save(RESULT_FOLDER+NAME_OF_CHAIN+'list_of_Tokovin_results',list_of_Tokovin_results)    
     
     np.save(RESULT_FOLDER+NAME_OF_CHAIN+'res_gbests_position',res_gbests_position)
     np.save(RESULT_FOLDER+NAME_OF_CHAIN+'res_gbests_fitness',res_gbests_fitness)
@@ -2474,7 +1215,7 @@ if twentytwo_or_extra>=22:
     
     minchain_err=np.array(minchain_err)
     
-    np.save(RESULT_FOLDER+NAME_OF_CHAIN+'_list_of_swarms_time_1',list_of_swarms_time_1)    
+    #np.save(RESULT_FOLDER+NAME_OF_CHAIN+'_list_of_swarms_time_1',list_of_swarms_time_1)    
     
     print('Likelihood atm: '+str(np.abs(minln)))
     print('minchain atm: '+str(minchain))
