@@ -8,7 +8,9 @@ Module and stand-alone code for the creation of poststamp images
     
 
 Versions:
-June 8, 2020: 0.28e initial version, version number from Zernike_Module
+Jun 08, 2020: 0.28e initial version, version number from Zernike_Module
+Nov 27, 2020: 0.29 implmented cutting of prestacked images
+
 
 @author: Neven Caplar
 @contact: ncaplar@princeton.edu
@@ -36,11 +38,11 @@ from tqdm import tqdm
 
 __all__ = ['Zernike_cutting','create_Zernike_info_df', 'create_dither_plot','find_centroid_of_flux','find_nearest','running_mean']
 
-__version__ = "0.28e"
+__version__ = "0.29"
 
 ############################################################
 # name your directory where you want to have files!
-PSF_DIRECTORY_CUTS='/Users/nevencaplar/Documents/PFS/ReducedData/Data_Jun_7_2020/Stamps_cleaned/'
+PSF_DIRECTORY_CUTS='/Users/nevencaplar/Documents/PFS/ReducedData/Data_Nov_20_2020/Stamps_cleaned/'
 # DATAFRAMES FOLDER?
 # AUXILIARY DATA FOLDER?
 
@@ -49,9 +51,22 @@ PSF_DIRECTORY_CUTS='/Users/nevencaplar/Documents/PFS/ReducedData/Data_Jun_7_2020
 class Zernike_cutting(object):
     """
     Class that deals with cutting the PSF data
+    
+    Documentation here
+    
+    
+    
+    
+    
+    
+    
+    
+    
     """
 
-    def __init__(self, DATA_FOLDER,run_0,number_of_images,SUB_LAM,Zernike_info_df,subtract_continuum=False,dither=None,verbosity=0,save=True,use_previous_full_stacked_images=True):
+    def __init__(self, DATA_FOLDER,run_0,number_of_images,SUB_LAM,Zernike_info_df,
+                 subtract_continuum=False,dither=None,verbosity=0,save=True,\
+                 use_previous_full_stacked_images=True,use_median_rejected_stacked_images=False,exposure_arc=None):
         self.DATA_FOLDER=DATA_FOLDER
         self.run_0=run_0
         self.number_of_images=number_of_images
@@ -75,6 +90,9 @@ class Zernike_cutting(object):
             self.save=save
         else:
             self.save=save
+            
+        self.use_median_rejected_stacked_images=use_median_rejected_stacked_images
+        self.exposure_arc=exposure_arc
 
 
     
@@ -201,125 +219,152 @@ class Zernike_cutting(object):
 
     def stack_images_and_gather_information(self,run):
         
+        
+    
+        
+        
+        
+        
+        
+        
         #if run number is 4 digit number, prepand one zero in front of run
         # I have not explored all possible cases of this behaviour, possibly breaks for 1,2,3, or 6 digit numbers?
         if run<10000:
             run_string='0'+str(run)
         else:
             run_string=str(run)
-
-        if run<10000:
-            data=fits.open(self.DATA_FOLDER+'v0'+run_string+'/calExp-'+self.SUB_LAM_letter+'A0'+run_string+'r1.fits')
+            
+        # if you are using prestacked images, run simplified procedure 
+        if self.use_median_rejected_stacked_images==True:
+            data=fits.open(self.DATA_FOLDER+'median_rejected_stacked_image_'+run_string+'.fits')    
         else:
-            data=fits.open(self.DATA_FOLDER+'v0'+run_string+'/calExp-'+self.SUB_LAM_letter+'A0'+run_string+'r1.fits')       
-        
+
+            if run<10000:
+                data=fits.open(self.DATA_FOLDER+'v0'+run_string+'/calExp-'+self.SUB_LAM_letter+'A0'+run_string+'r1.fits')
+            else:
+                data=fits.open(self.DATA_FOLDER+'v0'+run_string+'/calExp-'+self.SUB_LAM_letter+'A0'+run_string+'r1.fits')       
+        exposure_arc=self.exposure_arc
         # establish which arc is being used
-        if data[0].header['W_AITNEO']==True:
-            exposure_arc='Ne'
-        if data[0].header['W_AITHGA']==True:
-            exposure_arc='HgAr'
-        if data[0].header['W_AITKRY']==True:
-            exposure_arc='Kr'
-        if data[0].header['W_AITXEN']==True:
-            exposure_arc='Xe'
-        if data[0].header['W_AITARG']==True:
-            exposure_arc='Ar'
+        if exposure_arc is None:
+            if data[0].header['W_AITNEO']==True:
+                exposure_arc='Ne'
+            if data[0].header['W_AITHGA']==True:
+                exposure_arc='HgAr'
+            if data[0].header['W_AITKRY']==True:
+                exposure_arc='Kr'
+            if data[0].header['W_AITXEN']==True:
+                exposure_arc='Xe'
+            if data[0].header['W_AITARG']==True:
+                exposure_arc='Ar'
+            
+        print('exposure_arc '+str(exposure_arc))
             
         # establish the defocus of the data
-        exposure_defocus=np.round(data[0].header['W_ENFCAX'],2)
+        try:
+            exposure_defocus=np.round(data[0].header['W_ENFCAX'],2)
+        except:
+            exposure_defocus=None
         
-
-        # if you already this and use use_previous_full_stacked_images=False you can import only 
-        #one image to read auxiliary data, but no time-consuming stacking
-        if self.use_previous_full_stacked_images==True and os.path.exists(PSF_DIRECTORY_CUTS+"scidata"+str(run)+exposure_arc+'_Stacked.npy')==True:
-                if self.verbosity==True:
-                    print('Using previously created full images, because they exist and use_previous_full_stacked_images==True')
-                    print('Loading from: '+PSF_DIRECTORY_CUTS+"scidata"+str(run)+exposure_arc+'_Stacked.npy')
-                scidata=np.load(PSF_DIRECTORY_CUTS+"scidata"+str(run)+exposure_arc+'_Stacked.npy')
-                maskdata=np.load(PSF_DIRECTORY_CUTS+"maskdata"+str(run)+exposure_arc+'_Stacked.npy')
-                vardata=np.load(PSF_DIRECTORY_CUTS+"vardata"+str(run)+exposure_arc+'_Stacked.npy')       
-        else:
-            # prepare empty arrays that will store the data 
-            scidata=np.zeros_like(data[1].data)
-            maskdata=np.zeros_like(scidata)
-            vardata=np.zeros_like(scidata)  
-            
-            # prepare arrays and lists which will be filled
-            list_of_sci_data=[]
-            list_of_var_data=[]
-            list_of_mask_data=[]   
-            
-            list_of_exposure_defocus=[]
-            list_of_exposure_arc=[]
-            
-            # for each image, gather information and stack it
-            for run_i in tqdm(range(self.number_of_images)):
-                
-                if run+run_i<10000:
-                    run_string='0'+str(run+run_i)
-                else:
-                    run_string=str(run+run_i)
-                
-                # import fits file
-                data=fits.open(self.DATA_FOLDER+'v0'+run_string+'/calExp-SA0'+run_string+'r1.fits')
-                
-                # establish the defocus of the data
-                exposure_defocus=np.round(data[0].header['W_ENFCAX'],2)
-                
-                # establish which arc is being used
-                if data[0].header['W_AITNEO']==True:
-                    exposure_arc='Ne'
-                if data[0].header['W_AITHGA']==True:
-                    exposure_arc='HgAr'
-                if data[0].header['W_AITKRY']==True:
-                    exposure_arc='Kr'
-                if data[0].header['W_AITXEN']==True:
-                    exposure_arc='Xe'
-                if data[0].header['W_AITARG']==True:
-                    exposure_arc='Ar'
-                
-                # add the information to the list
-                list_of_exposure_defocus.append(exposure_defocus)
-                list_of_exposure_arc.append(exposure_arc)
-                
-                
-                #background=background_estimate_sigma_clip_fit_function(exposure_defocus)
-                #if run_i==0:
-                #    print('background estimate is: '+str(background))
-            
-                #scidata_single=data[1].data-background
-                
-                
-                # separate scidata, maskdata and var data
-                scidata_single=data[1].data
-                maskdata_single=data[2].data
-                if self.verbosity==1:
-                    print('np.sum(maskdata_single) for image iteration '+str(run_i)+' is: '+str(np.sum(maskdata_single)))
-                vardata_single=data[3].data
-            
-                # stack the images
-                scidata=scidata+scidata_single
-                maskdata=maskdata+maskdata_single
-                vardata=vardata+vardata_single
-            
-                # add the data to individual list, if needed for debugging and analysis          
-                list_of_sci_data.append(scidata_single)
-                maskdata_single[np.isin(maskdata_single,[0])]=0
-                maskdata_single[~np.isin(maskdata_single,[0])]=1
-                list_of_mask_data.append(maskdata_single) 
-                list_of_var_data.append(vardata_single)
-           
+        if self.use_median_rejected_stacked_images==True:
+            scidata=data[1].data
+            maskdata=data[2].data
+            vardata=data[3].data
+        else:            
     
-            #
-            maskdata[np.isin(maskdata,[0])]=0
-            maskdata[~np.isin(maskdata,[0])]=1
+    
+    
+            # if you already this and use use_previous_full_stacked_images=False you can import only 
+            #one image to read auxiliary data, but no time-consuming stacking
+            if self.use_previous_full_stacked_images==True and os.path.exists(PSF_DIRECTORY_CUTS+"scidata"+str(run)+exposure_arc+'_Stacked.npy')==True:
+                    if self.verbosity==True:
+                        print('Using previously created full images, because they exist and use_previous_full_stacked_images==True')
+                        print('Loading from: '+PSF_DIRECTORY_CUTS+"scidata"+str(run)+exposure_arc+'_Stacked.npy')
+                    scidata=np.load(PSF_DIRECTORY_CUTS+"scidata"+str(run)+exposure_arc+'_Stacked.npy')
+                    maskdata=np.load(PSF_DIRECTORY_CUTS+"maskdata"+str(run)+exposure_arc+'_Stacked.npy')
+                    vardata=np.load(PSF_DIRECTORY_CUTS+"vardata"+str(run)+exposure_arc+'_Stacked.npy')       
+            else:
+                # prepare empty arrays that will store the data 
+                scidata=np.zeros_like(data[1].data)
+                maskdata=np.zeros_like(scidata)
+                vardata=np.zeros_like(scidata)  
+                
+                # prepare arrays and lists which will be filled
+                list_of_sci_data=[]
+                list_of_var_data=[]
+                list_of_mask_data=[]   
+                
+                list_of_exposure_defocus=[]
+                list_of_exposure_arc=[]
+                
+                # for each image, gather information and stack it
+                for run_i in tqdm(range(self.number_of_images)):
+                    
+                    if run+run_i<10000:
+                        run_string='0'+str(run+run_i)
+                    else:
+                        run_string=str(run+run_i)
+                    
+                    # import fits file
+                    data=fits.open(self.DATA_FOLDER+'v0'+run_string+'/calExp-SA0'+run_string+'r1.fits')
+                    
+                    # establish the defocus of the data
+                    exposure_defocus=np.round(data[0].header['W_ENFCAX'],2)
+                    
+                    # establish which arc is being used
+                    if data[0].header['W_AITNEO']==True:
+                        exposure_arc='Ne'
+                    if data[0].header['W_AITHGA']==True:
+                        exposure_arc='HgAr'
+                    if data[0].header['W_AITKRY']==True:
+                        exposure_arc='Kr'
+                    if data[0].header['W_AITXEN']==True:
+                        exposure_arc='Xe'
+                    if data[0].header['W_AITARG']==True:
+                        exposure_arc='Ar'
+                    
+                    # add the information to the list
+                    list_of_exposure_defocus.append(exposure_defocus)
+                    list_of_exposure_arc.append(exposure_arc)
+                    
+                    
+                    #background=background_estimate_sigma_clip_fit_function(exposure_defocus)
+                    #if run_i==0:
+                    #    print('background estimate is: '+str(background))
+                
+                    #scidata_single=data[1].data-background
+                    
+                    
+                    # separate scidata, maskdata and var data
+                    scidata_single=data[1].data
+                    maskdata_single=data[2].data
+                    if self.verbosity==1:
+                        print('np.sum(maskdata_single) for image iteration '+str(run_i)+' is: '+str(np.sum(maskdata_single)))
+                    vardata_single=data[3].data
+                
+                    # stack the images
+                    scidata=scidata+scidata_single
+                    maskdata=maskdata+maskdata_single
+                    vardata=vardata+vardata_single
+                
+                    # add the data to individual list, if needed for debugging and analysis          
+                    list_of_sci_data.append(scidata_single)
+                    maskdata_single[np.isin(maskdata_single,[0])]=0
+                    maskdata_single[~np.isin(maskdata_single,[0])]=1
+                    list_of_mask_data.append(maskdata_single) 
+                    list_of_var_data.append(vardata_single)
+               
+                array_of_sci_data=np.array(list_of_sci_data)
+                #
+                maskdata[np.isin(maskdata,[0])]=0
+                maskdata[~np.isin(maskdata,[0])]=1
             
             if self.save==True:
                 if not os.path.exists(PSF_DIRECTORY_CUTS):
                     if self.verbosity==1:
                         print("Creating PSF_DIRECTORY_CUTS directory at "+str(PSF_DIRECTORY_CUTS))
                         os.makedirs(PSF_DIRECTORY_CUTS)
-                
+
+                np.save(PSF_DIRECTORY_CUTS+"array_of_sci_data"+str(run)+exposure_arc+'_Stacked.npy',array_of_sci_data)                
                 np.save(PSF_DIRECTORY_CUTS+"scidata"+str(run)+exposure_arc+'_Stacked.npy',scidata)
                 np.save(PSF_DIRECTORY_CUTS+"maskdata"+str(run)+exposure_arc+'_Stacked.npy',maskdata)
                 np.save(PSF_DIRECTORY_CUTS+"vardata"+str(run)+exposure_arc+'_Stacked.npy',vardata)        
@@ -334,20 +379,27 @@ class Zernike_cutting(object):
         @param xinit            x position of the initial guess 
         @param yinit            y position of the initial guess 
         @param size_of_stamp    size of the stamp that we wish to create
-         """         
-        
+        """         
+         
+        #print('checkpoint initial')
+
         # if you do not pass explicit coordinates for the cut, do the full fitting procedure 
         if yposmin==None:
             
             
             # Iteration 0
             #size_of_stamp_big=2*size_of_stamp
+
             xposmin=int(int(xinit)-size_of_stamp/2)
             xposmax=int(int(xinit)+size_of_stamp/2)
             yposmin=int(int(yinit)-size_of_stamp/2)
             yposmax=int(int(yinit)+size_of_stamp/2)
             print('iteration nr. 0: '+str([yposmin,yposmax,xposmin,xposmax]))
             scidata_cut=scidata[yposmin:yposmax,xposmin:xposmax]
+            print('reached scidata_cut')
+            
+            #print('np.any(scidata_cut>300, axis=1)'+str(np.any(scidata_cut>300, axis=1)))
+            #print('np.any(scidata_cut>300, axis=0)'+str(np.any(scidata_cut>300, axis=0)))
             med_pos=(int(np.round(np.median(np.where(np.any(scidata_cut>300, axis=1))))),
                             int(np.round(np.median(np.where(np.any(scidata_cut>300, axis=0))))))
             
@@ -499,17 +551,20 @@ class Zernike_cutting(object):
             return scidata_final_cut,maskdata_final_cut,vardata_final_cut
                 
             
-    def create_poststamps(self):            
+    def create_poststamps(self,exposure_defocus_explicit=None,run_explicit=None):            
         """! master function that creates poststamps
 
          """   
 
-        
+        if run_explicit==None:
+            run_output=self.run_0
+        else:
+            run_output=run_explicit        
         # first part is to stack the images and gather information
         # import initial image and gather information 
         # if there is no dithering, do it just once       
-        if self.dither==None:
-            scidata00,maskdata00,vardata00,exposure_arc,exposure_defocus=self.stack_images_and_gather_information(self.run_0)
+        if self.dither==None or self.dither==1:
+            scidata00,maskdata00,vardata00,exposure_arc,exposure_defocus=self.stack_images_and_gather_information(run_output)
         
         # if there is dithering, do it for every position of the hexapod               
         if self.dither==4:
@@ -529,7 +584,10 @@ class Zernike_cutting(object):
             scidatapm,maskdatapm,vardatapm,exposure_arc,exposure_defocus=self.stack_images_and_gather_information(self.run_0+36)
             scidatap0,maskdatap0,vardatap0,exposure_arc,exposure_defocus=self.stack_images_and_gather_information(self.run_0+42)
             scidatapp,maskdatapp,vardatapp,exposure_arc,exposure_defocus=self.stack_images_and_gather_information(self.run_0+48)                                                                                                                  
-            
+    
+        if exposure_defocus is None:
+            exposure_defocus=exposure_defocus_explicit
+    
         if self.verbosity==1:
             print('Successfully stacked images')
             print('exposure_arc is '+str(exposure_arc))
@@ -552,7 +610,7 @@ class Zernike_cutting(object):
         
         # values of defocus that we analyse, and sizes of stamps
         # does not support fine_defocus!!!
-        defocus_values=[-4.5,-4,-3.5,-3,-2.5,-2,-1.5,-1,-0.5,0.5,+1,1.5,2,2.5,3,3.5,4,4.5]
+        defocus_values=np.array([-4.5,-4,-3.5,-3,-2.5,-2,-1.5,-1,-0.5,0.5,+1,1.5,2,2.5,3,3.5,4,4.5])
         sizes_of_stamps=np.array([60, 60, 50, 40, 30, 30, 24, 20, 20, 20, 24, 30, 30, 40, 50, 60,60, 70])    
         
         # Size of stamp that we wish to create 
@@ -564,6 +622,8 @@ class Zernike_cutting(object):
             size_of_stamp=sizes_of_stamps[defocus_values==exposure_defocus]
            
         self.size_of_stamp=size_of_stamp   
+        if self.verbosity==1:
+            print('size_of_stamp is '+str(size_of_stamp))        
         #list of fiber_IDs - for the standard 10 fiber configuration   
         # will need updating to handle more flexible configurations
         list_of_fiber_IDs=list(np.unique(Zernike_info_df['fiber'].values))
@@ -583,10 +643,13 @@ class Zernike_cutting(object):
                 # old code, before transforming
                 # run centering algorithm - initial estimate of the centered position
                 #center_pos_new=self.centering_algorithm(scidata,center_pos[0],center_pos[1],size_of_stamp)
-                
+                #print('checkpoint 1')
+                #print(scidata00.shape)
+                #print(maskdata00.shape)
+                #print(vardata00.shape)
                 # intial cut, pure centering and before removing continuum
                 scidata_cut,maskdata_cut,vardata_cut,xposmin,xposmax,yposmin,yposmax=self.cut_initial_image(scidata00,maskdata00,vardata00,center_pos[0],center_pos[1],size_of_stamp)
-                
+                #print('checkpoint 2')
                 # if dithering, applying the same x and y coordinates to the dithered images
                 if self.dither==4:
                     #scidata00_cut,maskdata00_cut,vardata00_cut=scidata_cut,maskdata_cut,vardata_cut
@@ -766,19 +829,24 @@ class Zernike_cutting(object):
                         vardata00_final_cut,vardatapp_final_cut,vardatap0_final_cut,vardata0p_final_cut)
                     
  
-
+                if run_explicit==None:
+                    run_output=self.run_0
+                else:
+                    run_output=run_explicit
+                
+                
                 # save the output
                 # need to implement custom date
                 if self.verbosity==1:
                     print('image with index '+str(self.image_index)+' seems successful')
-                    print('saving at: '+PSF_DIRECTORY_CUTS+"sci"+str(self.run_0)+str(image_index)+exposure_arc+'_Stacked.npy')
+                    print('saving at: '+PSF_DIRECTORY_CUTS+"sci"+str(run_output)+str(image_index)+exposure_arc+'_Stacked.npy')
                     print('######################################################')
                 
                 if self.save==True:
 
-                    np.save(PSF_DIRECTORY_CUTS+"sci"+str(self.run_0)+str(image_index)+exposure_arc+'_Stacked.npy',scidata_final_cut)
-                    np.save(PSF_DIRECTORY_CUTS+"mask"+str(self.run_0)+str(image_index)+exposure_arc+'_Stacked.npy',maskdata_final_cut)
-                    np.save(PSF_DIRECTORY_CUTS+"var"+str(self.run_0)+str(image_index)+exposure_arc+'_Stacked.npy',vardata_final_cut)    
+                    np.save(PSF_DIRECTORY_CUTS+"sci"+str(run_output)+str(image_index)+exposure_arc+'_Stacked.npy',scidata_final_cut)
+                    np.save(PSF_DIRECTORY_CUTS+"mask"+str(run_output)+str(image_index)+exposure_arc+'_Stacked.npy',maskdata_final_cut)
+                    np.save(PSF_DIRECTORY_CUTS+"var"+str(run_output)+str(image_index)+exposure_arc+'_Stacked.npy',vardata_final_cut)    
                     
 
                         
@@ -792,7 +860,7 @@ class Zernike_cutting(object):
                 pass
 
 
-        if self.dither is not None:
+        if self.dither is not None and self.dither!=1:
             pos_4_overview=np.array(pos_4_overview)
             if self.save==True:
                 np.save(PSF_DIRECTORY_CUTS+"sci"+str(self.run_0)+'_pos_4_overview.npy',pos_4_overview)
