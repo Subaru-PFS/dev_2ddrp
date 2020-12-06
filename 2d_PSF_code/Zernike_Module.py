@@ -74,6 +74,7 @@ Nov 16, 2020: 0.35b -> 0.35c modified movement of parameters
 Nov 17, 2020: 0.35c -> 0.35d small fixes in check_global_parameters with paramters 0 and 1
 Nov 19, 2020: 0.35d -> 0.36 realized that vertical strut is different than others - first, simplest implementation
 Nov 19, 2020: 0.36 -> 0.36a modified parInit movements for multi (mostly reduced)
+Dec 05, 2020L 0.36a -> 0.37 misalignment and variable strut size
 
 @author: Neven Caplar
 @contact: ncaplar@princeton.edu
@@ -102,7 +103,7 @@ import platform
 #import pyfftw
 #import pandas as pd
 import scipy
-
+from scipy.special import erf
 
 ########################################
 # Related third party imports
@@ -150,7 +151,7 @@ __all__ = ['PupilFactory', 'Pupil','ZernikeFitter_PFS','LN_PFS_multi_same_spot',
            'sky_scale','sky_size','remove_pupil_parameters_from_all_parameters',\
            'resize','_interval_overlap','svd_invert','Tokovinin_multi']
 
-__version__ = "0.36a"
+__version__ = "0.37"
 
 
 
@@ -189,7 +190,9 @@ class PupilFactory(object):
     """!Pupil obscuration function factory for use with Fourier optics.
     """
 
-    def __init__(self, pupilSize, npix,input_angle,hscFrac,strutFrac,slitFrac,slitFrac_dy,x_fiber,y_fiber,effective_ilum_radius,frd_sigma,frd_lorentz_factor,det_vert,verbosity=None):
+    def __init__(self, pupilSize, npix,input_angle,hscFrac,strutFrac,slitFrac,slitFrac_dy,\
+                 x_fiber,y_fiber,effective_ilum_radius,frd_sigma,frd_lorentz_factor,det_vert,verbosity=None,
+                 wide_0=0,wide_23=0,wide_43=0,misalign=0):
         """!Construct a PupilFactory.
 
         @params[in] others
@@ -212,6 +215,11 @@ class PupilFactory(object):
         self.frd_sigma=frd_sigma
         self.frd_lorentz_factor=frd_lorentz_factor
         self.det_vert=det_vert
+        
+        self.wide_0=wide_0
+        self.wide_23=wide_23
+        self.wide_43=wide_43
+        self.misalign=misalign
         
         u = (np.arange(npix, dtype=np.float32) - (npix - 1)/2) * self.pupilScale
         self.u, self.v = np.meshgrid(u, u)
@@ -533,7 +541,7 @@ class PupilFactory(object):
             print('Time for cutting out the square is '+str(time_end_single_square-time_start_single_square))    
 
     
-    def _cutRay(self, pupil, p0, angle, thickness,angleunit=None):
+    def _cutRay(self, pupil, p0, angle, thickness,angleunit=None,wide=0):
         """Cut out a ray from a Pupil.
 
         @param[in,out] pupil  Pupil to modify in place
@@ -547,11 +555,28 @@ class PupilFactory(object):
             angleRad = angle       
         # the 1 is arbitrary, just need something to define another point on
         # the line
+        
+        
         p1 = (p0[0] + 1, p0[1] + np.tan(angleRad))
         d = PupilFactory._pointLineDistance((self.u, self.v), p0, p1)
-        pupil.illuminated[(d < 0.5*thickness) &
+        
+        radial_distance=14.34*np.sqrt((self.u-p0[0])**2+(self.v-p0[1])**2)
+        
+        pupil.illuminated[(d < 0.5*thickness*(1+wide*radial_distance)) &
                           ((self.u - p0[0])*np.cos(angleRad) +
-                           (self.v - p0[1])*np.sin(angleRad) >= 0)] = False   
+                           (self.v - p0[1])*np.sin(angleRad) >= 0)] = False  
+        
+        
+
+
+        #print('p0'+str(p0))
+        #print('angleRad'+str(angleRad))
+        #print('thickness'+str(thickness))
+        #np.save('/Users/nevencaplar/Documents/PFS/TigerAnalysis/Test/d'+str(p0[0])+str(p0[1]),d)
+        #np.save('/Users/nevencaplar/Documents/PFS/TigerAnalysis/Test/p0',p0)    
+        #np.save('/Users/nevencaplar/Documents/PFS/TigerAnalysis/Test/u',self.u)
+        #np.save('/Users/nevencaplar/Documents/PFS/TigerAnalysis/Test/v',self.v)
+
 
     def _addRay(self, pupil, p0, angle, thickness,angleunit=None):
         """Add a ray from a Pupil.
@@ -577,7 +602,8 @@ class PFSPupilFactory(PupilFactory):
     """!Pupil obscuration function factory for PFS 
     """
     def __init__(self, pupilSize, npix,input_angle,hscFrac,strutFrac,slitFrac,slitFrac_dy,\
-                 x_fiber,y_fiber,effective_ilum_radius,frd_sigma,frd_lorentz_factor,det_vert,slitHolder_frac_dx,verbosity=None):
+                 x_fiber,y_fiber,effective_ilum_radius,frd_sigma,frd_lorentz_factor,det_vert,slitHolder_frac_dx,verbosity=None,\
+                     wide_0=0,wide_23=0,wide_43=0,misalign=0):
         """!Construct a PupilFactory.
 
 
@@ -596,20 +622,33 @@ class PFSPupilFactory(PupilFactory):
         @param[in] det_vert
         @param[in] slitHolder_frac_dx
         @param[in] verbosity    
+        @param[in] wide_0
+        @param[in] wide_23
+        @param[in] wide_43
         """
         
         self.verbosity=verbosity
         if self.verbosity==1:
             print('Entering PFSPupilFactory class')
-            
-        PupilFactory.__init__(self, pupilSize,npix,input_angle,hscFrac,strutFrac,slitFrac,slitFrac_dy,x_fiber,y_fiber,effective_ilum_radius,frd_sigma,frd_lorentz_factor,det_vert,verbosity=self.verbosity)
+        # wide here    
+        #PupilFactory.__init__(self, pupilSize,npix,input_angle,hscFrac,strutFrac,slitFrac,slitFrac_dy,
+        #                      x_fiber,y_fiber,effective_ilum_radius,frd_sigma,frd_lorentz_factor,det_vert,verbosity=self.verbosity)
+
+        PupilFactory.__init__(self, pupilSize,npix,input_angle,hscFrac,strutFrac,slitFrac,slitFrac_dy,
+                              x_fiber,y_fiber,effective_ilum_radius,frd_sigma,frd_lorentz_factor,det_vert,verbosity=self.verbosity,
+                              wide_0=wide_0,wide_23=wide_23,wide_43=wide_43,misalign=misalign)
 
         self.x_fiber=x_fiber
         self.y_fiber=y_fiber      
         self.slitHolder_frac_dx=slitHolder_frac_dx
         self._spiderStartPos=[np.array([ 0.,  0.]), np.array([ 0.,  0.]), np.array([ 0.,  0.])]
-        self._spiderAngles=[1.57-1.57,3.66519-1.57,5.75959-1.57]
+        self._spiderAngles=[0,np.pi*2/3,np.pi*4/3]
         self.effective_ilum_radius=effective_ilum_radius
+        
+        self.wide_0=wide_0
+        self.wide_23=wide_23
+        self.wide_43=wide_43
+        self.misalign=misalign
 
     def _horizonRotAngle(self,resultunit=None):
         """!Compute rotation angle of camera with respect to horizontal
@@ -671,12 +710,111 @@ class PFSPupilFactory(PupilFactory):
         center_distance=np.sqrt((u_manual-self.x_fiber*hscRate*hscPlateScale*12)**2+(v_manual-self.y_fiber*hscRate*hscPlateScale*12)**2)
         frd_sigma=self.frd_sigma
         sigma=2*frd_sigma
-        pupil_frd=(1/2*(scipy.special.erf((-center_distance+self.effective_ilum_radius)/sigma)+scipy.special.erf((center_distance+self.effective_ilum_radius)/sigma)))
-        pupil_lorentz=(np.arctan(2*(self.effective_ilum_radius-center_distance)/(4*sigma))+np.arctan(2*(self.effective_ilum_radius+center_distance)/(4*sigma)))/(2*np.arctan((2*self.effective_ilum_radius)/(4*sigma)))
+        
+        
+        
+        
+        pupil_frd=(1/2*(scipy.special.erf((-center_distance+self.effective_ilum_radius)/sigma)+\
+                        scipy.special.erf((center_distance+self.effective_ilum_radius)/sigma)))
+            
+        print('misalign '+str(self.misalign) )
+        
+        # misaligment starts here
+        
+        ################
+        time_misalign_start=time.time()
+        
+        position_of_center_0=np.where(center_distance==np.min(center_distance))
+        position_of_center=[position_of_center_0[1][0],position_of_center_0[0][0]]
+        
+        position_of_center_0_x=position_of_center_0[0][0]
+        position_of_center_0_y=position_of_center_0[1][0]
+        
+        distances_to_corners=np.array([np.sqrt(position_of_center[0]**2+position_of_center[1]**2),
+        np.sqrt((len(pupil_frd)-position_of_center[0])**2+position_of_center[1]**2),
+        np.sqrt((position_of_center[0])**2+(len(pupil_frd)-position_of_center[1])**2),
+        np.sqrt((len(pupil_frd)-position_of_center[0])**2+(len(pupil_frd)-position_of_center[1])**2)])
+        
+        max_distance_to_corner=np.max(distances_to_corners)
+        ################3
+        threshold_value=0.5
+        left_from_center=np.where(pupil_frd[position_of_center_0_x][0:position_of_center_0_y]<threshold_value)[0]
+        right_from_center=np.where(pupil_frd[position_of_center_0_x][position_of_center_0_y:]<threshold_value)[0]+position_of_center_0_y
+        
+        up_from_center=np.where(pupil_frd[:,position_of_center_0_y][position_of_center_0_x:]<threshold_value)[0]+position_of_center_0_x
+        down_from_center=np.where(pupil_frd[:,position_of_center_0_y][:position_of_center_0_x]<threshold_value)[0]
+        
+        if len(left_from_center)>0:
+            size_of_05_left=position_of_center_0_y-np.max(left_from_center)
+        else:
+            size_of_05_left=0
+            
+        if len(right_from_center)>0:
+            size_of_05_right=np.min(right_from_center)-position_of_center_0_y
+        else:
+            size_of_05_right=0
+            
+        if len(up_from_center)>0:
+            size_of_05_up=np.min(up_from_center)-position_of_center_0_x
+        else:
+            size_of_05_up=0
+            
+        if len(down_from_center)>0:
+            size_of_05_down=position_of_center_0_x-np.max(down_from_center)
+        else:
+            size_of_05_down=0
+            
+        sizes_4_directions=np.array([size_of_05_left,size_of_05_right,size_of_05_up,size_of_05_down])
+        max_size=np.max(sizes_4_directions)
+        imageradius=max_size   
+
+
+        
+        radiusvalues=np.linspace(0,int(np.ceil(max_distance_to_corner)),int(np.ceil(max_distance_to_corner))+1)
+        
+        
+        sigtotp=sigma*550
+        
+        
+        dif_due_to_mis_class=Pupil_misalign(radiusvalues,imageradius,sigtotp,self.misalign)
+        dif_due_to_mis=dif_due_to_mis_class()
+        
+        scaling_factor_pixel_to_physical=max_distance_to_corner/np.max(center_distance)
+        distance_int=np.round(center_distance*scaling_factor_pixel_to_physical).astype(int)        
+        
+        pupil_frd_with_mis=pupil_frd+dif_due_to_mis[distance_int]
+        pupil_frd_with_mis[pupil_frd_with_mis>1]=1
+        
+
+        
+        
+        time_misalign_end=time.time()
+        
+        if self.verbosity==1:
+            print('time misalign '+str(time_misalign_end-time_misalign_start))
+        
+        ####
+        # misaligment ends here
+        
+        # misaligment ends here
+            
+        pupil_lorentz=(np.arctan(2*(self.effective_ilum_radius-center_distance)/(4*sigma))+\
+                       np.arctan(2*(self.effective_ilum_radius+center_distance)/(4*sigma)))/(2*np.arctan((2*self.effective_ilum_radius)/(4*sigma)))
 
 
 
         pupil.illuminated= (pupil_frd+1*self.frd_lorentz_factor*pupil_lorentz)/(1+self.frd_lorentz_factor)
+
+
+        #print('sigma '+str(sigma))
+        #print('self.effective_ilum_radius '+str(self.effective_ilum_radius))
+        #np.save('/Users/nevencaplar/Documents/PFS/TigerAnalysis/Test/center_distance',center_distance)
+
+
+        #np.save('/Users/nevencaplar/Documents/PFS/TigerAnalysis/Test/pupil_frd',pupil_frd)
+        #np.save('/Users/nevencaplar/Documents/PFS/TigerAnalysis/Test/pupil_lorentz',pupil_lorentz)       
+        #np.save('/Users/nevencaplar/Documents/PFS/TigerAnalysis/Test/pupil_illuminated',pupil.illuminated)
+        
         
         # Cout out the acceptance angle of the camera
         self._cutCircleExterior(pupil, (0.0, 0.0), subaruRadius)        
@@ -694,20 +832,46 @@ class PFSPupilFactory(PupilFactory):
             x = pos[0] + camX
             y = pos[1] + camY
             
-            print('[x,y,angle)'+str([x,y,angle]))
+            #print('[x,y,angle)'+str([x,y,angle]))
             if angle==0:
-                # the vertical strut is thicker than the other two
-                # The other two are
-                #4.5mm wide and are tapered so they are 4.5mm wide for rays at any angle
-                #within the acceptance range--basically a two-dimensional structure. The
-                #main arm is rectagular, I think, and so is wider in projection at finite
-                #input angles. It is 13mm deep over most of its length, according to an
-                #ancient drawing I have, but is complicated near both ends.
-                print('one arm being thicker')
-                
-                self._cutRay(pupil, (x, y), angle, subaruStrutThick*(6/4.5),'rad')
-            else:
-                self._cutRay(pupil, (x, y), angle, subaruStrutThick,'rad')                
+                self._cutRay(pupil, (x, y), angle, subaruStrutThick,'rad',self.wide_0)
+            if angle==np.pi*2/3:
+                self._cutRay(pupil, (x, y), angle, subaruStrutThick,'rad',self.wide_23)
+            if angle==np.pi*4/3:
+                self._cutRay(pupil, (x, y), angle, subaruStrutThick,'rad',self.wide_43)
+        
+            
+        
+        # cut out slit shadow
+        self._cutRay(pupil, (2,slitFrac_dy/18),-np.pi,subaruSlit,'rad') 
+        
+        # cut out slit holder shadow
+        #also subaruSlit/3 not fitted, just put roughly correct number
+        self._cutRay(pupil, (self.slitHolder_frac_dx/18,1),-np.pi/2,subaruSlit/3,'rad')   
+        
+        if self.verbosity==1:
+            print('Finished with getPupil')
+        
+        pupil_lorentz=(np.arctan(2*(self.effective_ilum_radius-center_distance)/(4*sigma))+np.arctan(2*(self.effective_ilum_radius+center_distance)/(4*sigma)))/(2*np.arctan((2*self.effective_ilum_radius)/(4*sigma)))
+
+       
+        pupil_frd=np.copy(pupil_frd_with_mis)
+        pupil.illuminated= (pupil_frd+1*self.frd_lorentz_factor*pupil_lorentz)/(1+self.frd_lorentz_factor)
+        
+        # Cout out the acceptance angle of the camera
+        self._cutCircleExterior(pupil, (0.0, 0.0), subaruRadius)        
+         
+        # Cut out detector shadow
+        self._cutSquare(pupil, (camX, camY), hscRadius,self.input_angle,self.det_vert)       
+        
+        #No vignetting of this kind for the spectroscopic camera
+        #self._cutCircleExterior(pupil, (lensX, lensY), lensRadius)
+        
+        # Cut out spider shadow
+        for pos, angle in zip(self._spiderStartPos, self._spiderAngles):
+            x = pos[0] + camX
+            y = pos[1] + camY
+            self._cutRay(pupil, (x, y), angle, subaruStrutThick,'rad')
         
             
         
@@ -722,6 +886,75 @@ class PFSPupilFactory(PupilFactory):
             print('Finished with getPupil')
         
         return pupil
+
+class Pupil_misalign(object):
+    
+    """
+    
+    """
+    
+    
+    def __init__(self,radiusvalues,imageradius,sigtotp,misalign):
+        
+        
+        self.radiusvalues=radiusvalues
+        self.imageradius=imageradius
+        self.sigtotp=sigtotp
+        self.misalign=misalign
+        
+    def wapp(self,A):
+        #Approximation function by Jim Gunn to approximate and correct for the
+        #widening of width due to the angular misalignment convolution. This
+        #is used to basically scale the contribution of angular misalignment and FRD
+        #A = angmis/sigFRD
+        wappA = np.sqrt( 1 + A*A*(1+A*A)/(2 + 1.5*A*A))
+        return wappA 
+    def fcorr(self,x,A):
+        #The function scaled so that it keeps the same (approximate) width value
+        #after angular convolution
+        correctedfam = self.fcon(x*self.wapp(A),A);
+        return correctedfam
+    def fcon(self,x,A):
+        #For more detail about this method, see "Analyzing Radial Profiles for FRD
+        #and Angular Misalignment", by Jim Gunn, 16/06/13.
+        wt = [0.1864, 0.1469, 0.1134, 0.1066, 0.1134, 0.1469, 0.1864]   # from Jim Gunn's white paper,
+        #wt contains the normalized integrals under the angular misalignment
+        #convolution kernel, i.e., C(1-(x/angmisp)^2)^{-1/2} for |x|<angmisp and 0
+        #elsewhere. Note that the edges' centers are at +/- a, so they are
+        #integrated over an effective half of the length of the others.
+        temp = np.zeros(np.size(x))
+        for index in range(7):
+            temp = temp + wt[index]*self.ndfc(x+(index-3)/3*A);
+        angconvolved = temp;
+        return angconvolved
+    def ndfc(self,x):
+        #Standard model dropoff from a Gaussian convolution, normalized to brightness 1, radius (rh) 0, and sigTOT 1
+        #print(len(x))
+        ndfcfun = 1 - (0.5*erf(x / np.sqrt(2)) + 0.5); 
+        return ndfcfun
+    def FA(self,r, rh, sigTOT, A):
+        #Function that takes all significant variables of the dropoff and
+        #normalizes the curve to be comparable to ndfc
+        #r = vector of radius values, in steps of pixels
+        #rh = radius of half-intensity. Effectively the size of the radius of the dropoff
+        #sigTOT = total width of the convolution kernel that recreates the width of the dropoff between 85% and 15% illumination. Effectively just think of this as sigma
+        #A = angmis/sigFRD, that is, the ratio between the angular misalignment and the sigma due to only FRD. Usually this is on the order of 1-3.
+        FitwithAngle = self.fcorr((r-rh)/sigTOT, A);
+        return FitwithAngle
+
+
+    def __call__(self):
+        
+        no_mis=self.FA(self.radiusvalues,self.imageradius,self.sigtotp,0)
+        with_mis=self.FA(self.radiusvalues,self.imageradius,self.sigtotp,self.misalign)
+        dif_due_to_mis=with_mis - no_mis
+        
+        return dif_due_to_mis
+
+
+
+
+
 
 class ZernikeFitter_PFS(object):
     
@@ -889,8 +1122,9 @@ class ZernikeFitter_PFS(object):
                    trace_valueInit=None,serial_trace_valueInit=None,pixel_effectInit=None,backgroundInit=None,
                    x_ilumInit=None,y_ilumInit=None,radiometricExponentInit=None,
                    x_fiberInit=None,y_fiberInit=None,effective_ilum_radiusInit=None,
-                   grating_linesInit=None,scattering_radiusInit=None,scattering_slopeInit=None,scattering_amplitudeInit=None,fluxInit=None,frd_sigmaInit=None,frd_lorentz_factorInit=None,
-                   det_vertInit=None,slitHolder_frac_dxInit=None):
+                   grating_linesInit=None,scattering_radiusInit=None,scattering_slopeInit=None,scattering_amplitudeInit=None,
+                   fluxInit=None,frd_sigmaInit=None,frd_lorentz_factorInit=None,
+                   det_vertInit=None,slitHolder_frac_dxInit=None,wide_0Init=None,wide_23Init=None,wide_43Init=None,misalignInit=None):
         """Initialize lmfit Parameters object.
         
         @param zmax                      Total number of Zernike aberrations used
@@ -902,6 +1136,12 @@ class ZernikeFitter_PFS(object):
         @param focalPlanePositionInit    2-tuple for position of the central obscuration(detector) in the focal plane
         @param slitFracInit              Value determining how much of the exit pupil is obscured by slit
         @param slitFrac_dy_Init          Value determining what is the vertical position of the slit in the exit pupil
+        
+        #
+        @param wide_0
+        @param wide_23
+        @param wide_34
+        @param misalign 
         
         #non-uniform illumination
         @param radiometricEffectInit     parameter describing non-uniform illumination of the pupil (1-params['radiometricEffect']**2*r**2)**(params['radiometricExponent'])
@@ -1089,6 +1329,26 @@ class ZernikeFitter_PFS(object):
             params.add('det_vert', 1)
         else:
             params.add('det_vert', det_vertInit)   
+            
+        if wide_0Init is None:
+            params.add('wide_0', 0)
+        else:
+            params.add('wide_0', wide_0Init)   
+
+        if wide_23Init is None:
+            params.add('wide_23', 0)
+        else:
+            params.add('wide_23', wide_23Init)   
+
+        if wide_43Init is None:
+            params.add('wide_43', 0)
+        else:
+            params.add('wide_43', wide_43Init)               
+            
+        if misalignInit is None:
+            params.add('misalign', 0)
+        else:
+            params.add('misalign', misalignInit)  
 
         if slitHolder_frac_dxInit is None:
             params.add('slitHolder_frac_dx', 0)
@@ -1477,14 +1737,29 @@ class ZernikeFitter_PFS(object):
          
         if self.verbosity==1:
             print('Size of the pupil (npix): '+str(npix))        
+       
         
-
+       
+        """
+        init of pupil is:
+            
+        def __init__(self, pupilSize, npix,input_angle,hscFrac,strutFrac,slitFrac,slitFrac_dy,\
+             x_fiber,y_fiber,effective_ilum_radius,frd_sigma,frd_lorentz_factor,det_vert,slitHolder_frac_dx,verbosity=None,\
+                 wide_0=0,wide_23=0,wide_43=0,misalign=0):
+                
+        """
+        
+        
         Pupil_Image=PFSPupilFactory(diam_sic,npix,
                                 np.pi/2,
                               self.pupil_parameters[0],self.pupil_parameters[1],
                               self.pupil_parameters[4],self.pupil_parameters[5],
                               self.pupil_parameters[6],self.pupil_parameters[7],self.pupil_parameters[8],
-                                self.pupil_parameters[9],self.pupil_parameters[10],self.pupil_parameters[11],self.pupil_parameters[12],verbosity=self.verbosity)
+                              self.pupil_parameters[9],self.pupil_parameters[10],self.pupil_parameters[11],self.pupil_parameters[12],
+                              verbosity=self.verbosity,
+                              wide_0=self.pupil_parameters[13],wide_23=self.pupil_parameters[14],wide_43=self.pupil_parameters[15],
+                              misalign=self.pupil_parameters[16])
+        
         point=[self.pupil_parameters[2],self.pupil_parameters[3]]
         pupil=Pupil_Image.getPupil(point)
 
@@ -1524,10 +1799,11 @@ class ZernikeFitter_PFS(object):
         i=4    
         if self.use_pupil_parameters is None:
             pupil_parameters=np.array([params['hscFrac'.format(i)],params['strutFrac'.format(i)],
-                                    params['dxFocal'.format(i)],params['dyFocal'.format(i)],
-                                  params['slitFrac'.format(i)],params['slitFrac_dy'.format(i)],
-                                    params['x_fiber'.format(i)],params['y_fiber'.format(i)],params['effective_ilum_radius'.format(i)],
-                                    params['frd_sigma'.format(i)],params['frd_lorentz_factor'.format(i)],params['det_vert'.format(i)],params['slitHolder_frac_dx'.format(i)]])
+                                       params['dxFocal'.format(i)],params['dyFocal'.format(i)],
+                                       params['slitFrac'.format(i)],params['slitFrac_dy'.format(i)],
+                                       params['x_fiber'.format(i)],params['y_fiber'.format(i)],params['effective_ilum_radius'.format(i)],
+                                       params['frd_sigma'.format(i)],params['frd_lorentz_factor'.format(i)],params['det_vert'.format(i)],params['slitHolder_frac_dx'.format(i)],
+                                       params['wide_0'.format(i)],params['wide_23'.format(i)],params['wide_43'.format(i)],params['misalign'.format(i)]])
             self.pupil_parameters=pupil_parameters
         else:
             pupil_parameters=np.array(self.pupil_parameters)
@@ -1537,8 +1813,10 @@ class ZernikeFitter_PFS(object):
         if self.verbosity==1:
             print(['hscFrac','strutFrac','dxFocal','dyFocal','slitFrac','slitFrac_dy'])
             print(['x_fiber','y_fiber','effective_ilum_radius','frd_sigma','frd_lorentz_factor','det_vert','slitHolder_frac_dx'])
+            print(['wide_0','wide_23','wide_43','misalign'])
             print('set of pupil_parameters I. : '+str(self.pupil_parameters[:6]))
-            print('set of pupil_parameters II. : '+str(self.pupil_parameters[6:]))            
+            print('set of pupil_parameters II. : '+str(self.pupil_parameters[6:7+7]))    
+            print('set of pupil_parameters III. : '+str(self.pupil_parameters[13:])) 
         time_start_single_2=time.time()
 
 
@@ -2006,7 +2284,8 @@ class LN_PFS_multi_same_spot(object):
 
         if zmax is None:
             zmax=11
-                      
+       
+        """             
         if zmax==11:
             self.columns=['z4','z5','z6','z7','z8','z9','z10','z11',
                           'hscFrac','strutFrac','dxFocal','dyFocal','slitFrac','slitFrac_dy',
@@ -2022,6 +2301,24 @@ class LN_PFS_multi_same_spot(object):
               'x_fiber','y_fiber','effective_ilum_radius','frd_sigma','frd_lorentz_factor','det_vert','slitHolder_frac_dx',
               'grating_lines','scattering_slope','scattering_amplitude',
               'pixel_effect','fiber_r','flux']    
+        """  
+        
+        if zmax==11:
+            self.columns=['z4','z5','z6','z7','z8','z9','z10','z11',
+                          'hscFrac','strutFrac','dxFocal','dyFocal','slitFrac','slitFrac_dy',
+                          'wide_0','wide_23','wide_43','misalign',
+                          'x_fiber','y_fiber','effective_ilum_radius','frd_sigma','frd_lorentz_factor','det_vert','slitHolder_frac_dx',
+                          'grating_lines','scattering_slope','scattering_amplitude',
+                          'pixel_effect','fiber_r','flux']         
+        if zmax>=22:
+            self.columns=['z4','z5','z6','z7','z8','z9','z10','z11',
+                          'z12','z13','z14','z15','z16','z17','z18','z19','z20','z21','z22', 
+              'hscFrac','strutFrac','dxFocal','dyFocal','slitFrac','slitFrac_dy',
+              'wide_0','wide_23','wide_43','misalign',
+              'x_fiber','y_fiber','effective_ilum_radius','frd_sigma','frd_lorentz_factor','det_vert','slitHolder_frac_dx',
+              'grating_lines','scattering_slope','scattering_amplitude',
+              'pixel_effect','fiber_r','flux']  
+
         
         self.list_of_sci_images=list_of_sci_images
         self.list_of_var_images=list_of_var_images
@@ -3721,7 +4018,7 @@ class LN_PFS_single(object):
 
         if zmax is None:
             zmax=11
-                      
+        """              
         if zmax==11:
             self.columns=['z4','z5','z6','z7','z8','z9','z10','z11',
                           'hscFrac','strutFrac','dxFocal','dyFocal','slitFrac','slitFrac_dy',
@@ -3736,7 +4033,26 @@ class LN_PFS_single(object):
               'radiometricEffect','radiometricExponent','x_ilum','y_ilum',
               'x_fiber','y_fiber','effective_ilum_radius','frd_sigma','frd_lorentz_factor','det_vert','slitHolder_frac_dx',
               'grating_lines','scattering_slope','scattering_amplitude',
-              'pixel_effect','fiber_r','flux']    
+              'pixel_effect','fiber_r','flux']  
+        """  
+        
+        if zmax==11:
+            self.columns=['z4','z5','z6','z7','z8','z9','z10','z11',
+                          'hscFrac','strutFrac','dxFocal','dyFocal','slitFrac','slitFrac_dy',
+                          'wide_0','wide_23','wide_43','misalign',
+                          'x_fiber','y_fiber','effective_ilum_radius','frd_sigma','frd_lorentz_factor','det_vert','slitHolder_frac_dx',
+                          'grating_lines','scattering_slope','scattering_amplitude',
+                          'pixel_effect','fiber_r','flux']         
+        if zmax>=22:
+            self.columns=['z4','z5','z6','z7','z8','z9','z10','z11',
+                          'z12','z13','z14','z15','z16','z17','z18','z19','z20','z21','z22', 
+              'hscFrac','strutFrac','dxFocal','dyFocal','slitFrac','slitFrac_dy',
+              'wide_0','wide_23','wide_43','misalign',
+              'x_fiber','y_fiber','effective_ilum_radius','frd_sigma','frd_lorentz_factor','det_vert','slitHolder_frac_dx',
+              'grating_lines','scattering_slope','scattering_amplitude',
+              'pixel_effect','fiber_r','flux']  
+        
+        
         
         if mask_image is None:
             mask_image=np.zeros(sci_image.shape)
@@ -3806,7 +4122,10 @@ class LN_PFS_single(object):
                    focalPlanePositionInit=(pupil_parameters[2],pupil_parameters[3]),slitFracInit=pupil_parameters[4],
                   slitFrac_dy_Init=pupil_parameters[5],x_fiberInit=pupil_parameters[6],y_fiberInit=pupil_parameters[7],
                   effective_ilum_radiusInit=pupil_parameters[8],frd_sigmaInit=pupil_parameters[9],
-                  det_vertInit=pupil_parameters[10],slitHolder_frac_dxInit=pupil_parameters[11]) 
+                  det_vertInit=pupil_parameters[10],slitHolder_frac_dxInit=pupil_parameters[11],
+                  wide_0Init=pupil_parameters[12],wide_23Init=pupil_parameters[13],wide_43Init=pupil_parameters[14],
+                  misalignInit=pupil_parameters[15])
+            
             self.single_image_analysis=single_image_analysis
 
     def create_chi_2_almost(self,modelImg,sci_image,var_image,mask_image):
@@ -3948,7 +4267,7 @@ class LN_PFS_single(object):
             print('globalparameters[5] outside limits') if test_print == 1 else False 
             return -np.inf
         
-        # radiometricEffect
+        # wide_0
         if globalparameters[6]<0:
             print('globalparameters[6] outside limits') if test_print == 1 else False 
             return -np.inf
@@ -3956,7 +4275,7 @@ class LN_PFS_single(object):
             print('globalparameters[6] outside limits') if test_print == 1 else False 
             return -np.inf  
         
-        # radiometricExponent
+        # wide_23
         if globalparameters[7]<0:
             print('globalparameters[7] outside limits') if test_print == 1 else False 
             return -np.inf
@@ -3964,19 +4283,19 @@ class LN_PFS_single(object):
             print('globalparameters[7] outside limits') if test_print == 1 else False 
             return -np.inf 
         
-        # x_ilum
-        if globalparameters[8]<0.5:
+        # wide_43
+        if globalparameters[8]<0:
             print('globalparameters[8] outside limits') if test_print == 1 else False 
             return -np.inf
-        if globalparameters[8]>1.5:
+        if globalparameters[8]>1:
             print('globalparameters[8] outside limits') if test_print == 1 else False 
             return -np.inf
         
-        # y_ilum
-        if globalparameters[9]<0.5:
+        # misalign
+        if globalparameters[9]<0:
             print('globalparameters[9] outside limits') if test_print == 1 else False 
             return -np.inf
-        if globalparameters[9]>1.5:
+        if globalparameters[9]>10:
             print('globalparameters[9] outside limits') if test_print == 1 else False 
             return -np.inf   
         
@@ -4364,7 +4683,7 @@ class Zernike_Analysis(object):
         self.sci_image=sci_image
         self.var_image=var_image
         self.mask_image=mask_image
-        
+        """
         columns=['z4','z5','z6','z7','z8','z9','z10','z11',
                       'hscFrac','strutFrac','dxFocal','dyFocal','slitFrac','slitFrac_dy',
                       'radiometricEffect','radiometricExponent',
@@ -4372,8 +4691,19 @@ class Zernike_Analysis(object):
                       'x_fiber','y_fiber','effective_ilum_radius','frd_sigma','det_vert','slitHolder_frac_dx',
                       'grating_lines','scattering_radius','scattering_slope','scattering_amplitude',
                       'pixel_effect','fiber_r','flux']    
+        """
+        columns=['z4','z5','z6','z7','z8','z9','z10','z11',
+                                  'hscFrac','strutFrac','dxFocal','dyFocal','slitFrac','slitFrac_dy',
+                                  'wide_0','wide_23','wide_43','misalign',
+                                  'x_fiber','y_fiber','effective_ilum_radius','frd_sigma','frd_lorentz_factor','det_vert','slitHolder_frac_dx',
+                                  'grating_lines','scattering_slope','scattering_amplitude',
+                                  'pixel_effect','fiber_r','flux']     
+
         
         self.columns=columns
+        
+        
+
         
         RESULT_FOLDER='/Users/nevencaplar/Documents/PFS/TigerAnalysis/ResultsFromTiger/'+date+'/'
         if os.path.exists(RESULT_FOLDER):
@@ -5633,7 +5963,7 @@ def create_parInit(allparameters_proposal,multi=None,pupil_parameters=None,allpa
                 #['z4','z5','z6','z7','z8','z9','z10','z11',
                 #          'z12','z13','z14','z15','z16','z17','z18','z19','z20','z21','z22', 
                 #'hscFrac','strutFrac','dxFocal','dyFocal','slitFrac','slitFrac_dy',
-                #'radiometricEffect','radiometricExponent','x_ilum','y_ilum',
+                #'wide_0','wide_23','wide_43','misalign',
                 #'x_fiber','y_fiber','effective_ilum_radius',
                 #'frd_sigma','frd_lorentz_factor','det_vert','slitHolder_frac_dx',
                 #'grating_lines','scattering_slope','scattering_amplitude',
@@ -5642,7 +5972,7 @@ def create_parInit(allparameters_proposal,multi=None,pupil_parameters=None,allpa
                 allparameters_proposal_err=stronger*np.array([2,0.25,0.25,0.25,0.25,0.25,0.25,0.25,
                                                      0.15,0.15,0.15,0.15,0.15,0.15,0.15,0.15,0.15,0.15,0.15,
                                                      0.08,0.03,0.1,0.1,0.016,0.05,
-                                                     0.3,1,0.1,0.1,
+                                                     0.3,0.3,0.3,10,
                                                      0.15,0.15,0.1,
                                                      0.1,0.64,0.05,0.2,
                                                      60000,0.95,0.014,
@@ -5660,7 +5990,7 @@ def create_parInit(allparameters_proposal,multi=None,pupil_parameters=None,allpa
                 allparameters_proposal_err=stronger*np.array([0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.25,
                                                      0.15,0.15,0.15,0.15,0.15,0.15,0.15,0.15,0.15,0.15,0.15,0.15,0.15,0.15,0.15,0.15,0.15,0.15,0.15,0.15,0.15,0.15,
                                                      0.035,0.02,0.1,0.1,0.008,0.05,
-                                                     0,0,0,0,
+                                                     0.3,0.3,0.3,10,
                                                      0.1,0.1,0.1,
                                                      0.08,0.2,0.05,0.1,
                                                      60000,0.4,0.006,
@@ -5817,22 +6147,22 @@ def create_parInit(allparameters_proposal,multi=None,pupil_parameters=None,allpa
         globalparameters_flat_5=np.abs(np.random.normal(globalparameters_flatten[5],globalparameters_flatten_err[5],nwalkers*20))      
         globalparameters_flat_5=np.concatenate(([globalparameters_flatten[5]],
                                                 globalparameters_flat_5[np.all((globalparameters_flat_5>-0.5,globalparameters_flat_5<0.5),axis=0)][0:nwalkers-1]))
-        # radiometricEffect
+        # wide_0
         globalparameters_flat_6=np.abs(np.random.normal(globalparameters_flatten[6],globalparameters_flatten_err[6],nwalkers*20))
         globalparameters_flat_6=np.concatenate(([globalparameters_flatten[6]],
-                                                globalparameters_flat_6[np.all((globalparameters_flat_6>0,globalparameters_flat_6<=1),axis=0)][0:nwalkers-1]))
-        # radiometricExponent
+                                                globalparameters_flat_6[np.all((globalparameters_flat_6>=0,globalparameters_flat_6<=1),axis=0)][0:nwalkers-1]))
+        # wide_23
         globalparameters_flat_7=np.random.normal(globalparameters_flatten[7],globalparameters_flatten_err[7],nwalkers*20)
         globalparameters_flat_7=np.concatenate(([globalparameters_flatten[7]],
-                                                globalparameters_flat_7[np.all((globalparameters_flat_7>0.0,globalparameters_flat_7<2),axis=0)][0:nwalkers-1]))
-        # x_ilum 
+                                                globalparameters_flat_7[np.all((globalparameters_flat_7>=0.0,globalparameters_flat_7<1),axis=0)][0:nwalkers-1]))
+        # wide_43 
         globalparameters_flat_8=np.abs(np.random.normal(globalparameters_flatten[8],globalparameters_flatten_err[8],nwalkers*20))
         globalparameters_flat_8=np.concatenate(([globalparameters_flatten[8]],
-                                                globalparameters_flat_8[np.all((globalparameters_flat_8>0.5,globalparameters_flat_8<1.5),axis=0)][0:nwalkers-1]))
-        # y_ilum
+                                                globalparameters_flat_8[np.all((globalparameters_flat_8>=0,globalparameters_flat_8<1),axis=0)][0:nwalkers-1]))
+        # mislaign
         globalparameters_flat_9=np.abs(np.random.normal(globalparameters_flatten[9],globalparameters_flatten_err[9],nwalkers*20))
         globalparameters_flat_9=np.concatenate(([globalparameters_flatten[9]],
-                                                globalparameters_flat_9[np.all((globalparameters_flat_9>0.5,globalparameters_flat_9<1.5),axis=0)][0:nwalkers-1]))
+                                                globalparameters_flat_9[np.all((globalparameters_flat_9>=0,globalparameters_flat_9<1),axis=0)][0:nwalkers-1]))
         # x_fiber
         globalparameters_flat_10=np.random.normal(globalparameters_flatten[10],globalparameters_flatten_err[10],nwalkers*20)
         globalparameters_flat_10=np.concatenate(([globalparameters_flatten[10]],
@@ -6247,7 +6577,7 @@ def check_global_parameters(globalparameters,test_print=None,fit_for_flux=None):
         print('globalparameters[5] outside limits') if test_print == 1 else False 
         globalparameters_output[5]=+0.5
 
-    # radiometricEffect
+    # radiometricEffect / wide_0
     if globalparameters[6]<0:
         print('globalparameters[6] outside limits') if test_print == 1 else False 
         globalparameters_output[6]=0
@@ -6255,29 +6585,29 @@ def check_global_parameters(globalparameters,test_print=None,fit_for_flux=None):
         print('globalparameters[6] outside limits') if test_print == 1 else False 
         globalparameters_output[6]=1
 
-    # radiometricExponent
+    # radiometricExponent / wide_23
     if globalparameters[7]<0:
         print('globalparameters[7] outside limits') if test_print == 1 else False 
         globalparameters_output[7]=0
     if globalparameters[7]>2:
         print('globalparameters[7] outside limits') if test_print == 1 else False 
-        globalparameters_output[7]=2
+        globalparameters_output[7]=1
 
-    # x_ilum
+    # x_ilum /wide_43
     if globalparameters[8]<0.5:
         print('globalparameters[8] outside limits') if test_print == 1 else False 
-        globalparameters_output[8]=0.5
+        globalparameters_output[8]=0
     if globalparameters[8]>1.5:
         print('globalparameters[8] outside limits') if test_print == 1 else False 
-        globalparameters_output[8]=1.5
+        globalparameters_output[8]=1
 
-    # y_ilum
-    if globalparameters[9]<0.5:
+    # y_ilum / misalign
+    if globalparameters[9]<0:
         print('globalparameters[9] outside limits') if test_print == 1 else False 
-        globalparameters_output[9]=0.5
-    if globalparameters[9]>1.5:
+        globalparameters_output[9]=0
+    if globalparameters[9]>10:
         print('globalparameters[9] outside limits') if test_print == 1 else False 
-        globalparameters_output[9]=1.5
+        globalparameters_output[9]=10
 
     # x_fiber
     if globalparameters[10]<-0.4:

@@ -35,6 +35,7 @@ Nov 09, 2020: 0.37b -> 0.38 added first implementation of going Tokovin via prev
 Nov 11, 2020: 0.38 -> 0.38a parallelizing Tokovinin
 Nov 16, 2020: 0.38a -> 0.38b first version of Tokovinin via previous beest that works
 Nov 17, 2020: 0.38b -> 0.38c modified speeds so the code does not get outside limits
+Dec 05, 2020: 0.38c -> 0.39 implemented support for November Subaru data and Module v0.37
 
 @author: Neven Caplar
 @contact: ncaplar@princeton.edu
@@ -90,7 +91,7 @@ import emcee
 #Zernike_Module
 from Zernike_Module import LN_PFS_single,LN_PFS_multi_same_spot,create_parInit,PFSLikelihoodModule,svd_invert,Tokovinin_multi,check_global_parameters
 
-__version__ = "0.38c"
+__version__ = "0.39"
 
 parser = argparse.ArgumentParser(description="Starting args import",
                                  formatter_class=argparse.RawTextHelpFormatter,
@@ -186,7 +187,7 @@ if eps==4:
 if eps==5:
     options=[390,2.793,1.593]
 if eps==6:
-    options=[240,2.793,1.193]
+    options=[480,2.793,1.193]
 if eps==7:
     options=[480,2.793,1.193]
 if eps==8:
@@ -227,7 +228,13 @@ if dataset==4 or dataset==5:
     DATA_FOLDER='/tigress/ncaplar/ReducedData/Data_Aug_14/'      
     
     if single_number==120:
-        DATA_FOLDER='/tigress/ncaplar/ReducedData/Data_Aug_14/'             
+        DATA_FOLDER='/tigress/ncaplar/ReducedData/Data_Aug_14/'   
+
+# folder contaning the data taken with F/2.8 stop in November 2020 on Subaru
+if dataset==6:
+    DATA_FOLDER='/tigress/ncaplar/ReducedData/Data_Nov_20/'   
+
+          
     
 
 STAMPS_FOLDER=DATA_FOLDER+'Stamps_cleaned/'
@@ -389,9 +396,11 @@ for obs in list_of_obs:
         mask_image =np.load(STAMPS_FOLDER+'mask'+str(obs)+str(single_number)+str(arc)+'_Stacked.npy')    
         var_image =np.load(STAMPS_FOLDER+'var'+str(obs)+str(single_number)+str(arc)+'_Stacked.npy')   
     
-    
-        sci_image_focus_large =np.load(STAMPS_FOLDER+'sci'+str(single_number_focus)+str(single_number)+str(arc)+'_Stacked_large.npy')
-        var_image_focus_large =np.load(STAMPS_FOLDER+'var'+str(single_number_focus)+str(single_number)+str(arc)+'_Stacked_large.npy')
+        try:
+            sci_image_focus_large =np.load(STAMPS_FOLDER+'sci'+str(single_number_focus)+str(single_number)+str(arc)+'_Stacked_large.npy')
+            var_image_focus_large =np.load(STAMPS_FOLDER+'var'+str(single_number_focus)+str(single_number)+str(arc)+'_Stacked_large.npy')
+        except:
+            pass
 
     else:
         STAMPS_FOLDER='/tigress/ncaplar/ReducedData/Data_Aug_14/Stamps_cleaned_fake/'
@@ -497,7 +506,19 @@ if dataset==4:
         obs_possibilites=np.array([21550+6,21550+12,21550+18,21550+24,21550+30,21550+36,21550+42,21550+48,21550+54,21550+54,21550+60,21550+66,21550+72,21550+78,21550+84,21550+90,21550+96,21550+102,21550+54])
     if arc=='Kr':
          obs_possibilites=np.array([21754+6,21754+12,21754+18,21754+24,21754+30,21754+36,21754+42,21754+48,21754+54,21754+54,21754+60,21754+66,21754+72,21754+78,21754+84,21754+90,21754+96,21754+102,21754+54])
+     
+if dataset==6:
+    if arc=='Ar':
+        obs_possibilites=np.array([34341,34341+6,34341+12,34341+18,34341+24,34341+30,34341+36,34341+42,34341+48,34341+48,\
+                                   34341+54,34341+60,34341+66,34341+72,34341+78,34341+84,34341+90,34341+96,21346+48])
+    if arc=='Ne':
+        obs_possibilites=np.array([34217,34217+6,34217+12,34217+18,34217+24,34217+30,34217+36,34217+42,34217+48,34217+48,\
+                                   34217+54,34217+60,34217+66,34217+72,34217+78,34217+84,34217+90,34217+96,34217+48])
+    if arc=='Kr':
+         obs_possibilites=np.array([34561,34561+6,34561+12,34561+18,34561+24,34561+30,34561+36,34561+42,34561+48,34561+48,\
+                                    34561+54,34561+60,34561+66,34561+72,34561+78,34561+84,34561+90,34561+96,34561+48])
         
+     
  ##############################################    
 
 # associates each observation with the label in the supplied dataframe
@@ -545,7 +566,7 @@ else:
 
 # Input the zmax that you wish to achieve in the analysis
 zmax=twentytwo_or_extra
- 
+"""
 # names for paramters - names if we go up to z11
 columns=['z4','z5','z6','z7','z8','z9','z10','z11',
           'hscFrac','strutFrac','dxFocal','dyFocal','slitFrac','slitFrac_dy',
@@ -564,7 +585,25 @@ columns22=['z4','z5','z6','z7','z8','z9','z10','z11',
           'frd_sigma','frd_lorentz_factor','det_vert','slitHolder_frac_dx',
           'grating_lines','scattering_slope','scattering_amplitude',
           'pixel_effect','fiber_r','flux']  
+"""
 
+columns=['z4','z5','z6','z7','z8','z9','z10','z11',
+          'hscFrac','strutFrac','dxFocal','dyFocal','slitFrac','slitFrac_dy',
+          'wide_0','wide_23','wide_43','misalign',
+          'x_fiber','y_fiber','effective_radius_illumination',
+          'frd_sigma','frd_lorentz_factor','det_vert','slitHolder_frac_dx',
+          'grating_lines','scattering_slope','scattering_amplitude',
+          'pixel_effect','fiber_r','flux']  
+
+# names for paramters - names if we go up to z22
+columns22=['z4','z5','z6','z7','z8','z9','z10','z11',
+           'z12','z13','z14','z15','z16','z17','z18','z19','z20','z21','z22',
+          'hscFrac','strutFrac','dxFocal','dyFocal','slitFrac','slitFrac_dy',
+          'wide_0','wide_23','wide_43','misalign',
+          'x_fiber','y_fiber','effective_radius_illumination',
+          'frd_sigma','frd_lorentz_factor','det_vert','slitHolder_frac_dx',
+          'grating_lines','scattering_slope','scattering_amplitude',
+          'pixel_effect','fiber_r','flux']  
 
 # depening on the arc, select the appropriate dataframe
 if arc=="HgAr":
@@ -573,6 +612,9 @@ elif arc=="Ne":
     results_of_fit_input=results_of_fit_input_Ne
 elif arc=="Kr":
     results_of_fit_input=results_of_fit_input_Kr  
+elif arc=="Ar":
+    # for use in December 2020 run
+    results_of_fit_input=results_of_fit_input_HgAr
 else:
     print("what has happened here? Only HgAr, Neon and Krypton implemented")
 
@@ -668,93 +710,111 @@ else:
     # lets be explicit that the shape of the array is 2d
     array_of_polyfit_1_parameterizations_proposal_shape_2d=array_of_polyfit_1_parameterizations_proposal
     
+    
+    # if you are using the version in December 2020, with Module 0.39 you need to recast some of the parameters
+    if date_of_input=='Mar06' and date_of_output=='Dec07':
+        array_of_polyfit_1_parameterizations_proposal_shape_2d
+    
+        pos_wide_0=np.arange(len(columns22))[np.array(columns22)=='wide_0'][0]
+        pos_wide_23=np.arange(len(columns22))[np.array(columns22)=='wide_23'][0]
+        pos_wide_43=np.arange(len(columns22))[np.array(columns22)=='wide_43'][0]
+        pos_misalign=np.arange(len(columns22))[np.array(columns22)=='misalign'][0]
+
+        array_of_polyfit_1_parameterizations_proposal_shape_2d[pos_wide_0,1]=0.1
+        array_of_polyfit_1_parameterizations_proposal_shape_2d[pos_wide_23,1]=0.1
+        array_of_polyfit_1_parameterizations_proposal_shape_2d[pos_wide_43,1]=0.1
+        array_of_polyfit_1_parameterizations_proposal_shape_2d[pos_misalign,1]=1
+    
+    
+    
     # if you 
     if single_number>=120:
         proposal_number=single_number_original-120
         
         array_of_polyfit_1_parameterizations_proposal_shape_2d=\
             np.load('/tigress/ncaplar/ReducedData/Data_Aug_14/Dataframes_fake/array_of_polyfit_1_parameterizations_proposal_shape_2d_proposal_'+str(proposal_number)+'.npy')
-        
+    
+    """    
     print('Overriding array_of_polyfit_1_parameterizations_proposal_shape_2d for testing purposes') 
    
-   
-    array_of_polyfit_1_parameterizations_proposal_shape_2d=np.array([[   -7.48584024,     0.73497698],
-       [    0.19568978,     0.15682353],
-       [    0.03769565,     0.02577918],
-       [   -0.03734586,     0.39183789],
-       [    0.02550665,     0.556507  ],
-       [    0.0072312 ,     0.1261021 ],
-       [    0.01097693,    -0.26493479],
-       [   -0.01831573,    -0.05247759],
-       [    0.01020252,    -0.15314955],
-       [    0.00343817,    -0.10475206],
-       [    0.02711867,    -0.0137685 ],
-       [    0.00445374,     0.0372618 ],
-       [    0.01458828,    -0.02237409],
-       [   -0.01880653,     0.03841714],
-       [   -0.00188257,     0.02112357],
-       [   -0.00910924,     0.01975998],
-       [   -0.00067647,    -0.02366152],
-       [    0.00463751,     0.012873  ],
-       [   -0.00621102,     0.02695559],
-       [    0.        ,     0.68904049],
-       [    0.        ,     0.10290975],
-       [    0.        ,    -0.20154677],
-       [    0.        ,    -0.01441376],
-       [    0.        ,     0.05355728],
-       [    0.        ,     0.05813265],
+
+    array_of_polyfit_1_parameterizations_proposal_shape_2d=np.array([[   -7.26051272,     0.69807266],
+       [    0.23066123,     0.16741276],
+       [    0.0618131 ,     0.00773434],
+       [   -0.02487276,     0.35311773],
+       [    0.06465199,     0.52162136],
+       [    0.00562712,     0.11197505],
+       [    0.01934347,    -0.24217056],
+       [    0.01283784,    -0.06110508],
+       [   -0.00078921,    -0.13188456],
+       [    0.00479373,    -0.10044155],
+       [    0.02467383,    -0.01154937],
+       [    0.00379758,     0.03052984],
+       [   -0.00053136,    -0.01654971],
+       [   -0.01616147,     0.03260598],
+       [   -0.00216007,     0.02161721],
+       [   -0.00854412,     0.02131408],
+       [    0.00023284,    -0.02109201],
+       [    0.00437892,     0.01079139],
+       [   -0.02521649,     0.02915645],
+       [    0.        ,     0.68034106],
+       [    0.        ,     0.09909094],
+       [    0.        ,    -0.20649468],
+       [    0.        ,    -0.01763408],
+       [    0.        ,     0.05362782],
+       [    0.        ,     0.0568914 ],
        [    0.        ,     0.0000314 ],
        [    0.        ,     0.0000314 ],
        [    0.        ,     0.9767313 ],
        [    0.        ,     0.94836248],
-       [    0.        ,     0.02461952],
-       [    0.        ,    -0.05835101],
-       [    0.        ,     0.93393462],
-       [    0.        ,     0.04867201],
-       [    0.        ,     0.49904901],
-       [    0.        ,     1.01173008],
-       [    0.        ,     0.63182418],
-       [    0.        , 51347.90306188],
-       [    0.        ,     2.32213302],
-       [    0.        ,     0.00238991],
-       [    0.        ,     0.37175131],
-       [    0.        ,     1.79411345],
-       [    0.        ,     0.99627532],
-       [    0.00003301,    -0.00155895],
-       [   -0.0007012 ,     0.00400087],
-       [    0.00093449,     0.00437024],
-       [    0.00096567,     0.00066246],
-       [    0.00095771,     0.00368164],
-       [    0.00029302,    -0.00083184],
-       [    0.00196281,    -0.00503305],
-       [    0.00055673,     0.00092236],
-       [   -0.00170941,    -0.00397606],
-       [    0.00222377,     0.01257303],
-       [    0.00219571,     0.00159809],
-       [   -0.00109161,     0.00276234],
-       [   -0.00071055,    -0.00917837],
-       [    0.00070316,    -0.00561311],
-       [   -0.00074906,     0.00218633],
-       [    0.00052506,     0.00031175],
-       [   -0.00027124,     0.00124874],
-       [    0.00056686,    -0.0004586 ],
-       [   -0.00085383,     0.00176925],
-       [   -0.00200233,    -0.00099071],
-       [   -0.00017492,     0.00005366],
-       [    0.00075724,    -0.00381397],
-       [    0.0016349 ,    -0.00899893],
-       [    0.00057199,    -0.01150359],
-       [   -0.00085055,     0.00203238],
-       [   -0.00052982,     0.0053546 ],
-       [    0.00095456,    -0.00181697],
-       [   -0.00055045,    -0.00379142],
-       [   -0.00048768,     0.00804741],
-       [   -0.00145526,     0.00574891],
-       [   -0.0001161 ,    -0.00048279],
-       [   -0.00099326,     0.00201623],
-       [    0.00012449,     0.0103669 ],
-       [    0.00272563,    -0.00187062]])
-    
+       [    0.        ,     0.05393805],
+       [    0.        ,    -0.07711173],
+       [    0.        ,     0.98541067],
+       [    0.        ,     0.04504055],
+       [    0.        ,     0.47515132],
+       [    0.        ,     1.01242392],
+       [    0.        ,     0.65687713],
+       [    0.        , 50892.06684106],
+       [    0.        ,     2.34159973],
+       [    0.        ,     0.00241179],
+       [    0.        ,     0.3847749 ],
+       [    0.        ,     1.79539309],
+       [    0.        ,     0.99639989],
+       [   -0.00151877,    -0.00186343],
+       [   -0.00351846,     0.01006906],
+       [    0.00043316,     0.00448335],
+       [    0.00037921,    -0.00089173],
+       [    0.00070346,    -0.00234826],
+       [   -0.00039535,     0.00196623],
+       [    0.00151173,    -0.0029649 ],
+       [    0.00032089,    -0.0020236 ],
+       [   -0.00132646,    -0.00689623],
+       [    0.00294364,     0.00869508],
+       [    0.00238834,     0.00406697],
+       [   -0.00277659,     0.00488814],
+       [   -0.00056052,    -0.00385096],
+       [    0.00123593,    -0.0077173 ],
+       [   -0.00041795,     0.0013092 ],
+       [   -0.00034322,     0.00064159],
+       [    0.00006269,     0.00082814],
+       [   -0.00011402,    -0.00039645],
+       [   -0.00076829,     0.0013193 ],
+       [   -0.00152938,    -0.00319124],
+       [   -0.00001484,     0.00019586],
+       [    0.00068152,    -0.00369635],
+       [    0.00297307,    -0.00839939],
+       [    0.0020726 ,    -0.00752959],
+       [   -0.00096906,     0.00071716],
+       [   -0.00004757,     0.00237883],
+       [    0.00049466,    -0.00075045],
+       [    0.00024551,    -0.00367132],
+       [   -0.00046376,     0.00752054],
+       [   -0.00058294,     0.0040566 ],
+       [   -0.00029741,    -0.00084313],
+       [   -0.00110778,     0.00221074],
+       [    0.00023515,     0.00484092],
+       [    0.00141415,    -0.00094155]])
+        """
     
     
 ###############################################    
@@ -782,7 +842,7 @@ if zmax>=22:
     lower_limits=np.array([z4Input-3,-1,-1,-1,-1,-1,-1,-1,
                            0,0,0,0,0,0,0,0,0,0,0,
                  0.5,0.05,-0.8,-0.8,0,-0.5,
-                 0,-0.5,0.5,0.5,
+                 0,0,0,0,
                  0.8,-np.pi/2,0.5,
                  0,0,0.85,-0.8,
                  1200,0.5,0,
@@ -791,7 +851,7 @@ if zmax>=22:
     higher_limits=np.array([z4Input+3,1,1,1,1,1,1,1,
                             0,0,0,0,0,0,0,0,0,0,0,
                   1.2,0.2,0.8,0.8,0.2,0.5,
-                  3,20,1.5,1.5,
+                  1,1,1,10,
                   1,np.pi/2,1.01,
                   0.05,1,1.15,0.8,
                   120000,3.5,0.5,
@@ -917,7 +977,7 @@ if twentytwo_or_extra>=22:
             stronger_array_01=np.array([0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
                         0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
                         1.2,1.2,1.2,1.2,1.2,1.2,
-                        0.0,0.0,0.0,0.0,
+                        1,0.1,1.0,0.0,
                         1.2,1.2,1.2,
                         1.2,1.2,1.2,1.2,
                         1.2,1.2,1.2,
@@ -975,8 +1035,8 @@ if twentytwo_or_extra>=22:
         
         
          
-        np.save(RESULT_FOLDER+'array_of_particle_position_proposal'+str(step),array_of_particle_position_proposal)       
-        np.save(RESULT_FOLDER+'best_result_m1'+str(step),best_result[-1])    
+        #np.save(RESULT_FOLDER+'array_of_particle_position_proposal'+str(step),array_of_particle_position_proposal)       
+        #np.save(RESULT_FOLDER+'best_result_m1'+str(step),best_result[-1])    
         
         print('Starting step '+str(step)+' out of '+str(nsteps))
         time_start_evo_step=time.time()
@@ -989,7 +1049,7 @@ if twentytwo_or_extra>=22:
 
         
         #print('out2.shape '+str(out2.shape))
-        np.save(RESULT_FOLDER+'out2'+str(step),out2)
+        #np.save(RESULT_FOLDER+'out2'+str(step),out2)
 
         ##################
         # create a swarm here  
@@ -1010,7 +1070,7 @@ if twentytwo_or_extra>=22:
             swarm_list.append([likelihood_single_particle,position_single_particle,velocity_single_particle])
             
         swarm=np.array(swarm_list)
-        np.save(RESULT_FOLDER+'swarm'+str(step),swarm)  
+        #np.save(RESULT_FOLDER+'swarm'+str(step),swarm)  
 
         ##################
         # find the best particle in the swarm           
@@ -1019,8 +1079,9 @@ if twentytwo_or_extra>=22:
         index_of_best=np.arange(len(swarm_likelihood))[swarm_likelihood==np.max(swarm_likelihood)][0]
         best_particle_this_step=swarm[index_of_best]      
         best_particle_likelihood_this_step=best_particle_this_step[0]
-        np.save(RESULT_FOLDER+'best_particle_this_step'+str(step),best_particle_this_step)  
-        
+        #np.save(RESULT_FOLDER+'best_particle_this_step'+str(step),best_particle_this_step)  
+        #print('best_particle_likelihood until now: '+str(best_particle_likelihood))            
+        print('proposed best_particle_likelihood_this_step: '+str(best_particle_likelihood_this_step))
         # if the best particle from the swarm is suspected to be best particle overall
         # compute the best_result 
         if best_particle_likelihood_this_step>best_particle_likelihood:
@@ -1041,7 +1102,7 @@ if twentytwo_or_extra>=22:
             
             print('Best result output is: '+str(best_particle_proposal_position[:5]))
             print('best_particle_likelihood until now: '+str(best_particle_likelihood))            
-            print('best_particle_likelihood_this_step: '+str(best_particle_likelihood_this_step))
+            print('final best_particle_likelihood_this_step: '+str(best_particle_likelihood_this_step))
 
             # if it is true, replace the best particle
             if best_particle_likelihood_this_step>best_particle_likelihood:
@@ -1051,8 +1112,8 @@ if twentytwo_or_extra>=22:
         
 
         # save result of the search for the best particle and result
-        np.save(RESULT_FOLDER+'best_particle'+str(step),best_particle)   
-        np.save(RESULT_FOLDER+'best_result'+str(step),best_result)    
+        #np.save(RESULT_FOLDER+'best_particle'+str(step),best_particle)   
+        #np.save(RESULT_FOLDER+'best_result'+str(step),best_result)    
     
     
         best_particle_position=best_particle[1]
