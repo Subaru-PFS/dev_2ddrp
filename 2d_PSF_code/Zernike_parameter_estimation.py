@@ -36,6 +36,8 @@ Nov 11, 2020: 0.38 -> 0.38a parallelizing Tokovinin
 Nov 16, 2020: 0.38a -> 0.38b first version of Tokovinin via previous beest that works
 Nov 17, 2020: 0.38b -> 0.38c modified speeds so the code does not get outside limits
 Dec 05, 2020: 0.38c -> 0.39 implemented support for November Subaru data and Module v0.37
+Dec 09, 2020: 0.39 -> 0.39a transform single_number variable to int asap
+Jan 09, 2021: 0.39a -> 0.39b
 
 @author: Neven Caplar
 @contact: ncaplar@princeton.edu
@@ -91,7 +93,7 @@ import emcee
 #Zernike_Module
 from Zernike_Module import LN_PFS_single,LN_PFS_multi_same_spot,create_parInit,PFSLikelihoodModule,svd_invert,Tokovinin_multi,check_global_parameters
 
-__version__ = "0.39"
+__version__ = "0.39b"
 
 parser = argparse.ArgumentParser(description="Starting args import",
                                  formatter_class=argparse.RawTextHelpFormatter,
@@ -123,9 +125,9 @@ parser.add_argument("-nsteps", help="number of steps each walker will take ",typ
 parser.add_argument("-eps", help="input argument that controls the paramters of the cosmo_hammer process; if in doubt, eps=5 is probably a solid option ",type=int)
 ################################################    
 # which dataset is being analyzed [numerical value of 0,1,2,3,4 or 5]   
-parser.add_argument("-dataset", help="which dataset is being analyzed [numerical value of 0,1,2,3,4 or 5] ",type=int, choices=[0, 1, 2,3,4,5])
+parser.add_argument("-dataset", help="which dataset is being analyzed [numerical value of 0,1,2,3,4 or 5] ",type=int, choices=[0, 1, 2,3,4,5,6])
 ################################################    
-parser.add_argument("-arc", help="which arc lamp is being analyzed (HgAr for Mercury-Argon, Ne for Neon, Kr for Krypton)  ", choices=["HgAr", "Ne", "Kr"])
+parser.add_argument("-arc", help="which arc lamp is being analyzed (HgAr for Mercury-Argon, Ne for Neon, Kr for Krypton)  ", choices=["HgAr","Ar", "Ne", "Kr"])
 ################################################ 
 parser.add_argument("-double_sources", help="are there two sources in the image (True, False) ", default='False',type=str, choices=['True','False'])
 ################################################ 
@@ -165,7 +167,7 @@ else:
 obs_init = list_of_obs[0]
 print('obs_init is: '+str(obs_init))  
 ################################################ 
-single_number= args.spot
+single_number= int(args.spot)
 print('spot number (single_number) is: '+str(single_number)) 
 ################################################ 
 nsteps = args.nsteps
@@ -299,6 +301,19 @@ if dataset==4:
         single_number_focus=21754+54
     else:
         print("Not recognized arc-line")     
+        
+# defocused data from November 2020    
+# dataset=6
+if dataset==6:   
+    if str(arc)=="Ar":
+        single_number_focus=34341+48
+    elif str(arc)=="Ne":
+        single_number_focus=34217+48
+    elif str(arc)=="Kr":
+        single_number_focus=34561+48
+    else:
+        print("Not recognized arc-line")  
+        
 ################################################  
 print('args.double_sources: '+str(args.double_sources))        
 
@@ -395,7 +410,7 @@ for obs in list_of_obs:
         sci_image =np.load(STAMPS_FOLDER+'sci'+str(obs)+str(single_number)+str(arc)+'_Stacked.npy')
         mask_image =np.load(STAMPS_FOLDER+'mask'+str(obs)+str(single_number)+str(arc)+'_Stacked.npy')    
         var_image =np.load(STAMPS_FOLDER+'var'+str(obs)+str(single_number)+str(arc)+'_Stacked.npy')   
-    
+        print('sci_image loaded from: '+STAMPS_FOLDER+'sci'+str(obs)+str(single_number)+str(arc)+'_Stacked.npy')
         try:
             sci_image_focus_large =np.load(STAMPS_FOLDER+'sci'+str(single_number_focus)+str(single_number)+str(arc)+'_Stacked_large.npy')
             var_image_focus_large =np.load(STAMPS_FOLDER+'var'+str(single_number_focus)+str(single_number)+str(arc)+'_Stacked_large.npy')
@@ -407,6 +422,7 @@ for obs in list_of_obs:
         sci_image =np.load(STAMPS_FOLDER+'sci'+str(obs)+str(single_number)+str(arc)+'_Stacked.npy')
         mask_image =np.load(STAMPS_FOLDER+'mask'+str(obs)+str(single_number)+str(arc)+'_Stacked.npy')    
         var_image =np.load(STAMPS_FOLDER+'var'+str(obs)+str(single_number)+str(arc)+'_Stacked.npy') 
+        print('sci_image loaded from: '+STAMPS_FOLDER+'sci'+str(obs)+str(single_number)+str(arc)+'_Stacked.npy')
         # for fake images below 120 I did not create _large images
 
     # If there is no science image, do not add images
@@ -423,9 +439,12 @@ for obs in list_of_obs:
             list_of_sci_images.append(sci_image)
             list_of_mask_images.append(mask_image)
             list_of_var_images.append(var_image)
-            if single_number<120:
-                list_of_sci_images_focus.append(sci_image_focus_large)
-                list_of_var_images_focus.append(var_image_focus_large)
+            try:
+                if single_number<120:
+                    list_of_sci_images_focus.append(sci_image_focus_large)
+                    list_of_var_images_focus.append(var_image_focus_large)
+            except:
+                pass
             # observation which are of good enough quality
             list_of_obs_cleaned.append(obs)
             
@@ -459,10 +478,13 @@ for obs in list_of_obs_cleaned:
 # where are the dataframe which we use to guess the initial solution
 with open(DATAFRAMES_FOLDER + 'results_of_fit_many_'+str(direct_or_interpolation)+'_HgAr_from_'+str(date_of_input)+'.pkl', 'rb') as f:
     results_of_fit_input_HgAr=pickle.load(f)
+    print('results_of_fit_input_HgAr is taken from: '+str(f))
 with open(DATAFRAMES_FOLDER + 'results_of_fit_many_'+str(direct_or_interpolation)+'_Ne_from_'+str(date_of_input)+'.pkl', 'rb') as f:
     results_of_fit_input_Ne=pickle.load(f)
+    print('results_of_fit_input_Ne is taken from: '+str(f))
 with open(DATAFRAMES_FOLDER + 'results_of_fit_many_'+str(direct_or_interpolation)+'_Kr_from_'+str(date_of_input)+'.pkl', 'rb') as f:
     results_of_fit_input_Kr=pickle.load(f)
+    print('results_of_fit_input_Kr is taken from: '+str(f))
 ##############################################    
     
 # What are the observations that can be analyzed
@@ -681,10 +703,10 @@ else:
     # add the ones that you found in array_of_allparameters and for which labels they are avaliable in list_of_defocuses
     for label in ['m4','m35','m3','m05','0','p05','p3','p35','p4']:
         try:
-            if single_number>=120:
+            if int(single_number)>=120:
                 list_of_allparameters.append(results_of_fit_input[label].loc[int(37)].values)
                 list_of_defocuses.append(label)
-            else:
+            if int(single_number) < 120:
                 
             
                 list_of_allparameters.append(results_of_fit_input[label].loc[int(single_number)].values)
@@ -712,8 +734,10 @@ else:
     
     
     # if you are using the version in December 2020, with Module 0.39 you need to recast some of the parameters
-    if date_of_input=='Mar06' and date_of_output=='Dec07':
-        array_of_polyfit_1_parameterizations_proposal_shape_2d
+    if date_of_input=='Mar06' and date_of_output=='Dec08':
+        
+        print('modifying wide and misalign parameters')
+        #array_of_polyfit_1_parameterizations_proposal_shape_2d
     
         pos_wide_0=np.arange(len(columns22))[np.array(columns22)=='wide_0'][0]
         pos_wide_23=np.arange(len(columns22))[np.array(columns22)=='wide_23'][0]
@@ -724,6 +748,8 @@ else:
         array_of_polyfit_1_parameterizations_proposal_shape_2d[pos_wide_23,1]=0.1
         array_of_polyfit_1_parameterizations_proposal_shape_2d[pos_wide_43,1]=0.1
         array_of_polyfit_1_parameterizations_proposal_shape_2d[pos_misalign,1]=1
+    else:
+        print('not modifying wide and misalign parameters')        
     
     
     
@@ -977,7 +1003,7 @@ if twentytwo_or_extra>=22:
             stronger_array_01=np.array([0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
                         0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
                         1.2,1.2,1.2,1.2,1.2,1.2,
-                        1,0.1,1.0,0.0,
+                        1,1,1.0,1.0,
                         1.2,1.2,1.2,
                         1.2,1.2,1.2,1.2,
                         1.2,1.2,1.2,
@@ -997,6 +1023,16 @@ if twentytwo_or_extra>=22:
                                   allparameters_proposal_err=None,\
                                   stronger= stronger_array_01,use_optPSF=None,deduced_scattering_slope=None,zmax=zmax_input)
         parInit1=np.vstack((parInit1,parInit1_2))
+ 
+    parInit1_std=[]
+    for i in range(23):
+        parInit1_std.append(np.std(parInit1[:,19*2+i]))
+    
+    parInit1_std=np.array(parInit1_std)
+    print('parInit1_std: '+str(parInit1_std))
+ 
+    
+ 
     
     # number of particles and number of parameters
     particleCount=options[0]  
@@ -1018,7 +1054,7 @@ if twentytwo_or_extra>=22:
     
     print('Starting work on the initial best result')
     time_start_initial=time.time()
-    best_result=Tokovinin_multi_instance_with_pool(array_of_polyfit_1_parameterizations_proposal_shape_2d,return_Images=True,num_iter='m1',previous_best_result=None)    
+    best_result=Tokovinin_multi_instance_with_pool(array_of_polyfit_1_parameterizations_proposal_shape_2d,return_Images=True,num_iter=None,previous_best_result=None)    
     time_end_initial=time.time()
     print('time for the initial evaluation is '+str(time_end_initial-time_start_initial))
         
