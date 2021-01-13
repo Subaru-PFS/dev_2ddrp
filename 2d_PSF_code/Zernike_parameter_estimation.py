@@ -37,7 +37,9 @@ Nov 16, 2020: 0.38a -> 0.38b first version of Tokovinin via previous beest that 
 Nov 17, 2020: 0.38b -> 0.38c modified speeds so the code does not get outside limits
 Dec 05, 2020: 0.38c -> 0.39 implemented support for November Subaru data and Module v0.37
 Dec 09, 2020: 0.39 -> 0.39a transform single_number variable to int asap
-Jan 09, 2021: 0.39a -> 0.39b
+Jan 09, 2021: 0.39a -> 0.39b take nearby points where input is unavaliable
+Jan 13, 2021: 0.39b -> 0.39c print out number of accepted images, do not analyze if below 60%
+
 
 @author: Neven Caplar
 @contact: ncaplar@princeton.edu
@@ -93,7 +95,7 @@ import emcee
 #Zernike_Module
 from Zernike_Module import LN_PFS_single,LN_PFS_multi_same_spot,create_parInit,PFSLikelihoodModule,svd_invert,Tokovinin_multi,check_global_parameters
 
-__version__ = "0.39b"
+__version__ = "0.39c"
 
 parser = argparse.ArgumentParser(description="Starting args import",
                                  formatter_class=argparse.RawTextHelpFormatter,
@@ -448,13 +450,20 @@ for obs in list_of_obs:
             # observation which are of good enough quality
             list_of_obs_cleaned.append(obs)
             
-print('len of list_of_sci_images: '+str(len(list_of_sci_images)) )           
+print('len of list_of_sci_images: '+str(len(list_of_sci_images)) ) 
+
+print('len of accepted images '+str(len(list_of_obs_cleaned)) + ' /len of asked images '+ str(len(list_of_obs)))          
 
 # If there is no valid images imported, exit 
 if list_of_sci_images==[]:
     print('No valid images - exiting')
     sys.exit(0)
-
+    
+# if you were able only to import only a fraction of images
+# if this fraction is too low - exit
+if (len(list_of_obs_cleaned)/len(list_of_obs) ) <0.6:
+    print('Fraction of images imported is too low - exiting')
+    sys.exit(0)
 
 
 # name of the outputs
@@ -479,12 +488,24 @@ for obs in list_of_obs_cleaned:
 with open(DATAFRAMES_FOLDER + 'results_of_fit_many_'+str(direct_or_interpolation)+'_HgAr_from_'+str(date_of_input)+'.pkl', 'rb') as f:
     results_of_fit_input_HgAr=pickle.load(f)
     print('results_of_fit_input_HgAr is taken from: '+str(f))
+with open(DATAFRAMES_FOLDER+'finalAr_Feb2020.pkl', 'rb') as f:
+    finalAr_Feb2020_dataset=pickle.load(f) 
+
+# Ne
 with open(DATAFRAMES_FOLDER + 'results_of_fit_many_'+str(direct_or_interpolation)+'_Ne_from_'+str(date_of_input)+'.pkl', 'rb') as f:
     results_of_fit_input_Ne=pickle.load(f)
-    print('results_of_fit_input_Ne is taken from: '+str(f))
+print('results_of_fit_input_Ne is taken from: '+str(f))
+with open(DATAFRAMES_FOLDER + 'finalNe_Feb2020', 'rb') as f:
+    finalNe_Feb2020_dataset=pickle.load(f) 
+
+# Kr
 with open(DATAFRAMES_FOLDER + 'results_of_fit_many_'+str(direct_or_interpolation)+'_Kr_from_'+str(date_of_input)+'.pkl', 'rb') as f:
     results_of_fit_input_Kr=pickle.load(f)
-    print('results_of_fit_input_Kr is taken from: '+str(f))
+print('results_of_fit_input_Kr is taken from: '+str(f))
+with open(DATAFRAMES_FOLDER + 'finalKr_Feb2020', 'rb') as f:
+    finalKr_Feb2020_dataset=pickle.load(f)    
+    
+
 ##############################################    
     
 # What are the observations that can be analyzed
@@ -630,15 +651,20 @@ columns22=['z4','z5','z6','z7','z8','z9','z10','z11',
 # depening on the arc, select the appropriate dataframe
 if arc=="HgAr":
     results_of_fit_input=results_of_fit_input_HgAr
+    #finalArc=finalHgAr_Feb2020_dataset
 elif arc=="Ne":
     results_of_fit_input=results_of_fit_input_Ne
+    finalArc=finalNe_Feb2020_dataset
 elif arc=="Kr":
     results_of_fit_input=results_of_fit_input_Kr  
+    finalArc=finalKr_Feb2020_dataset
 elif arc=="Ar":
     # for use in December 2020 run
     results_of_fit_input=results_of_fit_input_HgAr
+    finalArc=finalAr_Feb2020_dataset
+
 else:
-    print("what has happened here? Only HgAr, Neon and Krypton implemented")
+    print("what has happened here? Only Argon, HgAr, Neon and Krypton implemented")
 
 
 #pool = MPIPool()
@@ -674,6 +700,10 @@ else:
                                         double_sources_positions_ratios=double_sources_positions_ratios,fit_for_flux=True,test_run=False,\
                                         num_iter=None,pool=None)    
 
+
+
+
+
 # if you are passing only one image
 if len(list_of_obs)==1:
     # results_of_fit_input contains proposal for parameters plus 2 values describing chi2 and chi2_max 
@@ -696,27 +726,62 @@ if len(list_of_obs)==1:
     # protect the parameters from changing and unintentional mistakes
     allparameters_proposal_22=np.copy(allparameters_proposal)
 else:
-    # you are apssing multiple images
+    # you are passing multiple images
     list_of_allparameters=[]
     list_of_defocuses=[]
     # search for the previous avaliable results 
     # add the ones that you found in array_of_allparameters and for which labels they are avaliable in list_of_defocuses
     for label in ['m4','m35','m3','m05','0','p05','p3','p35','p4']:
+        
+        # check if your single_number is avaliable
+        
+        
+        
+        
+        
+        
+        print('adding label '+str(label)+' with single_number '+str(int(single_number) )+' for creation of array_of_allparameters')
         try:
             if int(single_number)>=120:
                 list_of_allparameters.append(results_of_fit_input[label].loc[int(37)].values)
                 list_of_defocuses.append(label)
             if int(single_number) < 120:
                 
+                # if your single_nubmer is avaliable go ahead
+                if int(single_number) in results_of_fit_input[label].index:
             
-                list_of_allparameters.append(results_of_fit_input[label].loc[int(single_number)].values)
-                list_of_defocuses.append(label)
+                    list_of_allparameters.append(results_of_fit_input[label].loc[int(single_number)].values)
+                    list_of_defocuses.append(label)
+                    print('results_of_fit_input[label].loc[int(single_number)].values' + str(results_of_fit_input[label].loc[int(single_number)].values))
+                else:
+                    
+                    
+                    x_positions=finalArc.loc[results_of_fit_input[labelInput].index]['xc_effective']
+                    y_positions=finalArc.loc[results_of_fit_input[labelInput].index]['yc']
+
+                    
+                    position_x_single_number=finalArc['xc_effective'].loc[int(single_number)]
+                    position_y_single_number=finalArc['yc'].loc[int(single_number)]
+                    
+                    distance_of_avaliable_spots=np.abs((x_positions-position_x_single_number)**2+(y_positions-position_y_single_number)**2)
+                    single_number_input=distance_of_avaliable_spots[distance_of_avaliable_spots==np.min(distance_of_avaliable_spots)].index[0]
+
+                    list_of_allparameters.append(results_of_fit_input[label].loc[int(single_number_input)].values)
+                    list_of_defocuses.append(label)
+                    print('results_of_fit_input[label].loc[int(single_number)].values' + str(results_of_fit_input[label].loc[int(single_number_input)].values))
+                    
+                    pass
+                    
+                
+
 
             
             
             
 
         except:
+            # if the original single_nubmer was not avaliable, take something nearby
+            
             pass
         
     array_of_allparameters=np.array(list_of_allparameters)
@@ -734,7 +799,7 @@ else:
     
     
     # if you are using the version in December 2020, with Module 0.39 you need to recast some of the parameters
-    if date_of_input=='Mar06' and date_of_output=='Dec08':
+    if date_of_input=='Mar06' and date_of_output=='Jan08':
         
         print('modifying wide and misalign parameters')
         #array_of_polyfit_1_parameterizations_proposal_shape_2d
@@ -1059,7 +1124,7 @@ if twentytwo_or_extra>=22:
     print('time for the initial evaluation is '+str(time_end_initial-time_start_initial))
         
    
-    
+    print('best_result' + str(best_result))
     
     print('Finished work on the initial best result') 
     
