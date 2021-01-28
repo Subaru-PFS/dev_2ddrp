@@ -74,8 +74,13 @@ Nov 16, 2020: 0.35b -> 0.35c modified movement of parameters
 Nov 17, 2020: 0.35c -> 0.35d small fixes in check_global_parameters with paramters 0 and 1
 Nov 19, 2020: 0.35d -> 0.36 realized that vertical strut is different than others - first, simplest implementation
 Nov 19, 2020: 0.36 -> 0.36a modified parInit movements for multi (mostly reduced)
-Dec 05, 2020L 0.36a -> 0.37 misalignment and variable strut size
-
+Dec 05, 2020: 0.36a -> 0.37 misalignment and variable strut size
+Dec 13, 2020: 0.37 -> 0.37a changed weights in multi_same_spot
+Jan 17, 2021: 0.37a -> 0.37b accept True as input for simulation00
+Jan 25, 2021: 0.37b -> 0.37c fixed fillCrop function in PsfPosition, slice limits need to be integers
+Jan 26, 2021: 0.37c -> 0.38 PIPE2D-701, fixed width of struts implementation
+Jan 28, 2021: 0.38 -> 0.39 added flux mask in chi**2 calculation
+ 
 @author: Neven Caplar
 @contact: ncaplar@princeton.edu
 @web: www.ncaplar.com
@@ -151,7 +156,7 @@ __all__ = ['PupilFactory', 'Pupil','ZernikeFitter_PFS','LN_PFS_multi_same_spot',
            'sky_scale','sky_size','remove_pupil_parameters_from_all_parameters',\
            'resize','_interval_overlap','svd_invert','Tokovinin_multi']
 
-__version__ = "0.37"
+__version__ = "0.39"
 
 
 
@@ -569,11 +574,14 @@ class PupilFactory(object):
         
 
 
-        #print('p0'+str(p0))
-        #print('angleRad'+str(angleRad))
-        #print('thickness'+str(thickness))
-        #np.save('/Users/nevencaplar/Documents/PFS/TigerAnalysis/Test/d'+str(p0[0])+str(p0[1]),d)
-        #np.save('/Users/nevencaplar/Documents/PFS/TigerAnalysis/Test/p0',p0)    
+        #print('p0: '+str(p0))
+        #print('angleRad: '+str(angleRad))
+        #print('thickness: '+str(thickness))
+        #print('wide: '+str(wide))
+        #print('**********')
+        #np.save('/Users/nevencaplar/Documents/PFS/TigerAnalysis/Test/d'+str(p0[0])+'_'+str(p0[1])+'_'+str(wide),d)
+        #np.save('/Users/nevencaplar/Documents/PFS/TigerAnalysis/Test/p0'+str(p0[0])+'_'+str(p0[1])+'_'+str(wide),p0)  
+        #np.save('/Users/nevencaplar/Documents/PFS/TigerAnalysis/Test/pupil_illuminated'+str(p0[0])+'_'+str(p0[1])+'_'+str(wide),pupil.illuminated)   
         #np.save('/Users/nevencaplar/Documents/PFS/TigerAnalysis/Test/u',self.u)
         #np.save('/Users/nevencaplar/Documents/PFS/TigerAnalysis/Test/v',self.v)
 
@@ -717,7 +725,7 @@ class PFSPupilFactory(PupilFactory):
         pupil_frd=(1/2*(scipy.special.erf((-center_distance+self.effective_ilum_radius)/sigma)+\
                         scipy.special.erf((center_distance+self.effective_ilum_radius)/sigma)))
             
-        print('misalign '+str(self.misalign) )
+        #print('misalign '+str(self.misalign) )
         
         # misaligment starts here
         
@@ -826,31 +834,32 @@ class PFSPupilFactory(PupilFactory):
         #No vignetting of this kind for the spectroscopic camera
         #self._cutCircleExterior(pupil, (lensX, lensY), lensRadius)
      
-        # Cut out spider shadow
-        # from 
-        for pos, angle in zip(self._spiderStartPos, self._spiderAngles):
-            x = pos[0] + camX
-            y = pos[1] + camY
-            
+        # Cut out spider shadow     
+        print('self.wide_0,self.wide_23,self.wide_43 '+str([self.wide_0,self.wide_23,self.wide_43]))
+        
+        #for pos, angle in zip(self._spiderStartPos, self._spiderAngles):
+        #    x = pos[0] + camX
+        #    y = pos[1] + camY
+        #    
             #print('[x,y,angle)'+str([x,y,angle]))
-            if angle==0:
-                self._cutRay(pupil, (x, y), angle, subaruStrutThick,'rad',self.wide_0)
-            if angle==np.pi*2/3:
-                self._cutRay(pupil, (x, y), angle, subaruStrutThick,'rad',self.wide_23)
-            if angle==np.pi*4/3:
-                self._cutRay(pupil, (x, y), angle, subaruStrutThick,'rad',self.wide_43)
+        #    if angle==0:
+        #        self._cutRay(pupil, (x, y), angle, subaruStrutThick,'rad',self.wide_0)
+        #    if angle==np.pi*2/3:
+        #        self._cutRay(pupil, (x, y), angle, subaruStrutThick,'rad',self.wide_23)
+        #    if angle==np.pi*4/3:
+        #        self._cutRay(pupil, (x, y), angle, subaruStrutThick,'rad',self.wide_43)
         
             
         
         # cut out slit shadow
-        self._cutRay(pupil, (2,slitFrac_dy/18),-np.pi,subaruSlit,'rad') 
+        #self._cutRay(pupil, (2,slitFrac_dy/18),-np.pi,subaruSlit,'rad') 
         
         # cut out slit holder shadow
         #also subaruSlit/3 not fitted, just put roughly correct number
-        self._cutRay(pupil, (self.slitHolder_frac_dx/18,1),-np.pi/2,subaruSlit/3,'rad')   
+        #self._cutRay(pupil, (self.slitHolder_frac_dx/18,1),-np.pi/2,subaruSlit/3,'rad')   
         
-        if self.verbosity==1:
-            print('Finished with getPupil')
+        #if self.verbosity==1:
+        #    print('Finished with getPupil')
         
         pupil_lorentz=(np.arctan(2*(self.effective_ilum_radius-center_distance)/(4*sigma))+np.arctan(2*(self.effective_ilum_radius+center_distance)/(4*sigma)))/(2*np.arctan((2*self.effective_ilum_radius)/(4*sigma)))
 
@@ -871,7 +880,15 @@ class PFSPupilFactory(PupilFactory):
         for pos, angle in zip(self._spiderStartPos, self._spiderAngles):
             x = pos[0] + camX
             y = pos[1] + camY
-            self._cutRay(pupil, (x, y), angle, subaruStrutThick,'rad')
+            
+            #print('[x,y,angle)'+str([x,y,angle]))
+            if angle==0:
+                self._cutRay(pupil, (x, y), angle, subaruStrutThick,'rad',self.wide_0)
+            if angle==np.pi*2/3:
+                self._cutRay(pupil, (x, y), angle, subaruStrutThick,'rad',self.wide_23)
+            if angle==np.pi*4/3:
+                self._cutRay(pupil, (x, y), angle, subaruStrutThick,'rad',self.wide_43)
+        
         
             
         
@@ -1096,6 +1113,8 @@ class ZernikeFitter_PFS(object):
         self.zmax=zmaxInit
         
         self.simulation_00=simulation_00
+        if self.simulation_00==True:
+            self.simulation_00=1
 
         self.extraZernike=extraZernike
         
@@ -1676,9 +1695,10 @@ class ZernikeFitter_PFS(object):
             print('Time for postprocessing up to single_Psf_position protocol is '+str(time_end_single-time_start_single))        
         #  run the code for centering
         time_start_single=time.time()
+        # set simulation_00='None', the simulated at 00 image has been created above
         optPsf_cut_fiber_convolved_downsampled,psf_position=single_Psf_position.find_single_realization_min_cut(optPsf_cut_grating_convolved,
                                                                                int(round(oversampling)),shape[0],self.image,self.image_var,self.image_mask,
-                                                                               v_flux=v['flux'],simulation_00=self.simulation_00,
+                                                                               v_flux=v['flux'],simulation_00='None',
                                                                                double_sources=self.double_sources,double_sources_positions_ratios=self.double_sources_positions_ratios,
                                                                                verbosity=self.verbosity,explicit_psf_position=self.explicit_psf_position)
 
@@ -1815,7 +1835,7 @@ class ZernikeFitter_PFS(object):
             print(['x_fiber','y_fiber','effective_ilum_radius','frd_sigma','frd_lorentz_factor','det_vert','slitHolder_frac_dx'])
             print(['wide_0','wide_23','wide_43','misalign'])
             print('set of pupil_parameters I. : '+str(self.pupil_parameters[:6]))
-            print('set of pupil_parameters II. : '+str(self.pupil_parameters[6:7+7]))    
+            print('set of pupil_parameters II. : '+str(self.pupil_parameters[6:6+7]))    
             print('set of pupil_parameters III. : '+str(self.pupil_parameters[13:])) 
         time_start_single_2=time.time()
 
@@ -2026,9 +2046,12 @@ class ZernikeFitter_PFS(object):
                 optics_screen_fake_0 = galsim.phase_screens.OpticalScreen(diam=diam_sic,aberrations=aberrations_0,lam_0=self.wavelength)
         else:
             optics_screen = galsim.phase_screens.OpticalScreen(diam=diam_sic,aberrations=aberrations_extended,lam_0=self.wavelength)      
-            
+            if self.save==1:
+                # only create fake with abberations 0 if we are going to save i.e., if we presenting the results
+                optics_screen_fake_0 = galsim.phase_screens.OpticalScreen(diam=diam_sic,aberrations=aberrations_0,lam_0=self.wavelength)            
+       
         screens = galsim.PhaseScreenList(optics_screen)   
-        if self.save==1 and self.extraZernike==None:
+        if self.save==1:
             # only create fake with abberations 0 if we are going to save i.e., if we presenting the results
             screens_fake_0 = galsim.PhaseScreenList(optics_screen_fake_0)  
         
@@ -2061,8 +2084,10 @@ class ZernikeFitter_PFS(object):
         #wf_grid_rot[756+1200:756+1215,756+1200:756+1215]=1.1*(wf_grid_rot[756+1200:756+1215,756+1200:756+1215])
         
         
-        if self.save==1 and self.extraZernike==None:
+        #if self.save==1 and self.extraZernike==None:
+        if self.save==1:
             # only create fake with abberations 0 if we are going to save i.e., if we presenting the results
+            print('creating wf_full_fake_0')
             wf_full_fake_0 = screens_fake_0.wavefront(u_manual, v_manual, None, 0)
         
         
@@ -2139,9 +2164,9 @@ class ZernikeFitter_PFS(object):
                 np.save(TESTING_WAVEFRONT_IMAGES_FOLDER+'wf_grid',wf_grid)  
                 if self.use_wf_grid is None:
                     np.save(TESTING_WAVEFRONT_IMAGES_FOLDER+'wf_full',wf_full) 
-                if self.extraZernike==None:
-                    np.save(TESTING_WAVEFRONT_IMAGES_FOLDER+'wf_full_fake_0',wf_full_fake_0)       
-                
+                #if self.extraZernike==None:
+                #    np.save(TESTING_WAVEFRONT_IMAGES_FOLDER+'wf_full_fake_0',wf_full_fake_0)       
+                np.save(TESTING_WAVEFRONT_IMAGES_FOLDER+'wf_full_fake_0',wf_full_fake_0)  
                 np.save(TESTING_WAVEFRONT_IMAGES_FOLDER+'expwf_grid',expwf_grid)   
 
         if self.verbosity==1:
@@ -2603,6 +2628,14 @@ class LN_PFS_multi_same_spot(object):
         #print(len(self.list_of_sci_images))
         #print(len(list_of_allparameters)) 
         
+        # find image with lowest variance - pressumably the one in focus
+        array_of_var_sum=np.array(list(map(np.sum,self.list_of_var_images)))
+        index_of_max_var_sum=np.where(array_of_var_sum==np.min(array_of_var_sum))[0][0]
+        # find what variance selectes top 20% of pixels
+        # this is done to weight more the images in focus and less the image out of focus in the 
+        # final likelihood result
+        quantile_08_focus=np.quantile(self.list_of_sci_images[index_of_max_var_sum],0.8)
+        
         list_of_var_sums=[]
         for i in range(len(list_of_allparameters)):
             # taking from create_chi_2_almost function in LN_PFS_single
@@ -2610,12 +2643,19 @@ class LN_PFS_multi_same_spot(object):
             
             mask_image=self.list_of_mask_images[i]
             var_image=self.list_of_var_images[i]
+            sci_image=self.list_of_sci_images[i]
             # array that has True for values which are good and False for bad values
             inverted_mask=~mask_image.astype(bool)
             
+            try:
+                mean_value_of_background=np.mean([np.median(sci_image),np.median(sci_image),\
+                      np.median(sci_image),np.median(sci_image)])*3
+            except:
+                pass
+            
             #         
             var_image_masked=var_image*inverted_mask
-            var_image_masked_without_nan = var_image_masked.ravel()[var_image_masked.ravel()>0]
+            var_image_masked_without_nan = var_image_masked.ravel()[var_image_masked.ravel()>quantile_08_focus]
             
             var_sum=-(1/2)*(np.sum(np.log(2*np.pi*var_image_masked_without_nan)))
             
@@ -2747,6 +2787,7 @@ class LN_PFS_multi_same_spot(object):
             # list_of_single_model_image - list of created model images
             # list_of_single_allparameters - list of parameters per image?
             # list_of_single_chi_results - list of arrays describing quality of fitting
+            #           1. chi2_max value, 2. Qvalue, 3. chi2/d.o.f., 4. chi2_max/d.o.f.  
             # array_of_psf_positions_output - list showing the centering of images
             
             return mean_res_of_multi_same_spot,list_of_single_res,list_of_single_model_image,\
@@ -4064,7 +4105,10 @@ class LN_PFS_single(object):
         self.use_pupil_parameters=use_pupil_parameters
         self.use_optPSF=use_optPSF
         self.pupilExplicit=pupilExplicit
-        self.simulation_00=simulation_00      
+        self.simulation_00=simulation_00 
+        if self.simulation_00==True:
+            self.simulation_00=1
+
         self.zmax=zmax
         self.extraZernike=extraZernike
         self.verbosity=verbosity
@@ -4139,11 +4183,28 @@ class LN_PFS_single(object):
         1. normal chi**2
         2. what is 'instrinsic' chi**2, i.e., just sum((scientific image)**2/variance)
         3. 'Q' value = sum(abs(model - scientific image))/sum(scientific image)
+        4. chi**2 reduced
+        5. chi**2 reduced 'intrinsic'
         
-
         """ 
+        
+        try:
+            mean_value_of_background=np.mean([np.median(sci_image),np.median(sci_image),\
+                      np.median(sci_image),np.median(sci_image)])*3
+            flux_mask=sci_image>(mean_value_of_background)
+            inverted_flux_mask=flux_mask.astype(bool)
+        except:
+            inverted_flux_mask=np.ones(sci_image.shape)
+        
+        
+        
+        
         # array that has True for values which are good and False for bad values
         inverted_mask=~mask_image.astype(bool)
+        
+        # v.0
+        # strengthen the mask by taking intou account only bright pixels
+        inverted_mask=inverted_mask*inverted_flux_mask
         
         #         
         var_image_masked=var_image*inverted_mask
@@ -4217,7 +4278,7 @@ class LN_PFS_single(object):
         if self.verbosity==1:
             test_print=1    
             
-  
+        """
             
         #When running big fits these are limits which ensure that the code does not wander off in totally non physical region
         # hsc frac
@@ -4406,6 +4467,7 @@ class LN_PFS_single(object):
                 print('globalparameters[22] outside limits') if test_print == 1 else False 
                 return -np.inf      
 
+        """
 
         x=self.create_x(zparameters,globalparameters)       
         for i in range(len(self.columns)):
@@ -5422,11 +5484,13 @@ class Psf_position(object):
             
             # create one complete realization with default parameters - estimate centorids and use that knowledge to put fitting limits in the next step
             centroid_of_sci_image=find_centroid_of_flux(sci_image)
-            initial_complete_realization=self.create_complete_realization([0,0,-double_sources_positions_ratios[0]*self.oversampling,double_sources_positions_ratios[1]],return_full_result=True)[-1]
+            print('initial double_sources_positions_ratios is: '+str(double_sources_positions_ratios))
+            initial_complete_realization=self.create_complete_realization([0,0,\
+                                                                           -double_sources_positions_ratios[0]*self.oversampling,double_sources_positions_ratios[1]],return_full_result=True)[-1]
             centroid_of_initial_complete_realization=find_centroid_of_flux(initial_complete_realization)
             
             #determine offset between the initial guess and the data
-            offset_initial_and_sci=np.array(find_centroid_of_flux(initial_complete_realization))-np.array(find_centroid_of_flux(sci_image))
+            offset_initial_and_sci=np.array(centroid_of_initial_complete_realization)-np.array(centroid_of_sci_image)
             
             if verbosity==1:
                 print('offset_initial_and_sci: '+str(offset_initial_and_sci))
@@ -5441,6 +5505,7 @@ class Psf_position(object):
             y_2sources_limits_second_source=[(-self.double_sources_positions_ratios[0]-2)*oversampling,(-self.double_sources_positions_ratios[0]+2)*oversampling]
             
             # search for best result
+            # x position, y_position_1st, y_position_2nd, ratio
             primary_secondary_position_and_ratio=scipy.optimize.shgo(self.create_complete_realization,bounds=\
                                                                      [(x_2sources_limits[0],x_2sources_limits[1]),(y_2sources_limits[0],y_2sources_limits[1]),\
                                                                       (y_2sources_limits_second_source[0],y_2sources_limits_second_source[1]),\
@@ -5470,13 +5535,12 @@ class Psf_position(object):
         """
         create one complete realization of the image from the full oversampled image
         
-        @param     x                                                          array contaning x_primary, y_primary (y_secondary, ratio_secondary)
-                                                                              what is x_primary and y_primary?
+        @param     x                                                          array contaning x_primary, y_primary, offset in y to secondary source, ratio in flux from secondary to primary
         @bol       return_full_result                                         if True, returns the images iteself (not just chi**2)
         """
         
         #print('x passed to create_complete_realization is: '+str(x))
-        
+        #print('return_full_result '+str(return_full_result))     
 
         
         image=self.image
@@ -5574,15 +5638,17 @@ class Psf_position(object):
          
         ###################
         # implement - if secondary too far outside the image, do not go through secondary
+        # go through secondary loop if the flux ratio is not zero
         if ratio_secondary !=0:
-            # go through secondary loop if ratio is not zero
+            # if the secondary would be outside
             if secondary_offset_axis_0_floor<0 or (secondary_offset_axis_0_ceiling+oversampling*shape_of_sci_image)>len(image)\
             or secondary_offset_axis_1_floor<0 or (secondary_offset_axis_1_ceiling+oversampling*shape_of_sci_image)>len(image):
+                #print('checkpoint here')
                 pos_floor_floor = np.array([secondary_offset_axis_0_floor, secondary_offset_axis_1_floor])
                 pos_floor_ceiling = np.array([secondary_offset_axis_0_floor, secondary_offset_axis_1_ceiling])
                 pos_ceiling_floor = np.array([secondary_offset_axis_0_ceiling, secondary_offset_axis_1_floor])
                 pos_ceiling_ceiling = np.array([secondary_offset_axis_0_ceiling, secondary_offset_axis_1_ceiling])    
-                
+                #print('pos_floor_floor: '+str(pos_floor_floor))     
                 input_img_single_realization_before_downsampling_secondary_floor_floor = np.full([oversampling*shape_of_sci_image, oversampling*shape_of_sci_image], 0,dtype=np.float32)
                 input_img_single_realization_before_downsampling_secondary_floor_ceiling = np.full([oversampling*shape_of_sci_image, oversampling*shape_of_sci_image], 0,dtype=np.float32)
                 input_img_single_realization_before_downsampling_secondary_ceiling_floor = np.full([oversampling*shape_of_sci_image, oversampling*shape_of_sci_image], 0,dtype=np.float32)
@@ -5594,6 +5660,8 @@ class Psf_position(object):
                 self.fill_crop(image, pos_ceiling_ceiling, input_img_single_realization_before_downsampling_secondary_ceiling_ceiling)
                 
             else:
+                
+                
                 input_img_single_realization_before_downsampling_secondary_floor_floor=image[secondary_offset_axis_0_floor:secondary_offset_axis_0_floor+oversampling*shape_of_sci_image,\
                                                                            secondary_offset_axis_1_floor:secondary_offset_axis_1_floor+oversampling*shape_of_sci_image]
                 input_img_single_realization_before_downsampling_secondary_floor_ceiling=image[secondary_offset_axis_0_floor:secondary_offset_axis_0_floor+oversampling*shape_of_sci_image,\
@@ -5612,7 +5680,7 @@ class Psf_position(object):
     
         inverted_mask=~mask_image.astype(bool)
     
-    
+        #print('ratio_secondary: '+str(ratio_secondary))
         if ratio_secondary !=0:
             complete_realization=single_primary_realization+ratio_secondary*single_secondary_realization
             complete_realization_renormalized=complete_realization*(np.sum(sci_image[inverted_mask])*v_flux/np.sum(complete_realization[inverted_mask]))
@@ -5620,7 +5688,7 @@ class Psf_position(object):
             complete_realization=single_primary_realization
             complete_realization_renormalized=complete_realization*(np.sum(sci_image[inverted_mask])*v_flux/np.sum(complete_realization[inverted_mask]))
             
-            
+        #print('return_full_result: '+str(return_full_result))
         if return_full_result==False:
             chi_2_almost_multi_values=self.create_chi_2_almost_Psf_position(complete_realization_renormalized,sci_image,var_image,mask_image)
             if self.verbosity==1:
@@ -5629,9 +5697,11 @@ class Psf_position(object):
             return chi_2_almost_multi_values
         else:
             if ratio_secondary !=0:
+                #print('ratio_secondary 2nd loop: '+str(ratio_secondary))
                 single_primary_realization_renormalized=single_primary_realization*(np.sum(sci_image[inverted_mask])*v_flux/np.sum(complete_realization[inverted_mask]))
                 single_secondary_realization_renormalized=ratio_secondary*single_secondary_realization*(np.sum(sci_image[inverted_mask])*v_flux/np.sum(complete_realization[inverted_mask]))    
             else:
+                #print('ratio_secondary 2nd loop 0: '+str(ratio_secondary))
                 single_primary_realization_renormalized=single_primary_realization*(np.sum(sci_image[inverted_mask])*v_flux/np.sum(complete_realization[inverted_mask]))
                 single_secondary_realization_renormalized=np.zeros(single_primary_realization_renormalized.shape)                  
             
@@ -5646,6 +5716,12 @@ class Psf_position(object):
     
                 np.save(TESTING_FINAL_IMAGES_FOLDER+'input_img_single_realization_before_downsampling_primary',input_img_single_realization_before_downsampling_primary) 
                 if ratio_secondary !=0:
+                    np.save(TESTING_FINAL_IMAGES_FOLDER+'image_full_for_secondary',image) 
+         
+                    np.save(TESTING_FINAL_IMAGES_FOLDER+'input_img_single_realization_before_downsampling_secondary_floor_floor',input_img_single_realization_before_downsampling_secondary_floor_floor) 
+                    
+
+                    np.save(TESTING_FINAL_IMAGES_FOLDER+'input_img_single_realization_before_downsampling_secondary',input_img_single_realization_before_downsampling_secondary) 
                     np.save(TESTING_FINAL_IMAGES_FOLDER+'single_secondary_realization',single_secondary_realization) 
                 np.save(TESTING_FINAL_IMAGES_FOLDER+'single_primary_realization',single_primary_realization) 
                 np.save(TESTING_FINAL_IMAGES_FOLDER+'single_primary_realization_renormalized_within_create_complete_realization',single_primary_realization_renormalized) 
@@ -5690,7 +5766,7 @@ class Psf_position(object):
       while accounting for the crop being off the edge of `img`.
       *Note:* negative values in `pos` are interpreted as-is, not as "from the end".
       '''
-      img_shape, pos, crop_shape = np.array(img.shape,dtype=np.float32), np.array(pos,dtype=np.float32), np.array(crop.shape,dtype=np.float32),
+      img_shape, pos, crop_shape = np.array(img.shape,dtype=int), np.array(pos,dtype=int), np.array(crop.shape,dtype=int)
       end = pos+crop_shape
       # Calculate crop slice positions
       crop_low = np.clip(0 - pos, a_min=0, a_max=crop_shape)
@@ -5703,6 +5779,7 @@ class Psf_position(object):
       try:
           crop[tuple(crop_slices)] = img[tuple(img_slices)]    
       except TypeError:
+          print('TypeError in fill_crop function')
           #np.save('/home/ncaplar/img',img)
           #np.save('/home/ncaplar/pos',pos)          
           #np.save('/home/ncaplar/crop',crop)
@@ -6121,6 +6198,7 @@ def create_parInit(allparameters_proposal,multi=None,pupil_parameters=None,allpa
     
     try:
         #print(globalparameters_flatten)
+        #print(globalparameters_flatten_err)
         # hscFrac always positive
         globalparameters_flat_0=np.abs(np.random.normal(globalparameters_flatten[0],globalparameters_flatten_err[0],nwalkers*20))
         globalparameters_flat_0=np.concatenate(([globalparameters_flatten[0]],
@@ -6162,7 +6240,7 @@ def create_parInit(allparameters_proposal,multi=None,pupil_parameters=None,allpa
         # mislaign
         globalparameters_flat_9=np.abs(np.random.normal(globalparameters_flatten[9],globalparameters_flatten_err[9],nwalkers*20))
         globalparameters_flat_9=np.concatenate(([globalparameters_flatten[9]],
-                                                globalparameters_flat_9[np.all((globalparameters_flat_9>=0,globalparameters_flat_9<1),axis=0)][0:nwalkers-1]))
+                                                globalparameters_flat_9[np.all((globalparameters_flat_9>=0,globalparameters_flat_9<10),axis=0)][0:nwalkers-1]))
         # x_fiber
         globalparameters_flat_10=np.random.normal(globalparameters_flatten[10],globalparameters_flatten_err[10],nwalkers*20)
         globalparameters_flat_10=np.concatenate(([globalparameters_flatten[10]],
