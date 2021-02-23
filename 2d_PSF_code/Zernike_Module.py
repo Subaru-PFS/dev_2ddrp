@@ -80,6 +80,9 @@ Jan 17, 2021: 0.37a -> 0.37b accept True as input for simulation00
 Jan 25, 2021: 0.37b -> 0.37c fixed fillCrop function in PsfPosition, slice limits need to be integers
 Jan 26, 2021: 0.37c -> 0.38 PIPE2D-701, fixed width of struts implementation
 Jan 28, 2021: 0.38 -> 0.39 added flux mask in chi**2 calculation
+Jan 28, 2020: 0.39 -> 0.39b lowered allowed values for pixel_effect and fiber_r
+Feb 08, 2020: 0.39b -> 0.4 fixed bilinear interpolation for secondary, x and y confusion
+
  
 @author: Neven Caplar
 @contact: ncaplar@princeton.edu
@@ -156,7 +159,7 @@ __all__ = ['PupilFactory', 'Pupil','ZernikeFitter_PFS','LN_PFS_multi_same_spot',
            'sky_scale','sky_size','remove_pupil_parameters_from_all_parameters',\
            'resize','_interval_overlap','svd_invert','Tokovinin_multi']
 
-__version__ = "0.39"
+__version__ = "0.4"
 
 
 
@@ -835,7 +838,7 @@ class PFSPupilFactory(PupilFactory):
         #self._cutCircleExterior(pupil, (lensX, lensY), lensRadius)
      
         # Cut out spider shadow     
-        print('self.wide_0,self.wide_23,self.wide_43 '+str([self.wide_0,self.wide_23,self.wide_43]))
+        #print('self.wide_0,self.wide_23,self.wide_43 '+str([self.wide_0,self.wide_23,self.wide_43]))
         
         #for pos, angle in zip(self._spiderStartPos, self._spiderAngles):
         #    x = pos[0] + camX
@@ -4278,7 +4281,7 @@ class LN_PFS_single(object):
         if self.verbosity==1:
             test_print=1    
             
-        """
+        
             
         #When running big fits these are limits which ensure that the code does not wander off in totally non physical region
         # hsc frac
@@ -4441,7 +4444,7 @@ class LN_PFS_single(object):
             return -np.inf             
         
         # pixel_effect
-        if globalparameters[20]<0.35:
+        if globalparameters[20]<0.15:
             print('globalparameters[20] outside limits') if test_print == 1 else False 
             return -np.inf
         if globalparameters[20]>+0.8:
@@ -4449,7 +4452,7 @@ class LN_PFS_single(object):
             return -np.inf  
         
         # fiber_r
-        if globalparameters[21]<1.78:
+        if globalparameters[21]<1.74:
             print('globalparameters[21] outside limits') if test_print == 1 else False 
             return -np.inf
         if globalparameters[21]>+1.98:
@@ -4467,7 +4470,7 @@ class LN_PFS_single(object):
                 print('globalparameters[22] outside limits') if test_print == 1 else False 
                 return -np.inf      
 
-        """
+        
 
         x=self.create_x(zparameters,globalparameters)       
         for i in range(len(self.columns)):
@@ -5455,7 +5458,7 @@ class Psf_position(object):
                             print('type(complete_realization_renormalized)'+str(type(complete_realization_renormalized[0][0])))
                                 
                     return complete_realization_renormalized,primary_position_and_ratio_x
-                
+                # if you did pass explicit_psf_position for the solution
                 else:
                     mean_res,single_realization_primary_renormalized,single_realization_secondary_renormalized,complete_realization_renormalized \
                     =self.create_complete_realization(explicit_psf_position, return_full_result=True)
@@ -5629,6 +5632,7 @@ class Psf_position(object):
         
         
         # construct bilinear interpolation from these 4 images
+
         input_img_single_realization_before_downsampling_primary=self.bilinear_interpolation(primary_offset_axis_0_mod_from_floor,primary_offset_axis_1_mod_from_floor,\
                                                                                         input_img_single_realization_before_downsampling_primary_floor_floor,input_img_single_realization_before_downsampling_primary_floor_ceiling,\
                                                                                         input_img_single_realization_before_downsampling_primary_ceiling_floor,input_img_single_realization_before_downsampling_primary_ceiling_ceiling)
@@ -5671,8 +5675,10 @@ class Psf_position(object):
                 input_img_single_realization_before_downsampling_secondary_ceiling_ceiling=image[secondary_offset_axis_0_ceiling:secondary_offset_axis_0_ceiling+oversampling*shape_of_sci_image,\
                                                                            secondary_offset_axis_1_ceiling:secondary_offset_axis_1_ceiling+oversampling*shape_of_sci_image]
         
-        
-            input_img_single_realization_before_downsampling_secondary=self.bilinear_interpolation(secondary_offset_axis_1_mod_from_floor,secondary_offset_axis_0_mod_from_floor,\
+            # first two argument input is y,x offset
+            # so first axis_1 then axis 0
+            # change here from 0.39b to 0.4        
+            input_img_single_realization_before_downsampling_secondary=self.bilinear_interpolation(secondary_offset_axis_0_mod_from_floor,secondary_offset_axis_1_mod_from_floor,\
                                                                                         input_img_single_realization_before_downsampling_secondary_floor_floor,input_img_single_realization_before_downsampling_secondary_floor_ceiling,\
                                                                                         input_img_single_realization_before_downsampling_secondary_ceiling_floor,input_img_single_realization_before_downsampling_secondary_ceiling_ceiling)
                     
@@ -5692,7 +5698,7 @@ class Psf_position(object):
         if return_full_result==False:
             chi_2_almost_multi_values=self.create_chi_2_almost_Psf_position(complete_realization_renormalized,sci_image,var_image,mask_image)
             if self.verbosity==1:
-                print('chi2 within shgo optimization routine (chi_2_almost_multi_values): '+str(chi_2_almost_multi_values))
+                print('chi2 within shgo optimization routine (chi_2_almost_multi_values): '+str(x)+' / '+str(chi_2_almost_multi_values))
                 #print('chi2 within shgo optimization routine (not chi_2_almost_multi_values): '+str(np.mean((sci_image-complete_realization_renormalized)**2/var_image)))
             return chi_2_almost_multi_values
         else:
@@ -5789,6 +5795,16 @@ class Psf_position(object):
         
         '''
         creates bilinear interpolation given y and x subpixel coordinate and 4 images
+        
+        input
+        
+        y - y offset from floor_floor image
+        x - x offset from floor_floor image
+        
+        img_floor_floor - 
+        img_floor_ceiling - image offset from img_floor_floor by 1 pixel in x direction
+        img_ceiling_floor - image offset from img_floor_floor by 1 pixel in y direction
+        img_ceiling_ceiling - image offset from img_floor_floor by 1 pixel in both x and y direction
         
         '''
         
@@ -6293,15 +6309,15 @@ def create_parInit(allparameters_proposal,multi=None,pupil_parameters=None,allpa
         # pixel_effect
         globalparameters_flat_20=np.random.normal(globalparameters_flatten[20],globalparameters_flatten_err[20],nwalkers*20)
         globalparameters_flat_20=np.concatenate(([globalparameters_flatten[20]],
-                                                 globalparameters_flat_20[np.all((globalparameters_flat_20>0.35,globalparameters_flat_20<0.8),axis=0)][0:nwalkers-1]))
+                                                 globalparameters_flat_20[np.all((globalparameters_flat_20>0.15,globalparameters_flat_20<0.8),axis=0)][0:nwalkers-1]))
         
         # fiber_r
-        if globalparameters_flatten[21]<1.78:
+        if globalparameters_flatten[21]<1.74:
             globalparameters_flatten[21]=1.8
         
         globalparameters_flat_21=np.random.normal(globalparameters_flatten[21],globalparameters_flatten_err[21],nwalkers*20)
         globalparameters_flat_21=np.concatenate(([globalparameters_flatten[21]],
-                                                 globalparameters_flat_21[np.all((globalparameters_flat_21>1.78,globalparameters_flat_21<1.98),axis=0)][0:nwalkers-1]))
+                                                 globalparameters_flat_21[np.all((globalparameters_flat_21>1.74,globalparameters_flat_21<1.98),axis=0)][0:nwalkers-1]))
         
         if len(globalparameters_flatten)==23:
             # flux
@@ -6768,17 +6784,17 @@ def check_global_parameters(globalparameters,test_print=None,fit_for_flux=None):
         globalparameters_output[19]=0.4          
 
     # pixel_effect
-    if globalparameters[20]<0.35:
+    if globalparameters[20]<0.15:
         print('globalparameters[20] outside limits') if test_print == 1 else False 
-        globalparameters_output[20]=0.35
+        globalparameters_output[20]=0.15
     if globalparameters[20]>+0.8:
         print('globalparameters[20] outside limits') if test_print == 1 else False 
         globalparameters_output[20]=0.8
 
     # fiber_r
-    if globalparameters[21]<1.78:
+    if globalparameters[21]<1.74:
         print('globalparameters[21] outside limits') if test_print == 1 else False 
-        globalparameters_output[21]=1.78
+        globalparameters_output[21]=1.74
     if globalparameters[21]>+1.98:
         print('globalparameters[21] outside limits') if test_print == 1 else False 
         globalparameters_output[21] =1.98
