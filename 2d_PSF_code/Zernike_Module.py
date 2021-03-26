@@ -80,10 +80,16 @@ Jan 17, 2021: 0.37a -> 0.37b accept True as input for simulation00
 Jan 25, 2021: 0.37b -> 0.37c fixed fillCrop function in PsfPosition, slice limits need to be integers
 Jan 26, 2021: 0.37c -> 0.38 PIPE2D-701, fixed width of struts implementation
 Jan 28, 2021: 0.38 -> 0.39 added flux mask in chi**2 calculation
-Jan 28, 2020: 0.39 -> 0.39b lowered allowed values for pixel_effect and fiber_r
-Feb 08, 2020: 0.39b -> 0.4 fixed bilinear interpolation for secondary, x and y confusion
+Jan 28, 2021: 0.39 -> 0.39b lowered allowed values for pixel_effect and fiber_r
+Feb 08, 2021: 0.39b -> 0.4 fixed bilinear interpolation for secondary, x and y confusion
+Feb 25, 2021: 0.4 -> 0.40a added directory for work on Tiger
+Mar 05, 2021: 0.40a -> 0.41 introduced create_custom_var function 
+Mar 08, 2021: 0.41 -> 0.41a added suport for saving intermediate images to tiger 
+Mar 24, 2021: 0.41a -> 0.41b added support for masked images in find_centroid_of_flux 
+Mar 26, 2021: 0.41b -> 0.41c added create_custom_var function as a separate function
+Mar 26, 2021: 0.41c -> 0.41d semi-implemented custom variance function in Tokovinin algorithm
+Mar 26, 2021: 0.41d -> 0.41e model_multi_out has correct input parameters now
 
- 
 @author: Neven Caplar
 @contact: ncaplar@princeton.edu
 @web: www.ncaplar.com
@@ -157,16 +163,22 @@ __all__ = ['PupilFactory', 'Pupil','ZernikeFitter_PFS','LN_PFS_multi_same_spot',
            'find_centroid_of_flux','create_parInit',\
            'Zernike_Analysis','PFSPupilFactory','custom_fftconvolve','stepK','maxK',\
            'sky_scale','sky_size','remove_pupil_parameters_from_all_parameters',\
-           'resize','_interval_overlap','svd_invert','Tokovinin_multi']
+           'resize','_interval_overlap','svd_invert','Tokovinin_multi','find_centroid_of_flux','create_custom_var']
 
-__version__ = "0.4"
+__version__ = "0.41e"
 
 
 
 
 ############################################################
+
 # name your directory where you want to have files!
-PSF_DIRECTORY='/Users/nevencaplar/Documents/PFS/'
+if socket.gethostname()=='IapetusUSA':
+    PSF_DIRECTORY='/Users/nevencaplar/Documents/PFS/'
+else:
+    PSF_DIRECTORY='/tigress/ncaplar/PFS/'
+
+#PSF_DIRECTORY='/Users/nevencaplar/Documents/PFS/'
 ############################################################   
 
 TESTING_FOLDER=PSF_DIRECTORY+'Testing/'
@@ -1456,7 +1468,7 @@ class ZernikeFitter_PFS(object):
         optPsf_cut_fiber_convolved_downsampled,psf_position=self._optPsf_postprocessing(optPsf,return_intermediate_images=return_intermediate_images)
 
         if self.save==1:
-            if socket.gethostname()=='IapetusUSA':
+            if socket.gethostname()=='IapetusUSA' or socket.gethostname()=='tiger2-sumire.princeton.edu':
                 np.save(TESTING_FINAL_IMAGES_FOLDER+'optPsf',optPsf)
                 np.save(TESTING_FINAL_IMAGES_FOLDER+'optPsf_cut_fiber_convolved_downsampled',optPsf_cut_fiber_convolved_downsampled) 
             else:                 
@@ -1716,7 +1728,7 @@ class ZernikeFitter_PFS(object):
             print('Sucesfully created optPsf_cut_fiber_convolved_downsampled') 
         
         if self.save==1:
-            if socket.gethostname()=='IapetusUSA':
+            if socket.gethostname()=='IapetusUSA' or socket.gethostname()=='tiger2-sumire.princeton.edu':
                 np.save(TESTING_FINAL_IMAGES_FOLDER+'pixel_gauss_padded',pixel_gauss_padded)                
                 
                 
@@ -1787,7 +1799,7 @@ class ZernikeFitter_PFS(object):
         pupil=Pupil_Image.getPupil(point)
 
         if self.save==1:
-            if socket.gethostname()=='IapetusUSA':
+            if socket.gethostname()=='IapetusUSA' or socket.gethostname()=='tiger2-sumire.princeton.edu':
                 np.save(TESTING_PUPIL_IMAGES_FOLDER+'pupil.illuminated',pupil.illuminated.astype(np.float32))
         
         if self.verbosity==1:
@@ -2090,7 +2102,8 @@ class ZernikeFitter_PFS(object):
         #if self.save==1 and self.extraZernike==None:
         if self.save==1:
             # only create fake with abberations 0 if we are going to save i.e., if we presenting the results
-            print('creating wf_full_fake_0')
+            if self.verbosity==1:
+                print('creating wf_full_fake_0')
             wf_full_fake_0 = screens_fake_0.wavefront(u_manual, v_manual, None, 0)
         
         
@@ -2150,7 +2163,7 @@ class ZernikeFitter_PFS(object):
         self.scale_ModelImage_PFS_naturalResolution=scale_ModelImage_PFS_naturalResolution
  
         if self.save==1:
-            if socket.gethostname()=='IapetusUSA':
+            if socket.gethostname()=='IapetusUSA' or socket.gethostname()=='tiger2-sumire.princeton.edu':
                 np.save(TESTING_PUPIL_IMAGES_FOLDER+'aperilluminated',aper.illuminated)  
                 # dont save as we do not generate this array in vast majority of cases (status on July 1, 2020)
                 #np.save(TESTING_PUPIL_IMAGES_FOLDER+'radiometricEffectArray',radiometricEffectArray)     
@@ -2806,12 +2819,13 @@ class Tokovinin_multi(object):
     """
     
     final_model_result,list_of_final_model_result,list_of_image_final,\
-                allparameters_parametrization_proposal_after_iteration,list_of_finalinput_parameters,list_of_after_chi2,list_of_final_psf_positions
+    allparameters_parametrization_proposal_after_iteration,\
+    list_of_finalinput_parameters,list_of_after_chi2,list_of_final_psf_positions
     
     returns:
         
     0. likelihood averaged over all images
-    1. likelihood per image
+    1. likelihood per image (output from model_multi)
     2. list of final model images
     3. parametrization after the function
     4. list of parameters per image 
@@ -2838,7 +2852,7 @@ class Tokovinin_multi(object):
         @param list_of_mask_images                     list of mask images, 2d arrays, which are the same size as sci_image
         @param dithering                               dithering, 1=normal, 2=two times higher resolution, 3=not supported
         @param save                                    save intermediate result in the process (set value at 1 for saving)
-        @param verbosity                               verbosity of the process (set value at 1 for full output)
+        @param verbosity                               verbosity of the process (set value at 1 for full output, 0==nothing)
         
         @param pupil_parameters
         @param use_pupil_parameters
@@ -2862,7 +2876,7 @@ class Tokovinin_multi(object):
                                                        
         @param explicit_psf_position                   gives position of the opt_psf
         @param num_iter                                number of iteration
-        @param move_allparameters                      change all parameters, also global
+        @param move_allparameters                      if True change all parameters i.e., also ``global'' parameters, i.e., not just wavefront parameters
         @param pool                                    pass pool of workers to calculate
         
         array of changes due to movement due to wavefront changes
@@ -2912,6 +2926,9 @@ class Tokovinin_multi(object):
         self.list_of_mask_images=list_of_mask_images
         
         
+        # implement custom variance image here
+        
+        
         #self.mask_image=mask_image
         #self.sci_image=sci_image
         #self.var_image=var_image
@@ -2952,6 +2969,11 @@ class Tokovinin_multi(object):
     def Tokovinin_algorithm_chi_multi(self,allparameters_parametrization_proposal,return_Images=False,num_iter=None,previous_best_result=None):
         
         
+        """
+        
+        
+        """
+        
 
         
         list_of_sci_images=self.list_of_sci_images
@@ -2981,11 +3003,14 @@ class Tokovinin_multi(object):
         
         #########################################################################################################
         # Create initial modeling as basis for future effort
+        # the outputs of this section are 0. pre_model_result, 1. model_results, 2. pre_images,
+        # 3. pre_input_parameters, 4. chi_2_before_iteration_array, 5. list_of_psf_positions
         if self.verbosity>=1:
             print('list_of_defocuses analyzed: '+str(list_of_defocuses_input_long))
         model_multi=LN_PFS_multi_same_spot(list_of_sci_images,list_of_var_images,list_of_mask_images=list_of_mask_images,\
                                            dithering=self.dithering,save=self.save,zmax=self.zmax,verbosity=self.verbosity_model,\
-                                           double_sources=self.double_sources, double_sources_positions_ratios=self.double_sources_positions_ratios,npix=self.npix,\
+                                           double_sources=self.double_sources, double_sources_positions_ratios=self.double_sources_positions_ratios,\
+                                           npix=self.npix,\
                                            list_of_defocuses=list_of_defocuses_input_long,\
                                            fit_for_flux=self.fit_for_flux,test_run=self.test_run,\
                                            list_of_psf_positions=self.list_of_psf_positions)   
@@ -2996,34 +3021,46 @@ class Tokovinin_multi(object):
             print('Initial testing proposal is: '+str(allparameters_parametrization_proposal))
         time_start_single=time.time()
         
-        # this uncommented line below will not work
-        # proper outputs
-        #    initial_model_result,list_of_initial_model_result,list_of_image_0,\
-        #                list_of_initial_input_parameters,list_of_pre_chi2=res_multi 
         
-        # create list of minchains, one per each image
-        
+        # create list of minchains, one per each image        
         list_of_minchain=model_multi.create_list_of_allparameters(allparameters_parametrization_proposal,\
                                                                   list_of_defocuses=list_of_defocuses_input_long,zmax=self.zmax)
-            
+        
+        # if the parametrization is 2d array, move it into 1d shape    
         if len(allparameters_parametrization_proposal.shape)==2:
             allparameters_parametrization_proposal=move_parametrizations_from_2d_shape_to_1d_shape(allparameters_parametrization_proposal)
             
-        # pre_model_result - mean likelihood per images
-        # model_results - likelihood per image
-        # pre_images - list of created model images
-        # pre_input_parameters - list of parameters per image?
-        # chi_2_before_iteration_array - list of lists describing quality of fitting    
+ 
 
         if self.verbosity>=1:
             print('Starting premodel analysis ') 
             
+        # pre_model_result - mean likelihood across all images
+        # model_results - likelihood per image
+        # pre_images - list of created model images
+        # pre_input_parameters - list of parameters per image?
+        # chi_2_before_iteration_array - list of lists describing quality of fitting      
+        # list_of_psf_positions -?        
         try:    
             pre_model_result,model_results,pre_images,pre_input_parameters,chi_2_before_iteration_array,list_of_psf_positions=\
                 model_multi(list_of_minchain,return_Images=True)
+            # modify variance image according to the models that have just been created
+            ### first time modifying variance image
+            list_of_single_model_image=pre_images
+            list_of_var_images_via_model=[]
+            for index_of_single_image in range(len(list_of_sci_images)):
+                single_var_image_via_model=create_custom_var(modelImg=list_of_single_model_image[index_of_single_image],sci_image=list_of_sci_images[index_of_single_image],
+                                                var_image=list_of_var_images[index_of_single_image],mask_image=list_of_mask_images[index_of_single_image])
+                
+                list_of_var_images_via_model.append(single_var_image_via_model)
+            # replace the variance images provided with these custom variance images
+            list_of_var_images=list_of_var_images_via_model
+            self.list_of_var_images=list_of_var_images
+                
         except:
             if self.verbosity>=1:
                 print('premodel analysis failed')
+            # if the modelling failed
             # returning 7 nan values to be consistent with what would be the return if the algorithm passed    
             # at position 0 return extremly likelihood to indicate failure
             # at position 3 return the input parametrization
@@ -3032,12 +3069,10 @@ class Tokovinin_multi(object):
                 
             
         if self.verbosity>=1:
-
             print('list_of_psf_positions at the input stage: '+str(np.array(list_of_psf_positions)))
             
 
         if num_iter!=None:
-
             np.save('/tigress/ncaplar/Results/allparameters_parametrization_proposal_'+str(num_iter),\
                     allparameters_parametrization_proposal)   
             np.save('/tigress/ncaplar/Results/pre_images_'+str(num_iter),\
@@ -3056,7 +3091,10 @@ class Tokovinin_multi(object):
         
     
         # this needs to change - do I ever use this?!?
-        chi_2_before_iteration=chi_2_before_iteration_array[2]
+        # commenting out on March 26, 2021
+        #chi_2_before_iteration=chi_2_before_iteration_array[2]
+        
+        
         # extract the parameters which will not change in this function, i.e., not-wavefront parameters
         nonwavefront_par=list_of_minchain[0][19:42]
         time_end_single=time.time()
@@ -3079,6 +3117,7 @@ class Tokovinin_multi(object):
                                               np.median(sci_image[:,0]),np.median(sci_image[:,-1])])*5
                 
             if move_allparameters==True:
+                # why did I do this?
                 mean_value_of_background=np.mean([np.median(sci_image[0]),np.median(sci_image[-1]),\
                                       np.median(sci_image[:,0]),np.median(sci_image[:,-1])])*3
                 
@@ -3092,7 +3131,7 @@ class Tokovinin_multi(object):
             sci_image_std=sci_image/np.sqrt(var_image)
             list_of_sci_image_std.append(sci_image_std)
             list_of_flux_mask.append(flux_mask)
-        # perhaps also 
+
         
         ######################################################################################################### 
         # masked science image
@@ -3122,12 +3161,7 @@ class Tokovinin_multi(object):
         
         uber_I=np.array(uber_I)
         uber_std=np.array(uber_std)
-        #uber_I_std=np.array(uber_I_std) 
-        
-        # removing normalization in 0.36
-        #uber_I=uber_I/np.sum(uber_I)
-        #uber_I_std=uber_I_std/np.sum(uber_I_std)    
-        
+
         if num_iter!=None:
             np.save('/tigress/ncaplar/Results/list_of_sci_images_'+str(num_iter),\
                     list_of_sci_images)   
@@ -3316,7 +3350,19 @@ class Tokovinin_multi(object):
                 #mean_res_of_multi_same_spot_proposal,list_of_single_res_proposal,list_of_single_model_image_proposal,\
                 #            list_of_single_allparameters_proposal,list_of_single_chi_results_proposal=res_multi  
                 initial_model_result,list_of_initial_model_result,list_of_image_0,\
-                            list_of_initial_input_parameters,list_of_pre_chi2,list_of_psf_positions=res_multi      
+                            list_of_initial_input_parameters,list_of_pre_chi2,list_of_psf_positions=res_multi   
+                # modify variance image according to the models that have just been created
+                ### second time modifying variance image
+                list_of_single_model_image=list_of_image_0
+                list_of_var_images_via_model=[]
+                for index_of_single_image in range(len(list_of_sci_images)):
+                    single_var_image_via_model=create_custom_var(modelImg=list_of_single_model_image[index_of_single_image],sci_image=list_of_sci_images[index_of_single_image],
+                                                    var_image=list_of_var_images[index_of_single_image],mask_image=list_of_mask_images[index_of_single_image])
+                    
+                    list_of_var_images_via_model.append(single_var_image_via_model)
+                # replace the variance images provided with these custom variance images
+                list_of_var_images=list_of_var_images_via_model
+                self.list_of_var_images=list_of_var_images
             
             #initial_model_result,image_0,initial_input_parameters,pre_chi2=model(initial_input_parameters,return_Image=True,return_intermediate_images=False)
             if num_iter!=None:
@@ -3340,6 +3386,9 @@ class Tokovinin_multi(object):
                 STD=np.sqrt(list_of_var_images[i])    
                 image_0=list_of_image_0[i]
                 list_of_image_0_std.append(image_0/STD)
+
+            ######################################################################################################### 
+            # updated science images divided by std (given that we created new custom variance images, via model)
             
         
             ######################################################################################################### 
@@ -3467,7 +3516,7 @@ class Tokovinin_multi(object):
                     list_of_input_parameterizations.append(parametrization_proposal)    
             
             ######################################################################################################### 
-            # Starting testing new set
+            # Starting testing new set of parameters
             # Creating new images
             
             out_ln=[]
@@ -3484,12 +3533,13 @@ class Tokovinin_multi(object):
             # list of (56-3)*2 sublists, each one with (56-3)*2 + 23 values
             time_start=time.time()
         
-        
-            #list_of_minchain=model_multi.create_list_of_allparameters(allparameters_parametrization_proposal,list_of_defocuses=list_of_defocuses_input_long,zmax=56)
-         
+            # This assume that Zernike parameters go up to 56
             # I need to pass each of 106 parametrization to model_multi BUT
-            # model_multi actually takes list of parameters, not a parametrizations
+            # model_multi actually takes list of parameters, not parametrizations
             # I need list that has 106 sublists, each one of those being 9x(53+23)
+            # 9 == number of images
+            # 53 == number of Zernike parameters (56-3)
+            # 23 == number of global parameters
             uber_list_of_input_parameters=[]
             for i in range(len(list_of_input_parameterizations)):
     
@@ -3502,13 +3552,16 @@ class Tokovinin_multi(object):
                 np.save('/tigress/ncaplar/Results/uber_list_of_input_parameters_'+str(num_iter)+'_'+str(iteration_number),\
                         uber_list_of_input_parameters)    
                     
-            #print('self.npix'+str(self.npix))
-            # pass new model_multi that has fixed pos (October 6)   
+
+            # pass new model_multi that has fixed pos (October 6, 2020)   
+            # should have same paramter as staring model_multi, apart from list_of_psf_positions (maybe variance?, but prob not)
             model_multi_out=LN_PFS_multi_same_spot(list_of_sci_images,list_of_var_images,list_of_mask_images=list_of_mask_images,\
-                                 dithering=1,save=0,zmax=self.zmax,verbosity=self.verbosity_model,double_sources=False,\
+                                 dithering=self.dithering,save=self.save,zmax=self.zmax,verbosity=self.verbosity_model,double_sources=self.double_sources,\
                                  double_sources_positions_ratios=double_sources_positions_ratios,npix=self.npix,
                                  fit_for_flux=self.fit_for_flux,test_run=self.test_run,list_of_psf_positions=list_of_psf_positions)   
-            
+
+                
+                
                 
             if move_allparameters==True:    
                 self.array_of_delta_all_parametrizations=array_of_delta_all_parametrizations  
@@ -3632,6 +3685,9 @@ class Tokovinin_multi(object):
                     for i in range(len(optpsf_list)):   
                         # seems that I am a bit more verbose here with my definitions
                         optpsf_list_i=optpsf_list[i]
+                        
+                        
+                        # do I want to generate new STD images, from each image?
                         STD=list_of_sci_image_std[i]
                         optpsf_list_i_STD=optpsf_list_i/STD    
                         flux_mask=list_of_flux_mask[i]
@@ -3826,6 +3882,20 @@ class Tokovinin_multi(object):
             
             final_model_result,list_of_final_model_result,list_of_image_final,\
                         list_of_finalinput_parameters,list_of_after_chi2,list_of_final_psf_positions=res_multi
+            ### third (last?) time modifying variance image
+            list_of_single_model_image=list_of_image_final
+            list_of_var_images_via_model=[]
+            for index_of_single_image in range(len(list_of_sci_images)):
+                single_var_image_via_model=create_custom_var(modelImg=list_of_single_model_image[index_of_single_image],sci_image=list_of_sci_images[index_of_single_image],
+                                                var_image=list_of_var_images[index_of_single_image],mask_image=list_of_mask_images[index_of_single_image])
+                
+                list_of_var_images_via_model.append(single_var_image_via_model)
+            # replace the variance images provided with these custom variance images
+            list_of_var_images=list_of_var_images_via_model
+            self.list_of_var_images=list_of_var_images
+            
+                        
+                        
     
             time_end_final=time.time()
             if self.verbosity>=1:
@@ -3859,7 +3929,7 @@ class Tokovinin_multi(object):
             
         
             ######################################################################################################### 
-            #  masked model images after this iteration
+            #  masked model images after this iteration (mask by flux criteria)
             
             
             list_of_M_final=[]
@@ -3894,7 +3964,9 @@ class Tokovinin_multi(object):
     
             
             ####
-            # Seeing if there is improvment
+            # Seeing if there is an improvment
+            # Quality measure is the sum of absolute differences of uber_I_std (all images/std) and uber_M_final_std (all models / std)
+            # how closely is that correlated with improvments in final_model_result?
             
             # non-std version
             # not used, that is ok, we are at the moment using std version
@@ -3915,13 +3987,12 @@ class Tokovinin_multi(object):
                 print('IM_final/IM_start '+str(IM_final/IM_start))
                 print('IM_final_std/IM_start_std '+str(IM_final_std/IM_start_std))
                 print('#########################################################')
-            #if chi_2_after_iteration/chi_2_before_iteration <1.02 :
+
         
             ##################
             # If improved take new parameters, if not dont
             
             if IM_final_std/IM_start_std <1.0 :        
-            #if IM_final_std/IM_start_std <1.0 :
                 #when the quality measure did improve
                 did_chi_2_improve=1
                 number_of_non_decreses.append(0)
@@ -3960,7 +4031,7 @@ class Tokovinin_multi(object):
                 
                 break
         
-        #print('return_Images'+str(return_Images))
+
         if return_Images==False:
             return final_model_result
         else:
@@ -4175,9 +4246,43 @@ class LN_PFS_single(object):
             
             self.single_image_analysis=single_image_analysis
 
+    def create_custom_var(self, modelImg,sci_image,var_image,mask_image=None):
+        """
+        
+        
+        The algorithm creates variance map from the model image provided
+        The connection between variance and flux is determined from the provided science image and variance image
+        
+        
+        @param modelImg     model image
+        @param sci_image    scientific image 
+        @param var_image    variance image        
+        @param mask_image   mask image     
+        
+        All of inputs have to be 2d np.arrays with same size
+        
+        Returns the np.array with same size as inputs
+        
+        introduced in v0.41
+        
+        """
+        if mask_image is None:
+            sci_pixels=sci_image.ravel()
+            var_pixels=var_image.ravel()   
+        else:
+            sci_pixels=sci_image[mask_image==0].ravel()
+            var_pixels=var_image[mask_image==0].ravel()
+        z=np.polyfit(sci_pixels,var_pixels,deg=2)
+        p1=np.poly1d(z)
+        custom_var_image=p1(sci_image)
+        
+
+        return custom_var_image
+
+
     def create_chi_2_almost(self,modelImg,sci_image,var_image,mask_image):
         """
-        @param sci_image    model image
+        @param modelImg    model image
         @param sci_image    scientific image 
         @param var_image    variance image        
         @param mask_image   mask image  
@@ -4205,17 +4310,26 @@ class LN_PFS_single(object):
         # array that has True for values which are good and False for bad values
         inverted_mask=~mask_image.astype(bool)
         
-        # v.0
-        # strengthen the mask by taking intou account only bright pixels
+  
+        # strengthen the mask by taking in the account only bright pixels, which have passed the flux cut
         inverted_mask=inverted_mask*inverted_flux_mask
+      
+        # at the moment plug it in here
+        use_custom_var=True
+        if use_custom_var==True:
+            custom_var_image=self.create_custom_var(modelImg,sci_image,var_image,mask_image)
+            # overload var_image with newly created image
+            var_image=custom_var_image
         
-        #         
+        # apply the mask on all of the images (sci, var and model)        
         var_image_masked=var_image*inverted_mask
         sci_image_masked=sci_image*inverted_mask
         modelImg_masked=modelImg*inverted_mask
         
         # sigma values
         sigma_masked = np.sqrt(var_image_masked)
+        
+        
         
         # chi array
         chi = (sci_image_masked - modelImg_masked)/sigma_masked
@@ -5887,6 +6001,41 @@ class Psf_position(object):
 # 'free' (not inside a class) definitions below
 # ***********************   
 
+
+def create_custom_var(modelImg,sci_image,var_image,mask_image=None):
+    """
+    
+    
+    The algorithm creates variance map from the model image provided
+    The connection between variance and flux is determined from the provided science image and variance image
+    
+    
+    @param modelImg     model image
+    @param sci_image    scientific image 
+    @param var_image    variance image        
+    @param mask_image   mask image     
+    
+    All of inputs have to be 2d np.arrays with same size
+    
+    Returns the np.array with same size as inputs
+    
+    introduced in v0.41
+    
+    """
+    if mask_image is None:
+        sci_pixels=sci_image.ravel()
+        var_pixels=var_image.ravel()   
+    else:
+        sci_pixels=sci_image[mask_image==0].ravel()
+        var_pixels=var_image[mask_image==0].ravel()
+    z=np.polyfit(sci_pixels,var_pixels,deg=2)
+    p1=np.poly1d(z)
+    custom_var_image=p1(sci_image)
+    
+
+    return custom_var_image
+
+
 def svd_invert(matrix,threshold):
     '''
     :param matrix:
@@ -5922,26 +6071,35 @@ def svd_invert(matrix,threshold):
 
 
 
-def find_centroid_of_flux(image):
+def find_centroid_of_flux(image,mask=None):
     """
-    function giving the position of weighted average of the flux in a square image
+    function giving the tuple of the position of weighted average of the flux in a square image
     
-    @param iamge    input image 
+    @input image    poststamp image for which to find center
+    @input mask     mask, same size as the image
+    
+    returns tuple with x and y center, in units of pixels
     """
-    
+    if mask is None:
+        mask=np.ones(image.shape)
     
     x_center=[]
     y_center=[]
+    
+    # if there are nan values (most likely cosmics), replace them with max value in the rest of the image
+    # careful, this can seriously skew the results if not used for this purpose
+    max_value_image=np.max(image[~np.isnan(image)])
+    image[np.isnan(image)]=max_value_image
 
     I_x=[]
-    for i in range(image.shape[1]):
-        I_x.append([i,np.sum(image[:,i])])
+    for i in range(len(image)):
+        I_x.append([i,np.mean(image[:,i]*mask[:,i])])
 
     I_x=np.array(I_x)
 
     I_y=[]
-    for i in range(image.shape[0]):
-        I_y.append([i,np.sum(image[i])])
+    for i in range(len(image)):
+        I_y.append([i,np.mean(image[i]*mask[i])])
 
     I_y=np.array(I_y)
 
