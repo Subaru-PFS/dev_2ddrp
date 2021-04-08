@@ -943,13 +943,13 @@ class PFSPupilFactory(PupilFactory):
             
 
             if angle==0:
-                print('cutRay applied to strut at angle '+str(angle))
+                #print('cutRay applied to strut at angle '+str(angle))
                 self._cutRay(pupil, (x, y), angle, subaruStrutThick,'rad',self.wide_0)
             if angle==np.pi*2/3:
-                print('cutRay applied to strut at angle '+str(angle))
+                #print('cutRay applied to strut at angle '+str(angle))
                 self._cutRay(pupil, (x, y), angle, subaruStrutThick,'rad',self.wide_23)
             if angle==np.pi*4/3:
-                print('cutRay applied to strut at angle '+str(angle))
+                #print('cutRay applied to strut at angle '+str(angle))
                 self._cutRay(pupil, (x, y), angle, subaruStrutThick,'rad',self.wide_43)
         
         
@@ -3145,10 +3145,8 @@ class Tokovinin_multi(object):
         
     
         # this needs to change - do I ever use this?!?
-        # commenting out on March 26, 2021
-        #chi_2_before_iteration=chi_2_before_iteration_array[2]
-        
-        
+        chi_2_before_iteration=chi_2_before_iteration_array[2]
+
         # extract the parameters which will not change in this function, i.e., not-wavefront parameters
         nonwavefront_par=list_of_minchain[0][19:42]
         time_end_single=time.time()
