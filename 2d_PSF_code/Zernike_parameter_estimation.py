@@ -39,6 +39,9 @@ Dec 05, 2020: 0.38c -> 0.39 implemented support for November Subaru data and Mod
 Dec 09, 2020: 0.39 -> 0.39a transform single_number variable to int asap
 Jan 09, 2021: 0.39a -> 0.39b take nearby points where input is unavaliable
 Jan 13, 2021: 0.39b -> 0.39c print out number of accepted images, do not analyze if below 60%
+Jan 28, 2021: 0.39c -> 0.39d simplified when to take account wide parameters
+Feb 02, 2021: 0.39d -> 0.39e take correct finalAr (not finalAr_Feb2020.pkl)
+Apr 08, 2021: 0.39e -> 0.40 implented use_only_chi=True 
 
 
 @author: Neven Caplar
@@ -95,7 +98,7 @@ import emcee
 #Zernike_Module
 from Zernike_Module import LN_PFS_single,LN_PFS_multi_same_spot,create_parInit,PFSLikelihoodModule,svd_invert,Tokovinin_multi,check_global_parameters
 
-__version__ = "0.39c"
+__version__ = "0.40"
 
 parser = argparse.ArgumentParser(description="Starting args import",
                                  formatter_class=argparse.RawTextHelpFormatter,
@@ -452,7 +455,7 @@ for obs in list_of_obs:
             
 print('len of list_of_sci_images: '+str(len(list_of_sci_images)) ) 
 
-print('len of accepted images '+str(len(list_of_obs_cleaned)) + ' /len of asked images '+ str(len(list_of_obs)))          
+print('len of accepted images '+str(len(list_of_obs_cleaned)) + ' / len of asked images '+ str(len(list_of_obs)))          
 
 # If there is no valid images imported, exit 
 if list_of_sci_images==[]:
@@ -485,10 +488,10 @@ for obs in list_of_obs_cleaned:
 
 
 # where are the dataframe which we use to guess the initial solution
-with open(DATAFRAMES_FOLDER + 'results_of_fit_many_'+str(direct_or_interpolation)+'_HgAr_from_'+str(date_of_input)+'.pkl', 'rb') as f:
+with open(DATAFRAMES_FOLDER + 'results_of_fit_many_'+str(direct_or_interpolation)+'_Ar_from_'+str(date_of_input)+'.pkl', 'rb') as f:
     results_of_fit_input_HgAr=pickle.load(f)
-    print('results_of_fit_input_HgAr is taken from: '+str(f))
-with open(DATAFRAMES_FOLDER+'finalAr_Feb2020.pkl', 'rb') as f:
+    print('results_of_fit_input_Ar is taken from: '+str(f))
+with open(DATAFRAMES_FOLDER+'finalAr_Feb2020', 'rb') as f:
     finalAr_Feb2020_dataset=pickle.load(f) 
 
 # Ne
@@ -684,6 +687,7 @@ if len(list_of_obs)==1:
           double_sources_positions_ratios=double_sources_positions_ratios,npix=1536)
 else:
     # otherwise, if you are passing multiple images
+    # model_multi is only needed to create reasonable parametrizations and could possibly be avoided in future versions?
     model_multi = LN_PFS_multi_same_spot(list_of_sci_images=list_of_sci_images,list_of_var_images=list_of_var_images,list_of_mask_images=list_of_mask_images,\
                                          dithering=1,save=0,verbosity=0,npix=1536,list_of_defocuses=list_of_labelInput,zmax=zmax,double_sources=double_sources,\
                                          double_sources_positions_ratios=double_sources_positions_ratios,test_run=False)           
@@ -747,7 +751,7 @@ else:
                 list_of_defocuses.append(label)
             if int(single_number) < 120:
                 
-                # if your single_nubmer is avaliable go ahead
+                # if your single_number is avaliable go ahead
                 if int(single_number) in results_of_fit_input[label].index:
             
                     list_of_allparameters.append(results_of_fit_input[label].loc[int(single_number)].values)
@@ -755,10 +759,8 @@ else:
                     print('results_of_fit_input[label].loc[int(single_number)].values' + str(results_of_fit_input[label].loc[int(single_number)].values))
                 else:
                     
-                    
                     x_positions=finalArc.loc[results_of_fit_input[labelInput].index]['xc_effective']
                     y_positions=finalArc.loc[results_of_fit_input[labelInput].index]['yc']
-
                     
                     position_x_single_number=finalArc['xc_effective'].loc[int(single_number)]
                     position_y_single_number=finalArc['yc'].loc[int(single_number)]
@@ -771,16 +773,8 @@ else:
                     print('results_of_fit_input[label].loc[int(single_number)].values' + str(results_of_fit_input[label].loc[int(single_number_input)].values))
                     
                     pass
-                    
-                
-
-
-            
-            
-            
 
         except:
-            # if the original single_nubmer was not avaliable, take something nearby
             
             pass
         
@@ -799,7 +793,7 @@ else:
     
     
     # if you are using the version in December 2020, with Module 0.39 you need to recast some of the parameters
-    if date_of_input=='Mar06' and date_of_output=='Jan08':
+    if date_of_output[:3]=='Jan':
         
         print('modifying wide and misalign parameters')
         #array_of_polyfit_1_parameterizations_proposal_shape_2d
@@ -1119,12 +1113,14 @@ if twentytwo_or_extra>=22:
     
     print('Starting work on the initial best result')
     time_start_initial=time.time()
-    best_result=Tokovinin_multi_instance_with_pool(array_of_polyfit_1_parameterizations_proposal_shape_2d,return_Images=True,num_iter=None,previous_best_result=None)    
+    best_result=Tokovinin_multi_instance_with_pool(array_of_polyfit_1_parameterizations_proposal_shape_2d,\
+                                                   return_Images=True,num_iter=None,previous_best_result=None,\
+                                                       use_only_chi=True)    
     time_end_initial=time.time()
     print('time for the initial evaluation is '+str(time_end_initial-time_start_initial))
         
    
-    print('best_result' + str(best_result))
+    #print('best_result' + str(best_result))
     
     print('Finished work on the initial best result') 
     
@@ -1142,7 +1138,10 @@ if twentytwo_or_extra>=22:
         print('Starting step '+str(step)+' out of '+str(nsteps))
         time_start_evo_step=time.time()
         print('pool is: '+str(pool))
-        out1=pool.map(partial(Tokovinin_multi_instance_without_pool, return_Images=True,previous_best_result=best_result[-1]), array_of_particle_position_proposal)        
+        # code that moves Zernike parameters via small movements
+        # reports likelihod, but minimizes absolute different of images/std - model/std
+        out1=pool.map(partial(Tokovinin_multi_instance_without_pool, return_Images=True,\
+                              previous_best_result=best_result[-1],use_only_chi=True), array_of_particle_position_proposal)        
         out2=np.array(list(out1))
         time_end_evo_step=time.time()
         print('time for the evaluation of a step '+str(step)+' is '+str(time_end_evo_step-time_start_evo_step))        
@@ -1154,7 +1153,9 @@ if twentytwo_or_extra>=22:
 
         ##################
         # create a swarm here  
-        # swarm contains each particle and its likelihood, position (after computation), velocity (that brought you here, i.e., before computation)
+        # swarm contains each particle - 0. likelihood, 1. position (after computation), 
+        # 2. velocity (that brought you here, i.e., before computation)
+        # initialized with outputs from Tokovinin_multi_instance_without_pool
         swarm_list=[]
         for i in range(particleCount):
             likelihood_single_particle=out2[i][0]
@@ -1164,7 +1165,8 @@ if twentytwo_or_extra>=22:
             if step==0:
                 velocity_single_particle=array_of_particle_velocity_proposal[i]
             else:
-            # it is ok, because by the time you reach this line in second iteration, swarm will be defined
+            # Code analyis tool is giving a warning
+            # but, it is ok, because by the time you reach this line in second iteration, swarm will be defined
                 velocity_single_particle=swarm[:,2][i]
 
                 
@@ -1194,7 +1196,9 @@ if twentytwo_or_extra>=22:
             print('Starting work on the best result in step '+str(step))
             print('Proposing best result: '+str(best_particle_proposal_position[:5]))
             time_start_best=time.time()
-            best_result=Tokovinin_multi_instance_with_pool(best_particle_proposal_position,return_Images=True,num_iter=None,previous_best_result=None)    
+            best_result=Tokovinin_multi_instance_with_pool(best_particle_proposal_position,\
+                                                           return_Images=True,num_iter=None,previous_best_result=None,
+                                                           use_only_chi=True)    
             time_end_best=time.time()
             print('time for the best evaluation in step '+str(step)+' is '+str(time_end_best-time_start_best))
 
@@ -1209,6 +1213,7 @@ if twentytwo_or_extra>=22:
             if best_particle_likelihood_this_step>best_particle_likelihood:
                 best_particle_likelihood=best_particle_likelihood_this_step
                 best_particle_position=best_particle_position_this_step
+                # likelihood of the best particle, its position and velocity is zero
                 best_particle=[best_particle_likelihood,best_particle_position,np.zeros(paramCount)]
         
 
@@ -1249,11 +1254,16 @@ if twentytwo_or_extra>=22:
             proposed_particle_velocity = part_vel + cog_vel + soc_vel
             #print('part_vel, cog_vel,soc_vel:' +str([part_vel[0:5],cog_vel[0:5],soc_vel[0:5]]))
             
-            # prpose the postion for next step and check if it within limits
+            # propose the position for next step and check if it is within limits
             # modify if it tries to venture outside limits
             proposed_particle_position = particle_position + proposed_particle_velocity
             proposed_global_parameters=proposed_particle_position[38:38+23]
             checked_global_parameters=check_global_parameters(proposed_global_parameters)
+            
+            # warn if the checking algorithm changes one of the parameters
+            #if proposed_global_parameters!=checked_global_parameters:
+            #    print('checked_global_parameters are different from the proposed ones ')
+            
             new_particle_position=np.copy(proposed_particle_position)
             new_particle_position[38:38+23]=checked_global_parameters
             

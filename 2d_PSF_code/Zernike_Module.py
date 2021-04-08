@@ -89,6 +89,11 @@ Mar 24, 2021: 0.41a -> 0.41b added support for masked images in find_centroid_of
 Mar 26, 2021: 0.41b -> 0.41c added create_custom_var function as a separate function
 Mar 26, 2021: 0.41c -> 0.41d semi-implemented custom variance function in Tokovinin algorithm
 Mar 26, 2021: 0.41d -> 0.41e model_multi_out has correct input parameters now
+Apr 01, 2021: 0.41e -> 0.42 changed bug/feature in checking wide_43 and wide_42 parameters
+Apr 02, 2021: 0.42 -> 0.43 changed width of slit shadow and slit holder shadow
+Apr 04, 2021: 0.43 -> 0.44 implemented f_multiplier_factor 
+Apr 04, 2021: 0.44 -> 0.44a implemented possibility for using np.abs(chi) as likelihood
+Aor 08, 2021: 0.44a -> 0.44b propagated change from 0.44a to Tokovinin algorithm
 
 @author: Neven Caplar
 @contact: ncaplar@princeton.edu
@@ -165,7 +170,7 @@ __all__ = ['PupilFactory', 'Pupil','ZernikeFitter_PFS','LN_PFS_multi_same_spot',
            'sky_scale','sky_size','remove_pupil_parameters_from_all_parameters',\
            'resize','_interval_overlap','svd_invert','Tokovinin_multi','find_centroid_of_flux','create_custom_var']
 
-__version__ = "0.41e"
+__version__ = "0.44a"
 
 
 
@@ -308,10 +313,13 @@ class PupilFactory(object):
 
     def _cutSquare_slow(self,pupil, p0, r,angle,det_vert):
         """Cut out the interior of a circular region from a Pupil.
+        
+        Is this even used (April 3, 2021)?
+        
 
         @param[in,out] pupil  Pupil to modify in place
         @param[in] p0         2-tuple indicating region center
-        @param[in] r          half lenght of the length of square side
+        @param[in] r          half length of the square side
         @param[in] angle      angle that the camera is rotated
         @param[in] det_vert
         """
@@ -439,6 +447,9 @@ class PupilFactory(object):
         @param[in] p0         2-tuple indicating region center
         @param[in] r          half lenght of the length of square side
         @param[in] angle      angle that the camera is rotated
+        @param[in] det_vert   multiplicative factor that distorts the square into a rectangle
+        
+        
         """
         pupil_illuminated_only1=np.ones_like(pupil.illuminated,dtype=np.float32)
         
@@ -465,7 +476,16 @@ class PupilFactory(object):
         assert angle==np.pi/2
         angleRad = angle
 
-
+        camX_value_for_f_multiplier=p0[0]
+        camY_value_for_f_multiplier=p0[1]
+        
+        #print(camX_value_for_f_multiplier,camY_value_for_f_multiplier)
+        camY_Max=0.02
+        f_multiplier_factor=(-camX_value_for_f_multiplier*100/3)*(np.abs(camY_value_for_f_multiplier)/camY_Max)+1
+        #f_multiplier_factor=1
+        if self.verbosity==1:
+            print('f_multiplier_factor is: '+str(f_multiplier_factor))
+        
 
         pupil_illuminated_only0_in_only1=np.zeros((i_y_max-i_y_min,i_x_max-i_x_min))
 
@@ -474,7 +494,10 @@ class PupilFactory(object):
         u0=self.u[i_y_min:i_y_max,i_x_min:i_x_max]
         v0=self.v[i_y_min:i_y_max,i_x_min:i_x_max]
    
+        # factor that is controling how big is the triangle in the corner of the detector?
         f=0.2
+        f_multiplier=f_multiplier_factor/1
+        
         ###########################################################
         # Lower right corner
         x21 = -r/2
@@ -482,9 +505,10 @@ class PupilFactory(object):
         y21 = -r/2*det_vert
         y22 = +r/2*det_vert
         
-        
+        f_lr=np.copy(f)*(1/f_multiplier)
+
         angleRad21=-np.pi/4 
-        triangle21=[[p0[0]+x22,p0[1]+y21],[p0[0]+x22,p0[1]+y21-y21*f],[p0[0]+x22-x22*f,p0[1]+y21]]
+        triangle21=[[p0[0]+x22,p0[1]+y21],[p0[0]+x22,p0[1]+y21-y21*f_lr],[p0[0]+x22-x22*f_lr,p0[1]+y21]]
 
         p21=triangle21[0]
         y22=(triangle21[1][1]-triangle21[0][1])/np.sqrt(2)
@@ -492,7 +516,8 @@ class PupilFactory(object):
         x21=(triangle21[2][0]-triangle21[0][0])/np.sqrt(2)
         x22=-(triangle21[2][0]-triangle21[0][0])/np.sqrt(2)
 
-
+        #print('lr'+str([x21,x22,y21,y22]))
+        
         #np.save('/Users/nevencaplar/Documents/PFS/TigerAnalysis/Results/pupil_illuminated_only0_in_only1',pupil_illuminated_only0_in_only1)
         #np.save('/Users/nevencaplar/Documents/PFS/TigerAnalysis/Results/v0',v0)
         #np.save('/Users/nevencaplar/Documents/PFS/TigerAnalysis/Results/u0',u0)
@@ -507,13 +532,17 @@ class PupilFactory(object):
         y21 = -r/2*det_vert
         y22 = +r/2*det_vert
         angleRad12=-np.pi/4   
-        triangle12=[[p0[0]+x21,p0[1]+y22],[p0[0]+x21,p0[1]+y22-y22*f],[p0[0]+x21-x21*f,p0[1]+y22]]
+        f_ul=np.copy(f)*(1/f_multiplier)
+        
+        triangle12=[[p0[0]+x21,p0[1]+y22],[p0[0]+x21,p0[1]+y22-y22*f_ul],[p0[0]+x21-x21*f_ul,p0[1]+y22]]
  
         p21=triangle12[0]
         y22=0
         y21=(triangle12[1][1]-triangle12[0][1])/np.sqrt(2)
         x21=-(triangle12[2][0]-triangle12[0][0])/np.sqrt(2)
         x22=+(triangle12[2][0]-triangle12[0][0])/np.sqrt(2)
+
+        #print('ul'+str([x21,x22,y21,y22]))
 
         pupil_illuminated_only0_in_only1[ ((v0-p21[1])*np.cos(-angleRad21)-(u0-p21[0])*np.sin(-angleRad21)>y21)] = True
         
@@ -524,7 +553,9 @@ class PupilFactory(object):
         y21 = -r/2*det_vert
         y22 = +r/2*det_vert
         angleRad12=np.pi/4   
-        triangle22=[[p0[0]+x22,p0[1]+y22],[p0[0]+x22,p0[1]+y22-y22*f],[p0[0]+x22-x22*f,p0[1]+y22]]
+        f_ur=np.copy(f)*f_multiplier
+        
+        triangle22=[[p0[0]+x22,p0[1]+y22],[p0[0]+x22,p0[1]+y22-y22*f_ur],[p0[0]+x22-x22*f_ur,p0[1]+y22]]
  
         p21=triangle22[0]
         y22=-0
@@ -532,22 +563,28 @@ class PupilFactory(object):
         x21=+(triangle22[2][0]-triangle22[0][0])/np.sqrt(2)
         x22=-(triangle22[2][0]-triangle22[0][0])/np.sqrt(2)
 
+        #print('ur'+str([x21,x22,y21,y22]))
+
         pupil_illuminated_only0_in_only1[((u0-p21[0])*np.cos(-angleRad21)+(v0-p21[1])*np.sin(-angleRad21)>x21) ] = True  
 
         ###########################################################
-        # Lower right corner
+        # Lower left corner
         x21 = -r/2*1
         x22 = +r/2*1
         y21 = -r/2*det_vert
         y22 = +r/2*det_vert
         angleRad12=np.pi/4   
-        triangle11=[[p0[0]+x21,p0[1]+y21],[p0[0]+x21,p0[1]+y21-y21*f],[p0[0]+x21-x21*f,p0[1]+y21]]
+        f_ll=np.copy(f)*f_multiplier
+        
+        triangle11=[[p0[0]+x21,p0[1]+y21],[p0[0]+x21,p0[1]+y21-y21*f_ll],[p0[0]+x21-x21*f_ll,p0[1]+y21]]
  
         p21=triangle11[0]
-        y22=-(triangle22[1][1]-triangle22[0][1])/np.sqrt(2)
+        y22=-(triangle11[1][1]-triangle11[0][1])/np.sqrt(2)
         y21=0
-        x21=+(triangle22[2][0]-triangle22[0][0])/np.sqrt(2)
-        x22=-(triangle22[2][0]-triangle22[0][0])/np.sqrt(2)
+        x21=+(triangle11[2][0]-triangle11[0][0])/np.sqrt(2)
+        x22=+(triangle11[2][0]-triangle11[0][0])/np.sqrt(2)
+
+        #print('ll'+str([x21,x22,y21,y22]))
 
         pupil_illuminated_only0_in_only1[((u0-p21[0])*np.cos(-angleRad21)+(v0-p21[1])*np.sin(-angleRad21)<x22) ] = True  
         
@@ -568,6 +605,11 @@ class PupilFactory(object):
         @param[in] p0         2-tuple indicating ray starting point
         @param[in] angle      Ray angle measured CCW from +x.
         @param[in] thickness  Thickness of cutout
+        @param[in] angleunit  If None, changes internal units to radians       
+        @param[in] wide       Controls the widening of the strut as
+                              a function of the distance from the origin
+        
+        
         """
         if angleunit is None:
             angleRad = angle.asRadians()
@@ -588,18 +630,19 @@ class PupilFactory(object):
         
         
 
-
-        #print('p0: '+str(p0))
-        #print('angleRad: '+str(angleRad))
-        #print('thickness: '+str(thickness))
-        #print('wide: '+str(wide))
-        #print('**********')
-        #np.save('/Users/nevencaplar/Documents/PFS/TigerAnalysis/Test/d'+str(p0[0])+'_'+str(p0[1])+'_'+str(wide),d)
-        #np.save('/Users/nevencaplar/Documents/PFS/TigerAnalysis/Test/p0'+str(p0[0])+'_'+str(p0[1])+'_'+str(wide),p0)  
-        #np.save('/Users/nevencaplar/Documents/PFS/TigerAnalysis/Test/pupil_illuminated'+str(p0[0])+'_'+str(p0[1])+'_'+str(wide),pupil.illuminated)   
-        #np.save('/Users/nevencaplar/Documents/PFS/TigerAnalysis/Test/u',self.u)
-        #np.save('/Users/nevencaplar/Documents/PFS/TigerAnalysis/Test/v',self.v)
-
+        """
+        # print and save commands for debugging
+        print('p0: '+str(p0))
+        print('angleRad: '+str(angleRad))
+        print('thickness: '+str(thickness))
+        print('wide: '+str(wide))
+        print('**********')
+        np.save('/Users/nevencaplar/Documents/PFS/TigerAnalysis/Test/d'+str(p0[0])+'_'+str(p0[1])+'_'+str(wide),d)
+        np.save('/Users/nevencaplar/Documents/PFS/TigerAnalysis/Test/p0'+str(p0[0])+'_'+str(p0[1])+'_'+str(wide),p0)  
+        np.save('/Users/nevencaplar/Documents/PFS/TigerAnalysis/Test/pupil_illuminated'+str(p0[0])+'_'+str(p0[1])+'_'+str(wide),pupil.illuminated)   
+        np.save('/Users/nevencaplar/Documents/PFS/TigerAnalysis/Test/u',self.u)
+        np.save('/Users/nevencaplar/Documents/PFS/TigerAnalysis/Test/v',self.v)
+        """
 
     def _addRay(self, pupil, p0, angle, thickness,angleunit=None):
         """Add a ray from a Pupil.
@@ -840,11 +883,11 @@ class PFSPupilFactory(PupilFactory):
         
         
         # Cout out the acceptance angle of the camera
-        self._cutCircleExterior(pupil, (0.0, 0.0), subaruRadius)        
+        #self._cutCircleExterior(pupil, (0.0, 0.0), subaruRadius)        
         #print('checkpoint 1')  
         #print(self.det_vert)          
         # Cut out detector shadow
-        self._cutSquare(pupil, (camX, camY), hscRadius,self.input_angle,self.det_vert)       
+        #self._cutSquare(pupil, (camX, camY), hscRadius,self.input_angle,self.det_vert)       
         #print('checkpoint 2')           
         #No vignetting of this kind for the spectroscopic camera
         #self._cutCircleExterior(pupil, (lensX, lensY), lensRadius)
@@ -886,6 +929,8 @@ class PFSPupilFactory(PupilFactory):
         self._cutCircleExterior(pupil, (0.0, 0.0), subaruRadius)        
          
         # Cut out detector shadow
+        #print( '(camX, camY): '+str( (camX, camY)))
+        
         self._cutSquare(pupil, (camX, camY), hscRadius,self.input_angle,self.det_vert)       
         
         #No vignetting of this kind for the spectroscopic camera
@@ -896,23 +941,26 @@ class PFSPupilFactory(PupilFactory):
             x = pos[0] + camX
             y = pos[1] + camY
             
-            #print('[x,y,angle)'+str([x,y,angle]))
+
             if angle==0:
+                print('cutRay applied to strut at angle '+str(angle))
                 self._cutRay(pupil, (x, y), angle, subaruStrutThick,'rad',self.wide_0)
             if angle==np.pi*2/3:
+                print('cutRay applied to strut at angle '+str(angle))
                 self._cutRay(pupil, (x, y), angle, subaruStrutThick,'rad',self.wide_23)
             if angle==np.pi*4/3:
+                print('cutRay applied to strut at angle '+str(angle))
                 self._cutRay(pupil, (x, y), angle, subaruStrutThick,'rad',self.wide_43)
         
         
             
         
         # cut out slit shadow
-        self._cutRay(pupil, (2,slitFrac_dy/18),-np.pi,subaruSlit,'rad') 
+        self._cutRay(pupil, (2,slitFrac_dy/18),-np.pi,subaruSlit*1.05,'rad') 
         
         # cut out slit holder shadow
         #also subaruSlit/3 not fitted, just put roughly correct number
-        self._cutRay(pupil, (self.slitHolder_frac_dx/18,1),-np.pi/2,subaruSlit/3,'rad')   
+        self._cutRay(pupil, (self.slitHolder_frac_dx/18,1),-np.pi/2,subaruSlit*0.3,'rad')   
         
         if self.verbosity==1:
             print('Finished with getPupil')
@@ -2615,7 +2663,7 @@ class LN_PFS_multi_same_spot(object):
         return array_of_polyfit_1_parameterizations
         
 
-    def lnlike_Neven_multi_same_spot(self,list_of_allparameters_input,return_Images=False):
+    def lnlike_Neven_multi_same_spot(self,list_of_allparameters_input,return_Images=False,use_only_chi=False):
         
 
         
@@ -2701,7 +2749,9 @@ class LN_PFS_multi_same_spot(object):
                 double_sources=self.double_sources,double_sources_positions_ratios=self.double_sources_positions_ratios,npix=self.npix,
                 fit_for_flux=self.fit_for_flux,test_run=self.test_run,explicit_psf_position=self.list_of_psf_positions[i])
 
-                res_single_with_intermediate_images=model_single(list_of_allparameters[i],return_Image=True,return_intermediate_images=True)
+                res_single_with_intermediate_images=model_single(list_of_allparameters[i],\
+                                                                 return_Image=True,return_intermediate_images=True,
+                                                                 use_only_chi=use_only_chi)
                 #print(res_single_with_intermediate_images)
                 if res_single_with_intermediate_images==-np.inf:
                     return -np.inf
@@ -2737,7 +2787,9 @@ class LN_PFS_multi_same_spot(object):
                 fit_for_flux=self.fit_for_flux,test_run=self.test_run,explicit_psf_position=self.list_of_psf_positions[i])
                 if return_Images==False:
 
-                    res_single_without_intermediate_images=model_single(list_of_allparameters[i],return_Image=return_Images)
+                    res_single_without_intermediate_images=model_single(list_of_allparameters[i],\
+                                                                        return_Image=return_Images,\
+                                                                        use_only_chi=use_only_chi)
                     #print(res_single_without_intermediate_images)
             
                     likelihood_result=res_single_without_intermediate_images[0]
@@ -2747,7 +2799,7 @@ class LN_PFS_multi_same_spot(object):
                     list_of_psf_positions_output.append(psf_position)
 
                 if return_Images==True:
-                    res_single_with_an_image=model_single(list_of_allparameters[i],return_Image=return_Images)
+                    res_single_with_an_image=model_single(list_of_allparameters[i],return_Image=return_Images,use_only_chi=use_only_chi)
                     if res_single_with_an_image==-np.inf:
                         return -np.inf
                     likelihood_result=res_single_with_an_image[0]
@@ -2811,8 +2863,8 @@ class LN_PFS_multi_same_spot(object):
         
 
 
-    def __call__(self, list_of_allparameters,return_Images=False):
-            return self.lnlike_Neven_multi_same_spot(list_of_allparameters,return_Images=return_Images)
+    def __call__(self, list_of_allparameters,return_Images=False,use_only_chi=False):
+            return self.lnlike_Neven_multi_same_spot(list_of_allparameters,return_Images=return_Images,use_only_chi=use_only_chi)
             
 class Tokovinin_multi(object):
     
@@ -2966,7 +3018,9 @@ class Tokovinin_multi(object):
             
 
         
-    def Tokovinin_algorithm_chi_multi(self,allparameters_parametrization_proposal,return_Images=False,num_iter=None,previous_best_result=None):
+    def Tokovinin_algorithm_chi_multi(self,allparameters_parametrization_proposal,\
+                                      return_Images=False,num_iter=None,previous_best_result=None,
+                                      use_only_chi=False):
         
         
         """
@@ -3043,7 +3097,7 @@ class Tokovinin_multi(object):
         # list_of_psf_positions -?        
         try:    
             pre_model_result,model_results,pre_images,pre_input_parameters,chi_2_before_iteration_array,list_of_psf_positions=\
-                model_multi(list_of_minchain,return_Images=True)
+                model_multi(list_of_minchain,return_Images=True,use_only_chi=use_only_chi)
             # modify variance image according to the models that have just been created
             ### first time modifying variance image
             list_of_single_model_image=pre_images
@@ -3338,7 +3392,7 @@ class Tokovinin_multi(object):
             list_of_minchain=model_multi.create_list_of_allparameters(initial_input_parameterization,list_of_defocuses=list_of_defocuses_input_long,zmax=self.zmax)
             #list_of_minchain=model_multi.create_list_of_allparameters(allparameters_parametrization_proposal,list_of_defocuses=list_of_defocuses_input_long,zmax=56)
     
-            res_multi=model_multi(list_of_minchain,return_Images=True)            
+            res_multi=model_multi(list_of_minchain,return_Images=True,use_only_chi=use_only_chi)            
             
             # if this is the first iteration take over the results from premodel run
             if iteration_number==0:
@@ -3576,9 +3630,9 @@ class Tokovinin_multi(object):
                     print('self.pool parameter is: '+str(self.pool))
                 
                 if self.pool is None:   
-                    out1=map(partial(model_multi_out, return_Images=True), uber_list_of_input_parameters)
+                    out1=map(partial(model_multi_out, return_Images=True,use_only_chi=use_only_chi), uber_list_of_input_parameters)
                 else:
-                    out1=self.pool.map(partial(model_multi_out, return_Images=True), uber_list_of_input_parameters)
+                    out1=self.pool.map(partial(model_multi_out, return_Images=True,use_only_chi=use_only_chi), uber_list_of_input_parameters)
                 # out1=pool.map(partial(model_multi, return_Images=True), uber_list_of_input_parameters)
                 out1=list(out1)
                 time_end=time.time()
@@ -3876,7 +3930,7 @@ class Tokovinin_multi(object):
 
             list_of_parameters_after_iteration=model_multi.create_list_of_allparameters(allparameters_parametrization_proposal_after_iteration,\
                                                                                         list_of_defocuses=list_of_defocuses_input_long,zmax=self.zmax)
-            res_multi=model_multi(list_of_parameters_after_iteration,return_Images=True)
+            res_multi=model_multi(list_of_parameters_after_iteration,return_Images=True,use_only_chi=use_only_chi)
     
     
             
@@ -4070,9 +4124,9 @@ class Tokovinin_multi(object):
         
 
 
-    def __call__(self, allparameters_parametrization_proposal,return_Images=True,num_iter=None,previous_best_result=None):
+    def __call__(self, allparameters_parametrization_proposal,return_Images=True,num_iter=None,previous_best_result=None,use_only_chi=False):
             return self.Tokovinin_algorithm_chi_multi(allparameters_parametrization_proposal,return_Images=return_Images,num_iter=num_iter,\
-                                                  previous_best_result=previous_best_result)
+                                                  previous_best_result=previous_best_result,use_only_chi=use_only_chi)
 
 
 
@@ -4280,7 +4334,7 @@ class LN_PFS_single(object):
         return custom_var_image
 
 
-    def create_chi_2_almost(self,modelImg,sci_image,var_image,mask_image):
+    def create_chi_2_almost(self,modelImg,sci_image,var_image,mask_image,use_only_chi=False):
         """
         @param modelImg    model image
         @param sci_image    scientific image 
@@ -4343,9 +4397,16 @@ class LN_PFS_single(object):
         chi_without_nan = chi.ravel()[~np.isnan(chi.ravel())]
         chi_intrinsic_without_nan=chi_intrinsic.ravel()[~np.isnan(chi_intrinsic.ravel())]
         
-        # square it
-        chi2_res=(chi_without_nan)**2
-        chi2_intrinsic_res=(chi_intrinsic_without_nan)**2
+        if use_only_chi==False:
+            
+            # square it
+            chi2_res=(chi_without_nan)**2
+            chi2_intrinsic_res=(chi_intrinsic_without_nan)**2
+        else:
+            # do not square it
+            # keep the names, but careful as they are not squared quantities
+            chi2_res=np.abs(chi_without_nan)**1
+            chi2_intrinsic_res=np.abs(chi_intrinsic_without_nan)**1        
 
         
         # calculates 'Q' values
@@ -4357,10 +4418,16 @@ class LN_PFS_single(object):
         # return the result
         return [np.sum(chi2_res),np.sum(chi2_intrinsic_res),Qvalue,np.mean(chi2_res),np.mean(chi2_intrinsic_res)]
     
-    def lnlike_Neven(self,allparameters,return_Image=False,return_intermediate_images=False):
+    def lnlike_Neven(self,allparameters,return_Image=False,return_intermediate_images=False,use_only_chi=False):
         """
         report likelihood given the parameters of the model
         give -np.inf if outside of the parameters range specified below 
+        
+        return_Image
+        return_intermediate_images
+        use_only_chi
+        
+        
         """ 
         time_lnlike_start=time.time()
         
@@ -4398,7 +4465,7 @@ class LN_PFS_single(object):
         
             
         #When running big fits these are limits which ensure that the code does not wander off in totally non physical region
-        # hsc frac
+        #hsc frac
         if globalparameters[0]<=0.6 or globalparameters[0]>0.8:
             print('globalparameters[0] outside limits; value: '+str(globalparameters[0])) if test_print == 1 else False 
             return -np.inf
@@ -4457,7 +4524,8 @@ class LN_PFS_single(object):
         if globalparameters[7]<0:
             print('globalparameters[7] outside limits') if test_print == 1 else False 
             return -np.inf
-        if globalparameters[7]>2:
+        # changed in w_23
+        if globalparameters[7]>1:
             print('globalparameters[7] outside limits') if test_print == 1 else False 
             return -np.inf 
         
@@ -4648,7 +4716,7 @@ class LN_PFS_single(object):
                 print('Internally fitting for flux; disregarding passed value for flux')
                 
             def find_flux_fit(flux_fit):
-                return self.create_chi_2_almost(flux_fit*modelImg,self.sci_image,self.var_image,self.mask_image)[0]     
+                return self.create_chi_2_almost(flux_fit*modelImg,self.sci_image,self.var_image,self.mask_image,use_only_chi=use_only_chi)[0]     
             
             flux_fitting_result = scipy.optimize.shgo(find_flux_fit,bounds=[(0.98,1.02)],iters=6)
             flux=flux_fitting_result.x[0]
@@ -4679,7 +4747,7 @@ class LN_PFS_single(object):
         
         
         # returns 0. chi2 value, 1. chi2_max value, 2. Qvalue, 3. chi2/d.o.f., 4. chi2_max/d.o.f.  
-        chi_2_almost_multi_values=self.create_chi_2_almost(modelImg,self.sci_image,self.var_image,self.mask_image)
+        chi_2_almost_multi_values=self.create_chi_2_almost(modelImg,self.sci_image,self.var_image,self.mask_image,use_only_chi=use_only_chi)
         chi_2_almost=chi_2_almost_multi_values[0]
         chi_2_almost_max=chi_2_almost_multi_values[1]
         chi_2_almost_dof=chi_2_almost_multi_values[3]
@@ -4732,8 +4800,10 @@ class LN_PFS_single(object):
     
         return x
 
-    def __call__(self, allparameters,return_Image=False,return_intermediate_images=False):
-        return self.lnlike_Neven(allparameters,return_Image=return_Image,return_intermediate_images=return_intermediate_images)
+    def __call__(self, allparameters,return_Image=False,return_intermediate_images=False,use_only_chi=False):
+        return self.lnlike_Neven(allparameters,return_Image=return_Image,\
+                                 return_intermediate_images=return_intermediate_images,\
+                                 use_only_chi=use_only_chi)
 
 class LNP_PFS(object):
     def __init__(self,  image=None,image_var=None):
@@ -4792,6 +4862,11 @@ class PFSLikelihoodModule(object):
     
 class Zernike_Analysis(object):
     """!
+    
+    !!!!! DEPRECATED !!!!
+    Zernike_Analysis is its own class now
+    
+    
     Class for analysing results of the cluster run
     """
 
@@ -6841,15 +6916,17 @@ def check_global_parameters(globalparameters,test_print=None,fit_for_flux=None):
     if globalparameters[7]<0:
         print('globalparameters[7] outside limits') if test_print == 1 else False 
         globalparameters_output[7]=0
-    if globalparameters[7]>2:
+    # changed in v0.42
+    if globalparameters[7]>1:
         print('globalparameters[7] outside limits') if test_print == 1 else False 
         globalparameters_output[7]=1
 
     # x_ilum /wide_43
-    if globalparameters[8]<0.5:
+    if globalparameters[8]<0:
         print('globalparameters[8] outside limits') if test_print == 1 else False 
         globalparameters_output[8]=0
-    if globalparameters[8]>1.5:
+    # changed in v0.42
+    if globalparameters[8]>1:
         print('globalparameters[8] outside limits') if test_print == 1 else False 
         globalparameters_output[8]=1
 
