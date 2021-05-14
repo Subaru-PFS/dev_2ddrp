@@ -13,6 +13,13 @@ Jun 25, 2020: 0.24b -> 0.25 improved create_res_data
 Jul 03, 2020: 0.25 -> 0.26 included multi analysis
 Jul 15, 2020: 0.26 -> 0.26a modified to include PSF_DIRECTORY
 Sep 08, 2020: 0.26a -> 0.26b small changed around create_chains functions
+Dec 07, 2020: 0.26b -> 0.26c added dataset=6
+Feb 04, 2021: 0.26c -> 0.26d finalAr_Feb2020.pkl to finalAr_Feb2020
+Feb 25, 2021: 0.26d -> 0.26e different folder for dataset=6 for tiger
+Mar 10, 2021: 0.26e -> 0.26f added mask options for create_basic_comparison_plot
+Mar 24, 2021: 0.26f -> 0.26g updated create_res_data and find_centroid
+Apr 02, 2021: 0.26g -> 0.26h added option to save in create_basic_comparison_plot
+Apr 21, 2021: 0.26h -> 0.26i expanded support for Tiger
 
 @author: Neven Caplar
 @contact: ncaplar@princeton.edu
@@ -81,7 +88,7 @@ from typing import Tuple, Iterable
 
 __all__ = ['Zernike_Analysis','Zernike_result_analysis','create_mask','resize']
 
-__version__ = "0.26b"
+__version__ = "0.26g"
 
 ############################################################
 # name your directory where you want to have files!
@@ -153,7 +160,13 @@ class Zernike_Analysis(object):
             STAMPS_FOLDER=PSF_DIRECTORY+"ReducedData/Data_Jun_25/Stamps_cleaned/"
         if dataset==4 or dataset==5:
             STAMPS_FOLDER=PSF_DIRECTORY+"ReducedData/Data_Aug_14/Stamps_cleaned/"    
-
+        if dataset==6:
+            if socket.gethostname()=='IapetusUSA':
+                STAMPS_FOLDER=PSF_DIRECTORY+"ReducedData/Data_Nov_20_2020/Stamps_cleaned/"    
+            else:
+                STAMPS_FOLDER=PSF_DIRECTORY+"ReducedData/Data_Nov_20/Stamps_cleaned/"    
+                 
+        print('STAMPS_FOLDER: '+str(STAMPS_FOLDER))
         
         # which observation numbers associated with each dataset
         if dataset==0:
@@ -228,6 +241,21 @@ class Zernike_Analysis(object):
                 if arc=='Kr':
                      obs_possibilites=np.arange(21688,21688+11*6,6)
 
+        if dataset==6:
+            if arc=='Ar':
+                single_number_focus=34341+48
+                obs_possibilites=np.array([34341,34341+6,34341+12,34341+18,34341+24,34341+30,34341+36,34341+42,34341+48,34341+48,\
+                                           34341+54,34341+60,34341+66,34341+72,34341+78,34341+84,34341+90,34341+96,21346+48])
+            if arc=='Ne':
+                single_number_focus=34217+48
+                obs_possibilites=np.array([34217,34217+6,34217+12,34217+18,34217+24,34217+30,34217+36,34217+42,34217+48,34217+48,\
+                                           34217+54,34217+60,34217+66,34217+72,34217+78,34217+84,34217+90,34217+96,34217+48])
+            if arc=='Kr':
+                 single_number_focus=34561+48
+                 obs_possibilites=np.array([34561,34561+6,34561+12,34561+18,34561+24,34561+30,34561+36,34561+42,34561+48,34561+48,\
+                                            34561+54,34561+60,34561+66,34561+72,34561+78,34561+84,34561+90,34561+96,34561+48])
+
+
         #  if multi ??
         if multi_var==True:
             obs_multi=single_number_focus+48
@@ -236,7 +264,7 @@ class Zernike_Analysis(object):
             self.obs_single=obs_single
             
 
-        label=['m4','m35','m3','m25','m2','m15','m1','m05','0d','0','p05','p1','p15','p2','p25','p3','p35','p4','0p']
+        label=['m4','m35','m3','m25','m2','m15','m1','m05','0','0d','p05','p1','p15','p2','p25','p3','p35','p4','0p']
         label_fine_defocus=['m05ff','m04ff','m03ff','m02ff','m01ff','0ff','p01ff','p02ff','p03ff','p04ff','p05ff']
 
         if type(obs)==str:
@@ -246,10 +274,9 @@ class Zernike_Analysis(object):
         obs_int = int(obs)      
         
         
-
         
         
-        if dataset in [0,1,2,3,4]:
+        if dataset in [0,1,2,3,4,6]:
             labelInput=label[list(obs_possibilites).index(obs_int)]
         if dataset in [5]:
             labelInput=label_fine_defocus[list(obs_possibilites).index(obs_int)]
@@ -265,7 +292,7 @@ class Zernike_Analysis(object):
         if multi_var==True:
 
             for labelInput in self.list_of_defocuses:
-                if dataset in [0,1,2,3,4]:
+                if dataset in [0,1,2,3,4,6]:
                     obs_single=obs_possibilites[label.index(labelInput)]
                 if dataset in [5]:
                     obs_single=obs_possibilites[label_fine_defocus.index(labelInput)]
@@ -303,8 +330,11 @@ class Zernike_Analysis(object):
         sci_image =np.load(STAMPS_FOLDER+'sci'+str(obs)+str(single_number)+str(arc)+'_Stacked.npy')
         mask_image =np.load(STAMPS_FOLDER+'mask'+str(obs)+str(single_number)+str(arc)+'_Stacked.npy')
         var_image =np.load(STAMPS_FOLDER+'var'+str(obs)+str(single_number)+str(arc)+'_Stacked.npy')
-        sci_image_focus_large =np.load(STAMPS_FOLDER+'sci'+str(single_number_focus)+str(single_number)+str(arc)+'_Stacked_large.npy')
-        var_image_focus_large =np.load(STAMPS_FOLDER+'var'+str(single_number_focus)+str(single_number)+str(arc)+'_Stacked_large.npy')   
+        try:
+            sci_image_focus_large =np.load(STAMPS_FOLDER+'sci'+str(single_number_focus)+str(single_number)+str(arc)+'_Stacked_large.npy')
+            var_image_focus_large =np.load(STAMPS_FOLDER+'var'+str(single_number_focus)+str(single_number)+str(arc)+'_Stacked_large.npy')
+        except:
+            pass
                 
        
         self.list_of_sci_images=list_of_sci_images
@@ -377,13 +407,48 @@ class Zernike_Analysis(object):
             elif arc=="Kr":
                 finalArc=finalKr_Feb2020_dataset    
             else:
-                print("Not recognized arc-line")            
+                print("Not recognized arc-line")   
+                
+        if dataset==6:   
+                
+            if socket.gethostname()=='IapetusUSA':
+                with open(PSF_DIRECTORY+'ReducedData/Data_Nov_20_2020/Dataframes/finalHgAr_Feb2020', 'rb') as f:
+                    print(f)
+                    finalHgAr_Feb2020_dataset=pickle.load(f)  
+                with open(PSF_DIRECTORY+'ReducedData/Data_Nov_20_2020/Dataframes/finalNe_Feb2020', 'rb') as f:
+                    finalNe_Feb2020_dataset=pickle.load(f)  
+                with open(PSF_DIRECTORY+'ReducedData/Data_Nov_20_2020/Dataframes/finalKr_Feb2020', 'rb') as f:
+                    finalKr_Feb2020_dataset=pickle.load(f)  
+                with open(PSF_DIRECTORY+'ReducedData/Data_Nov_20_2020/Dataframes/finalAr_Feb2020', 'rb') as f:
+                    finalAr_Feb2020_dataset=pickle.load(f)        
+            else:
+                with open(PSF_DIRECTORY+'ReducedData/Data_Nov_20/Dataframes/finalHgAr_Feb2020', 'rb') as f:
+                    print(f)
+                    finalHgAr_Feb2020_dataset=pickle.load(f)  
+                with open(PSF_DIRECTORY+'ReducedData/Data_Nov_20/Dataframes/finalNe_Feb2020', 'rb') as f:
+                    finalNe_Feb2020_dataset=pickle.load(f)  
+                with open(PSF_DIRECTORY+'ReducedData/Data_Nov_20/Dataframes/finalKr_Feb2020', 'rb') as f:
+                    finalKr_Feb2020_dataset=pickle.load(f)  
+                with open(PSF_DIRECTORY+'ReducedData/Data_Nov_20/Dataframes/finalAr_Feb2020', 'rb') as f:
+                    finalAr_Feb2020_dataset=pickle.load(f)                   
+            
+            if arc=="HgAr":
+                finalArc=finalHgAr_Feb2020_dataset
+            elif arc=="Ne":
+                finalArc=finalNe_Feb2020_dataset    
+            elif arc=="Kr":
+                finalArc=finalKr_Feb2020_dataset    
+            elif arc=="Ar":
+                finalArc=finalAr_Feb2020_dataset    
+            else:
+                print("Not recognized arc-line") 
+                
 
         ##########################
         # import column names
         ##########################
 
-        
+        """
         columns=['z4','z5','z6','z7','z8','z9','z10','z11',
                       'hscFrac','strutFrac','dxFocal','dyFocal','slitFrac','slitFrac_dy',
                       'radiometricEffect','radiometricExponent',
@@ -401,7 +466,25 @@ class Zernike_Analysis(object):
               'frd_sigma','frd_lorentz_factor','det_vert','slitHolder_frac_dx',
               'grating_lines','scattering_slope','scattering_amplitude',
               'pixel_effect','fiber_r','flux']  
+        """
         
+        columns=['z4','z5','z6','z7','z8','z9','z10','z11',
+                      'hscFrac','strutFrac','dxFocal','dyFocal','slitFrac','slitFrac_dy',
+                      'wide_0','wide_23','wide_43','misalign',
+                      'x_fiber','y_fiber','effective_ilum_radius','frd_sigma','det_vert','slitHolder_frac_dx',
+                      'grating_lines','scattering_radius','scattering_slope','scattering_amplitude',
+                      'pixel_effect','fiber_r','flux']    
+        
+            
+        columns22=['z4','z5','z6','z7','z8','z9','z10','z11',
+               'z12','z13','z14','z15','z16','z17','z18','z19','z20','z21','z22',
+              'hscFrac','strutFrac','dxFocal','dyFocal','slitFrac','slitFrac_dy',
+              'wide_0','wide_23','wide_43','misalign',
+              'x_fiber','y_fiber','effective_radius_illumination',
+              'frd_sigma','frd_lorentz_factor','det_vert','slitHolder_frac_dx',
+              'grating_lines','scattering_slope','scattering_amplitude',
+              'pixel_effect','fiber_r','flux']          
+
         columns22_analysis=columns22+['chi2','chi2max']
         
         self.columns=columns
@@ -411,29 +494,39 @@ class Zernike_Analysis(object):
         ##########################
         # where are results from Tiger placed
         ##########################
-       
-        RESULT_FOLDER=PSF_DIRECTORY+'TigerAnalysis/ResultsFromTiger/'+date+'/'
-        if os.path.exists(RESULT_FOLDER):
-            pass
-        else:
-            RESULT_FOLDER='/Volumes/My Passport for Mac/Old_Files/PFS/TigerAnalysis/ResultsFromTiger/'+date+'/'
+        
+        
+        ############################################################
+        # name your directory where you want to have files!
+        if socket.gethostname()=='IapetusUSA':
+            RESULT_FOLDER=PSF_DIRECTORY+'TigerAnalysis/ResultsFromTiger/'+date+'/'
             if os.path.exists(RESULT_FOLDER):
                 pass
             else:
-                RESULT_FOLDER='/Volumes/Saturn_USA/PFS/TigerAnalysis/ResultsFromTiger/'+date+'/'
+                RESULT_FOLDER='/Volumes/My Passport for Mac/Old_Files/PFS/TigerAnalysis/ResultsFromTiger/'+date+'/'
+                if os.path.exists(RESULT_FOLDER):
+                    pass
+                else:
+                    RESULT_FOLDER='/Volumes/Saturn_USA/PFS/TigerAnalysis/ResultsFromTiger/'+date+'/'
+        else:
+            # if the analysis is done on Tiger
+            RESULT_FOLDER='/tigress/ncaplar/Results/'
         
         self.RESULT_FOLDER=RESULT_FOLDER
+        ############################################################
         
         IMAGES_FOLDER=PSF_DIRECTORY+'/Images/'+date+'/'
         if not os.path.exists(IMAGES_FOLDER):
             os.makedirs(IMAGES_FOLDER)
         self.IMAGES_FOLDER=IMAGES_FOLDER
         
-        if finalArc['close'].loc[int(single_number)]=='1':
+        #print('finalArc[close].loc[int(single_number)]'+str(finalArc['close'].loc[int(single_number)]))
+        
+        if finalArc['close'].loc[int(single_number)]=='1' or finalArc['close'].loc[int(single_number)]==1:
             double_sources=False
         else:
              double_sources=True           
-        
+        #print('double_sources'+str(double_sources))
         self.double_sources=double_sources
         double_sources_positions_ratios=finalArc.loc[int(single_number)][['second_offset','second_ratio']].values
         self.double_sources_positions_ratios=double_sources_positions_ratios
@@ -463,6 +556,11 @@ class Zernike_Analysis(object):
         return self.columns,self.columns22,self.columns22_analysis
     
     def create_list_of_var_or_ln_sums(self,sigma_offset=0):
+        
+        """
+        gives likelihood for chi**2 =1
+        """
+        
         list_of_var_sums=[]
         for i in range(len(self.list_of_var_images)):
             # taking from create_chi_2_almost function in LN_PFS_single
@@ -562,6 +660,8 @@ class Zernike_Analysis(object):
             like_min=like_min_swarm1            
             
         list_of_var_sums=self.create_list_of_var_or_ln_sums(0)
+        #print('list_of_var_sums: '+str(list_of_var_sums))
+        
         
         array_of_var_sum=np.array(list_of_var_sums)
         max_of_array_of_var_sum=np.max(array_of_var_sum)
@@ -646,6 +746,7 @@ class Zernike_Analysis(object):
     def create_chains_Emcee_1(self):
         """
         get chain and likelihood chain for first run of Emcee
+        
         unfortunately the file name is ``Emcee2'', because of historical reasons
         
         
@@ -742,9 +843,16 @@ class Zernike_Analysis(object):
                                  str(self.single_number)+str(self.eps)+str(self.arc)+'Swarm1.npy')
             likechain_Swarm1=np.load(self.RESULT_FOLDER+'likechain'+str(self.date)+'_Single_'+str(self.method)+'_'+str(self.obs)+\
                                      str(self.single_number)+str(self.eps)+str(self.arc)+'Swarm1.npy')
+            print('Swarm1 and likechainSwarm1 found')
+            print('Path searched was: '+str(self.RESULT_FOLDER+'chain'+str(self.date)+'_Single_'+str(self.method)+'_'+str(self.obs)+\
+                                 str(self.single_number)+str(self.eps)+str(self.arc)+'Swarm1.npy'))
+                
+                
         except:
             print('Swarm1 or likechainSwarm1 not found')
-            print('Path searched was: '+str(self.RESULT_FOLDER+'chain'+str(self.date)+'_Single_'+str(self.method)+'_'+str(self.obs)+\
+            print('Path searched for chain was: '+str(self.RESULT_FOLDER+'chain'+str(self.date)+'_Single_'+str(self.method)+'_'+str(self.obs)+\
+                                 str(self.single_number)+str(self.eps)+str(self.arc)+'Swarm1.npy'))
+            print('Path searched for likechain was: '+str(self.RESULT_FOLDER+'likechain'+str(self.date)+'_Single_'+str(self.method)+'_'+str(self.obs)+\
                                  str(self.single_number)+str(self.eps)+str(self.arc)+'Swarm1.npy'))
 
         
@@ -869,17 +977,17 @@ class Zernike_Analysis(object):
         plt.imshow(np.imag(np.exp(2j*np.pi * wf_full/800)))
         plt.colorbar()
         
-    def illumination_wavefront_plot(self):
+    def illumination_wavefront_plot(self,return_Images=False):
         ilum=np.load(TESTING_PUPIL_IMAGES_FOLDER+'ilum.npy')
         wf_full=np.load(TESTING_WAVEFRONT_IMAGES_FOLDER+'wf_full.npy') 
         wf_full_fake_0=np.load(TESTING_WAVEFRONT_IMAGES_FOLDER+'wf_full_fake_0.npy') 
         
         midpoint=int(len(ilum)/2)
-        
-        plt.figure(figsize=(26,6))
+        ilum_zoom=ilum[int(midpoint-len(ilum)/4):int(midpoint+len(ilum)/4),int(midpoint-len(ilum)/4):int(midpoint+len(ilum)/4)]
+        plt.figure(figsize=(28,8))
         
         plt.subplot(131)
-        plt.imshow(ilum[int(midpoint-len(ilum)/4):int(midpoint+len(ilum)/4),int(midpoint-len(ilum)/4):int(midpoint+len(ilum)/4)],origin='lower',vmax=1,vmin=0)
+        plt.imshow(ilum_zoom,origin='lower',vmax=1,vmin=0)
         plt.title('illumination of the pupil',fontsize=25)
         plt.subplot(132)
 
@@ -888,8 +996,10 @@ class Zernike_Analysis(object):
         
         wavefront=ilum_1*wf_full
         wavefront=wavefront/800
-        plt.imshow(wavefront[int(midpoint-len(ilum)/4):int(midpoint+len(ilum)/4),int(midpoint-len(ilum)/4):\
-                             int(midpoint+len(ilum)/4)],cmap=plt.get_cmap('bwr'),vmax=np.max(np.abs(wavefront))*0.75,vmin=-np.max(np.abs(wavefront))*0.75)
+        wavefront_zoom=wavefront[int(midpoint-len(ilum)/4):int(midpoint+len(ilum)/4),int(midpoint-len(ilum)/4):\
+                             int(midpoint+len(ilum)/4)]
+        
+        plt.imshow(wavefront_zoom,cmap=plt.get_cmap('bwr'),vmax=np.max(np.abs(wavefront))*0.75,vmin=-np.max(np.abs(wavefront))*0.75)
 
         plt.colorbar(fraction=0.046, pad=0.04)
         plt.title('wavefront [units of waves]',fontsize=25)
@@ -901,12 +1011,14 @@ class Zernike_Analysis(object):
         
         wavefront=ilum_1*wf_full_fake_0
         wavefront=wavefront/800
-        plt.imshow(wavefront[int(midpoint-len(ilum)/4):int(midpoint+len(ilum)/4),int(midpoint-len(ilum)/4):int(midpoint+len(ilum)/4)],cmap=plt.get_cmap('bwr'),vmax=np.max(np.abs(wavefront))*0.75,vmin=-np.max(np.abs(wavefront))*0.75)
+        wavefront_0_zoom=wavefront[int(midpoint-len(ilum)/4):int(midpoint+len(ilum)/4),int(midpoint-len(ilum)/4):int(midpoint+len(ilum)/4)]
+        plt.imshow(wavefront_0_zoom,cmap=plt.get_cmap('bwr'),vmax=np.max(np.abs(wavefront))*0.75,vmin=-np.max(np.abs(wavefront))*0.75)
 
         plt.colorbar(fraction=0.046, pad=0.04)
         plt.title('wavefront w.o. defocus [u. of waves]',fontsize=25)        
         
-        
+        if return_Images==True:
+            return ilum_zoom,wavefront_zoom,wavefront_0_zoom   
     
     def wavefront_gradient_plot(self):
          
@@ -941,17 +1053,20 @@ class Zernike_Analysis(object):
         plt.imshow(sci_image,norm=LogNorm(),origin='lower',vmin=1,vmax=np.max(sci_image))
         cbar=plt.colorbar(fraction=0.046, pad=0.04)
         cbar.set_ticks([10,10**2,10**3,10**4,10**5])
+        plt.title('sci_image')
         
         plt.subplot(132)
         plt.imshow(var_image,norm=LogNorm(),origin='lower',vmin=1,vmax=np.max(sci_image))
         cbar=plt.colorbar(fraction=0.046, pad=0.04)
         cbar.set_ticks([10,10**2,10**3,10**4,10**5])
+        plt.title('var_image')
         
         plt.subplot(133)
         plt.imshow(sci_image,norm=LogNorm(),origin='lower',vmin=1,vmax=np.max(sci_image))
         cbar=plt.colorbar(fraction=0.046, pad=0.04)
         plt.imshow(mask_image,origin='lower',vmin=0,vmax=np.max(mask_image),alpha=0.2)
         cbar.set_ticks([10,10**2,10**3,10**4,10**5])
+        plt.title('sci+mask_image')        
         
         if return_Images==True:
             return sci_image,var_image,mask_image
@@ -974,7 +1089,11 @@ class Zernike_Analysis(object):
         plt.axvline(np.sum(len_of_chains[:1])+0.5,ls='--')
         plt.axvline(np.sum(len_of_chains[:2])+0.5,ls='--')
         plt.axvline(np.sum(len_of_chains[:3])+0.5,ls='--')
-        plt.ylim(-self.zero_sigma_ln,1.05*np.max(like_min))
+        
+        if np.min(like_min)<-self.zero_sigma_ln:
+            plt.ylim(np.min(like_min)*0.95,1.05*np.max(like_min))            
+        else:
+            plt.ylim(-self.zero_sigma_ln,1.05*np.max(like_min))
         plt.axhline(self.min_like_min,ls='--')
         plt.axhline(-self.one_sigma_ln,ls='--',color='black')        
         
@@ -988,7 +1107,10 @@ class Zernike_Analysis(object):
 
     
     def create_basic_comparison_plot(self,custom_model_image=None,custom_mask=None,\
-                                     custom_sci_image=None,custom_var_image=None,use_max_chi_scaling=False,show_flux_mask=False): 
+                                     custom_sci_image=None,custom_var_image=None,\
+                                         use_max_chi_scaling=False,use_max_flux_scaling=False,
+                                         show_flux_mask=False,show_impact_pixels_mask=False,
+                                         save=False): 
         
         if custom_model_image is None:
             optPsf_cut_fiber_convolved_downsampled=np.load(TESTING_FINAL_IMAGES_FOLDER+'optPsf_cut_fiber_convolved_downsampled.npy')
@@ -1002,23 +1124,35 @@ class Zernike_Analysis(object):
             sci_image=self.sci_image
         else:
             sci_image=custom_sci_image
-            
-        mean_value_of_background=np.mean([np.median(sci_image),np.median(sci_image),\
-                              np.median(sci_image),np.median(sci_image)])*3
-            
-        flux_mask=sci_image>(mean_value_of_background)
-            
 
+            
         if custom_var_image is None:           
             var_image=self.var_image
         else:
             var_image=custom_var_image     
+
+
+        mean_value_of_background_via_var=np.mean([np.median(var_image[0]),np.median(var_image[-1]),\
+                                              np.median(var_image[:,0]),np.median(var_image[:,-1])])*3
+     
+        mean_value_of_background_via_sci=np.mean([np.median(sci_image[0]),np.median(sci_image[-1]),\
+                                              np.median(sci_image[:,0]),np.median(sci_image[:,-1])])*3
+            
+        mean_value_of_background=np.max([mean_value_of_background_via_var,mean_value_of_background_via_sci])
+        print('3x mean_value_of_background via sci is estimated to be: '+str(mean_value_of_background))
+        if type(show_flux_mask)==bool:
+            flux_mask=sci_image>(mean_value_of_background)
+        else:
+            flux_mask=sci_image>(show_flux_mask)
+            show_flux_mask=True
+            
             
         size=sci_image.shape[0]
-        if size==40:
-            dithering=2
-        else:
-            dithering=1
+        #if size==40:
+        #    dithering=2
+        #else:
+        #    dithering=1
+        #dithering=1
         
         if size==20:
             x_center=find_centroid_of_flux(res_iapetus)[0]
@@ -1028,18 +1162,35 @@ class Zernike_Analysis(object):
         left_limit=np.round(x_center-3.5)+0.5
         right_limit=np.round(x_center+3.5)-0.5               
         
+        chi2_image=(sci_image-res_iapetus)**2/((1)*var_image)
+        if show_impact_pixels_mask==True:
+            mask_most_impactful_pixels=np.zeros(sci_image.shape)
+            mask_most_impactful_pixels[chi2_image>(np.quantile(chi2_image[flux_mask].ravel(),0.99))]=1
+            
+            value_of_chi2_1=np.sum(chi2_image[flux_mask].ravel()[chi2_image[flux_mask].ravel()>np.quantile(chi2_image[flux_mask].ravel(),0.99)])
+            total_chi2=np.sum(chi2_image[flux_mask].ravel())
+            
+            print('fraction of chi2 due to 1% of pixels: '+str(value_of_chi2_1/total_chi2))
+            
+            
         
-        plt.figure(figsize=(14,14))
+        plt.figure(figsize=(20,20))
 
 
         plt.subplot(221)
         plt.imshow(res_iapetus,origin='lower',vmax=np.max(np.abs(sci_image)))
         plt.plot(np.ones(len(sci_image))*(left_limit),np.array(range(len(sci_image))),'--',color='white')
         plt.plot(np.ones(len(sci_image))*(right_limit),np.array(range(len(sci_image))),'--',color='white')
+        plt.colorbar(fraction=0.046, pad=0.04)
         if show_flux_mask==True:
             plt.imshow(flux_mask,alpha=0.4)    
+            
         
-        plt.colorbar(fraction=0.046, pad=0.04)
+
+        
+        if show_impact_pixels_mask==True:
+            plt.imshow(mask_most_impactful_pixels,alpha=0.35,cmap='magma')        
+        
         plt.title('Model')
         plt.grid(False)
         plt.subplot(222)
@@ -1049,55 +1200,110 @@ class Zernike_Analysis(object):
         plt.colorbar(fraction=0.046, pad=0.04)
         if show_flux_mask==True:
             plt.imshow(flux_mask,alpha=0.4)   
-            
+
+        if show_impact_pixels_mask==True:
+            plt.imshow(mask_most_impactful_pixels,alpha=0.35,cmap='magma')                    
+    
         plt.title('Data')
         plt.grid(False)
+        
+        
         plt.subplot(223)
-        plt.imshow(sci_image-res_iapetus,origin='lower',cmap='bwr',vmin=-np.max(np.abs(sci_image))/20,vmax=np.max(np.abs(sci_image))/20)
-        if show_flux_mask==True:
-            plt.imshow(flux_mask,alpha=0.55)   
-
-        plt.plot(np.ones(len(sci_image))*(left_limit),np.array(range(len(sci_image))),'--',color='black')
-        plt.plot(np.ones(len(sci_image))*(right_limit),np.array(range(len(sci_image))),'--',color='black')
+        
+        if use_max_flux_scaling==False:
+            plt.imshow(sci_image-res_iapetus,origin='lower',cmap='bwr',vmin=-np.max(np.abs(sci_image))/20,vmax=np.max(np.abs(sci_image))/20)
+        else:
+            max_flux=np.max(np.abs(sci_image-res_iapetus))
+            plt.imshow((sci_image-res_iapetus),origin='lower',cmap='bwr',vmax=-max_flux*0.75,vmin=max_flux*0.75)     
         
         plt.colorbar(fraction=0.046, pad=0.04)
-        
-        
+
+        plt.plot(np.ones(len(sci_image))*(left_limit),np.array(range(len(sci_image))),'--',color='black')
+        plt.plot(np.ones(len(sci_image))*(right_limit),np.array(range(len(sci_image))),'--',color='black')        
+
+        if show_flux_mask==True:
+            plt.imshow(flux_mask,alpha=0.55,vmin=0,vmax=1)   
+
         if custom_mask is None:
             pass
         else:
-            plt.imshow(custom_mask,origin='lower',alpha=0.25)
+            if np.sum(custom_mask)==0:
+                alpha_value=0
+            else:
+                alpha_value=0.25
+        
+            plt.imshow(custom_mask,origin='lower',alpha=alpha_value)
+            
+        if show_impact_pixels_mask==True:
+            plt.imshow(mask_most_impactful_pixels,alpha=0.55,cmap='magma')        
         
         plt.title('Residual (data - model)')
         plt.grid(False)
+        
+        
         plt.subplot(224)
-        #plt.imshow((res_iapetus-sci_image)/np.sqrt(var_image),origin='lower',cmap='bwr',vmax=np.max(np.abs((res_iapetus-sci_image)/np.sqrt(var_image))),vmin=-np.max(np.abs((res_iapetus-sci_image)/np.sqrt(var_image))))
-       
 
         if use_max_chi_scaling==False:
             plt.imshow((sci_image-res_iapetus)/np.sqrt(var_image),origin='lower',cmap='bwr',vmax=5,vmin=-5)
         else:
-            max_chi=np.max(np.abs((sci_image-res_iapetus)/np.sqrt(var_image)))
+            max_chi=np.max(np.abs((sci_image-res_iapetus)/np.sqrt(var_image)))*0.75
             plt.imshow((sci_image-res_iapetus)/np.sqrt(var_image),origin='lower',cmap='bwr',vmax=-max_chi,vmin=max_chi)            
-
-        if show_flux_mask==True:
-            plt.imshow(flux_mask,alpha=0.55)    
 
         plt.plot(np.ones(len(sci_image))*(left_limit),np.array(range(len(sci_image))),'--',color='black')
         plt.plot(np.ones(len(sci_image))*(right_limit),np.array(range(len(sci_image))),'--',color='black')
         plt.colorbar(fraction=0.046, pad=0.04)
         plt.title('chi map')
         plt.tight_layout(pad=0.0, w_pad=1.8, h_pad=-10.0)
-        print('chi**2 reduced is: '+str(np.sum((res_iapetus-sci_image)**2/((var_image.shape[0]*var_image.shape[1])*var_image))))
+
+        if show_flux_mask==True:
+            plt.imshow(flux_mask,alpha=0.55)    
+            
+        if show_impact_pixels_mask==True:
+            plt.imshow(mask_most_impactful_pixels,alpha=0.55,cmap='magma')           
+        
+        chi2_max_reduced=np.sum((res_iapetus)**2/((var_image.shape[0]*var_image.shape[1])*var_image))
+        chi2_reduced=np.sum((res_iapetus-sci_image)**2/((var_image.shape[0]*var_image.shape[1])*var_image))
+        chi_max_reduced=np.sum(np.abs(res_iapetus)**1/((var_image.shape[0]*var_image.shape[1])*np.sqrt(var_image)))
+        chi_reduced=np.sum(np.abs(res_iapetus-sci_image)**1/((var_image.shape[0]*var_image.shape[1])*np.sqrt(var_image)))
+        print('---------------------')
+        print('chi**2 max reduced is: '+str(chi2_max_reduced))   
+        print('chi**2 reduced is: '+str(chi2_reduced)+ ' for log improvment: '+str(np.log10(chi2_reduced/chi2_max_reduced)) )
+        print('chi max reduced is: '+str(chi_max_reduced))   
+        print('chi reduced is: '+str(chi_reduced)+ ' for log improvment: '+str(np.log10(chi_reduced/chi_max_reduced)) )
+        print('---------------------')
+        
+        
         if custom_mask is None:
             pass
         else:
-            print('chi**2 reduced within mask area is: '+str(np.mean((res_iapetus[custom_mask]-sci_image[custom_mask])**2/(var_image[custom_mask]))))
+            custom_mask=~custom_mask.astype('bool')
+            print('chi**2 reduced within custom mask area is: '+str(np.mean((res_iapetus[custom_mask]-sci_image[custom_mask])**2/(var_image[custom_mask]))))
         
         
+        chi2_max_flux_reduced=np.sum((res_iapetus[flux_mask])**2/(len(var_image[flux_mask])*var_image[flux_mask]))
+        chi2_flux_reduced=np.mean((res_iapetus[flux_mask]-sci_image[flux_mask])**2/(var_image[flux_mask]))
+        chi_max_flux_reduced=np.sum(np.abs(res_iapetus[flux_mask])**1/(len(var_image[flux_mask])*np.sqrt(var_image)[flux_mask]))
+        chi_flux_reduced=np.mean(np.abs(res_iapetus[flux_mask]-sci_image[flux_mask])**1/np.sqrt(var_image[flux_mask]))
+        
+        print('---------------------')
+        print('chi**2 max reduced within flux mask area is: '+\
+              str(chi2_max_flux_reduced))
+        print('chi**2 reduced within flux mask area is: '+\
+              str(chi2_flux_reduced) + ' for log improvment: '+str(np.log10(chi2_flux_reduced/chi2_max_flux_reduced)) )
+        print('chi max reduced within flux mask area is: '+\
+              str(chi_max_flux_reduced))
+        print('chi reduced within flux mask area is: '+\
+              str(chi_flux_reduced) + ' for log improvment: '+str(np.log10(chi_flux_reduced/chi_max_flux_reduced)) )            
+        print('---------------------')
         print('Abs of residual divided by total flux is: '+str(np.sum(np.abs((res_iapetus-sci_image)))/np.sum((res_iapetus))))
         print('Abs of residual divided by largest value of a flux in the image is: '+str(np.max(np.abs((res_iapetus-sci_image)/np.max(res_iapetus)))))
   
+        if save is not False:
+            plt.savefig('/Users/nevencaplar/Documents/PFS/Images/Jan2921/Spot_figures/spot_'+save)
+            plt.clf()
+            
+  
+    
     def create_basic_comparison_plot_log(self,custom_model_image=None,custom_mask=None,custom_sci_image=None,custom_var_image=None,use_max_chi_scaling=False,\
                                          show_flux_mask=False):   
         
@@ -1114,17 +1320,23 @@ class Zernike_Analysis(object):
         else:
             sci_image=custom_sci_image
 
-        mean_value_of_background=np.mean([np.median(sci_image),np.median(sci_image),\
-                              np.median(sci_image),np.median(sci_image)])*3
-            
-        flux_mask=sci_image>(mean_value_of_background)
 
 
         if custom_var_image is None:           
             var_image=self.var_image
         else:
             var_image=custom_var_image  
+        
+        mean_value_of_background_via_var=np.mean([np.median(var_image[0]),np.median(var_image[-1]),\
+                                              np.median(var_image[:,0]),np.median(var_image[:,-1])])*3
+     
+        mean_value_of_background_via_sci=np.mean([np.median(sci_image[0]),np.median(sci_image[-1]),\
+                                              np.median(sci_image[:,0]),np.median(sci_image[:,-1])])*3
             
+        mean_value_of_background=np.max([mean_value_of_background_via_var,mean_value_of_background_via_sci])
+        
+        flux_mask=sci_image>(mean_value_of_background)
+                        
             
         size=sci_image.shape[0]
         if size==40:
@@ -1140,9 +1352,10 @@ class Zernike_Analysis(object):
         left_limit=np.round(x_center-3.5)+0.5
         right_limit=np.round(x_center+3.5)-0.5                  
         
+        chi2_image=(sci_image-res_iapetus)**2/((1)*var_image)
         
         
-        plt.figure(figsize=(14,14))
+        plt.figure(figsize=(20,20))
         plt.subplot(221)
         plt.imshow(res_iapetus,origin='lower',vmin=1,vmax=np.max(np.abs(sci_image)),norm=LogNorm())
         plt.plot(np.ones(len(sci_image))*(left_limit),np.array(range(len(sci_image))),'--',color='white')
@@ -1178,7 +1391,7 @@ class Zernike_Analysis(object):
 
         plt.grid(False)
         plt.subplot(224)
-        plt.imshow((sci_image-res_iapetus)**2/((1)*var_image),origin='lower',vmin=1,norm=LogNorm())
+        plt.imshow(chi2_image,origin='lower',vmin=1,norm=LogNorm())
         plt.plot(np.ones(len(sci_image))*(left_limit),np.array(range(len(sci_image))),'--',color='white')
         plt.plot(np.ones(len(sci_image))*(right_limit),np.array(range(len(sci_image))),'--',color='white')
         cbar=plt.colorbar(fraction=0.046, pad=0.04)
@@ -1232,7 +1445,7 @@ class Zernike_Analysis(object):
         left_limit=np.round(x_center-3.5)+0.5
         right_limit=np.round(x_center+3.5)-0.5            
         
-        plt.figure(figsize=(14,14))
+        plt.figure(figsize=(20,20))
         plt.subplot(221)
         plt.imshow(res_iapetus+noise,origin='lower',vmin=1,vmax=np.max(np.abs(sci_image)),norm=LogNorm())
         plt.plot(np.ones(len(sci_image))*(left_limit),np.array(range(len(sci_image))),'--',color='white')
@@ -1585,7 +1798,7 @@ class Zernike_result_analysis(object):
         
         columns11=['z4','z5','z6','z7','z8','z9','z10','z11',
               'hscFrac','strutFrac','dxFocal','dyFocal','slitFrac','slitFrac_dy',
-              'radiometricEffect','radiometricExponent','x_ilum','y_ilum',
+              'wide_0','wide_23','wide_43','misalign',
               'x_fiber','y_fiber','effective_radius_illumination',
               'frd_sigma','frd_lorentz_factor','det_vert','slitHolder_frac_dx',
               'grating_lines','scattering_slope','scattering_amplitude',
@@ -1596,7 +1809,7 @@ class Zernike_result_analysis(object):
         columns22=['z4','z5','z6','z7','z8','z9','z10','z11',
                'z12','z13','z14','z15','z16','z17','z18','z19','z20','z21','z22',
               'hscFrac','strutFrac','dxFocal','dyFocal','slitFrac','slitFrac_dy',
-              'radiometricEffect','radiometricExponent','x_ilum','y_ilum',
+              'wide_0','wide_23','wide_43','misalign',
               'x_fiber','y_fiber','effective_radius_illumination',
               'frd_sigma','frd_lorentz_factor','det_vert','slitHolder_frac_dx',
               'grating_lines','scattering_slope','scattering_amplitude',
@@ -1654,7 +1867,20 @@ class Zernike_result_analysis(object):
                 elif arc=="Ne":
                     single_number_focus=21550+54  
                 if str(arc)=="Kr":
-                    single_number_focus=21754+54                     
+                    single_number_focus=21754+54      
+                    
+                    
+        if dataset==6:
+            STAMPS_FOLDER="/Volumes/Saturn_USA/PFS/ReducedData/Data_Nov_20_2020/Stamps_cleaned/"
+            if arc is not None:         
+                if arc=="Ar":
+                    single_number_focus=34341+48
+                elif arc=="Ne":
+                    single_number_focus=34217+48 
+                if str(arc)=="Kr":
+                    single_number_focus=34561+48,   
+                    
+                    
 
         self.STAMPS_FOLDER=STAMPS_FOLDER
         
@@ -1668,22 +1894,42 @@ class Zernike_result_analysis(object):
         
         self.columns=columns
         
-        RESULT_FOLDER='/Users/nevencaplar/Documents/PFS/TigerAnalysis/ResultsFromTiger/'+date+'/'
-        if os.path.exists(RESULT_FOLDER):
-            pass
-        else:
-            RESULT_FOLDER='/Volumes/My Passport for Mac/Old_Files/PFS/TigerAnalysis/ResultsFromTiger/'+date+'/'
         
+        ############################################################
+        # name your directory where you want to have files!
+        if socket.gethostname()=='IapetusUSA':
+            RESULT_FOLDER='/Users/nevencaplar/Documents/PFS/TigerAnalysis/ResultsFromTiger/'+date+'/'
+            if os.path.exists(RESULT_FOLDER):
+                pass
+            else:
+                RESULT_FOLDER='/Volumes/My Passport for Mac/Old_Files/PFS/TigerAnalysis/ResultsFromTiger/'+date+'/'
+        else:
+            RESULT_FOLDER='/tigress/ncaplar/Results/'
+
         self.RESULT_FOLDER=RESULT_FOLDER
         
-        IMAGES_FOLDER='/Users/nevencaplar/Documents/PFS/Images/'+date+'/'
-        if not os.path.exists(IMAGES_FOLDER):
-            os.makedirs(IMAGES_FOLDER)
-        self.IMAGES_FOLDER=IMAGES_FOLDER
+        if socket.gethostname()=='IapetusUSA':
+            IMAGES_FOLDER='/Users/nevencaplar/Documents/PFS/Images/'+date+'/'
+            if not os.path.exists(IMAGES_FOLDER):
+                os.makedirs(IMAGES_FOLDER)
+            self.IMAGES_FOLDER=IMAGES_FOLDER
+        else:
+            IMAGES_FOLDER='/home/ncaplar/Images/'+date+'/'
+            if not os.path.exists(IMAGES_FOLDER):
+                os.makedirs(IMAGES_FOLDER)
+            self.IMAGES_FOLDER=IMAGES_FOLDER            
+
+        ############################################################        
+        
+
+        
+
+        
+
 
         self.date=date
         self.single_number=single_number
-        self.eps=5
+        self.eps=6
         self.arc=arc
         self.zmax=zmax
         self.dataset=dataset
@@ -2541,41 +2787,44 @@ def create_res_data(FFTTest_fiber_and_pixel_convolved_downsampled_40,mask=None,c
     @param FFTTest_fiber_and_pixel_convolved_downsampled_40     science data stamps
     @param mask                                                 mask to cover science data [default: None]
     @param custom_cent                                          if None create new center using the function ``find_centroid_of_flux'' [default:None]
-                                                                otherwise pass a list with [x_center, y_center]
+                                                                - otherwise pass a list/array/tuple with [x_center, y_center] in units of pixels 
+                                                                (e.g., output of find_centroid_of_flux function )
     @param size_pixel                                           pixel size in the image, in microns [default:1, dithered=7.5, normal operation=15]
      """     
      
     xs_uniform=find_centroid_of_flux(np.ones(FFTTest_fiber_and_pixel_convolved_downsampled_40.shape))[0] 
     ys_uniform=find_centroid_of_flux(np.ones(FFTTest_fiber_and_pixel_convolved_downsampled_40.shape))[1]
     
-    print('uniform values are:' +str([xs_uniform,ys_uniform]))
+    print('center of the uniform values in units of pixels is:' +str([xs_uniform,ys_uniform]))
     
     # changed in 0.25 
     if size_pixel is None:
-        size_pixel=1
-    
+        size_pixel=15
+
     image_shape=np.array(FFTTest_fiber_and_pixel_convolved_downsampled_40.shape)
 
+    if mask is None:
+        mask=np.ones((FFTTest_fiber_and_pixel_convolved_downsampled_40.shape[0],FFTTest_fiber_and_pixel_convolved_downsampled_40.shape[1]))
+    
     if custom_cent is None:
-        xs0=(find_centroid_of_flux(FFTTest_fiber_and_pixel_convolved_downsampled_40)[0]-xs_uniform)*size_pixel
-        ys0=(find_centroid_of_flux(FFTTest_fiber_and_pixel_convolved_downsampled_40)[1]-ys_uniform)*size_pixel
-        print('center deduced  (in respect to the center of image) at:' +str([xs0,ys0]))
+        xs0=(find_centroid_of_flux(FFTTest_fiber_and_pixel_convolved_downsampled_40,mask)[0]-xs_uniform)*size_pixel
+        ys0=(find_centroid_of_flux(FFTTest_fiber_and_pixel_convolved_downsampled_40,mask)[1]-ys_uniform)*size_pixel
+        print('center deduced  (in respect to the center of image, units of microns) at:' +str([xs0,ys0]))
     else:
-        xs0,ys0=custom_cent-xs_uniform
-        print('center specified (in respect to the center of image) at:' +str([xs0,ys0]))
+        xs0,ys0=(custom_cent[0]-xs_uniform)*size_pixel,(custom_cent[1]-xs_uniform)*size_pixel
+        print('center specified (in respect to the center of image, units of pixels) at:' +str([xs0,ys0]))
             
     pointsx = np.linspace(-(int(image_shape[0]*size_pixel)-size_pixel)/2,(int(image_shape[0]*size_pixel)-size_pixel)/2,num=int(image_shape[0]))
     pointsy = np.linspace(-(int(image_shape[0]*size_pixel)-size_pixel)/2,(int(image_shape[0]*size_pixel)-size_pixel)/2,num=int(image_shape[0]))
     xs, ys = np.meshgrid(pointsx, pointsy)
     r0 = np.sqrt((xs-xs0)** 2 + (ys-ys0)** 2)
     
-    if mask is None:
-        mask=np.ones((FFTTest_fiber_and_pixel_convolved_downsampled_40.shape[0],FFTTest_fiber_and_pixel_convolved_downsampled_40.shape[1]))
+
     
     distances=range(int(image_shape[0]/2*size_pixel*1.2))
 
     res_test_data=[]
-    for r in tqdm(distances):
+    for r in distances:
         pixels_upper_limit=(mask*FFTTest_fiber_and_pixel_convolved_downsampled_40)[r0<(r+size_pixel)]
         pixels_lower_limit=(mask*FFTTest_fiber_and_pixel_convolved_downsampled_40)[r0<(r)]
         
@@ -2590,7 +2839,7 @@ def create_res_data(FFTTest_fiber_and_pixel_convolved_downsampled_40,mask=None,c
             average_flux=(np.sum(pixels_upper_limit)-np.sum(pixels_lower_limit))/number_of_valid_pixels
             res_test_data.append(average_flux)        
 
-    return res_test_data 
+    return distances,res_test_data 
 
 def custom_fftconvolve(array1, array2):
     assert array1.shape==array2.shape
@@ -2860,26 +3109,35 @@ def resize(array: np.ndarray,
     output = np.moveaxis(product, -1, axis)
   return output
 
-def find_centroid_of_flux(image):
+def find_centroid_of_flux(image,mask=None):
     """
-    function giving the position of weighted average of the flux in a square image
+    function giving the tuple of the position of weighted average of the flux in a square image
     
-    @param iamge    input image 
+    @input image    poststamp image for which to find center
+    @input mask     mask, same size as the image
+    
+    returns tuple with x and y center, in units of pixels
     """
-    
+    if mask is None:
+        mask=np.ones(image.shape)
     
     x_center=[]
     y_center=[]
+    
+    # if there are nan values (most likely cosmics), replace them with max value in the rest of the image
+    # careful, this can seriously skew the results if not used for this purpose
+    max_value_image=np.max(image[~np.isnan(image)])
+    image[np.isnan(image)]=max_value_image
 
     I_x=[]
     for i in range(len(image)):
-        I_x.append([i,np.sum(image[:,i])])
+        I_x.append([i,np.mean(image[:,i]*mask[:,i])])
 
     I_x=np.array(I_x)
 
     I_y=[]
     for i in range(len(image)):
-        I_y.append([i,np.sum(image[i])])
+        I_y.append([i,np.mean(image[i]*mask[i])])
 
     I_y=np.array(I_y)
 

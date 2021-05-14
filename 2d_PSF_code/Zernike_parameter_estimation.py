@@ -42,7 +42,13 @@ Jan 13, 2021: 0.39b -> 0.39c print out number of accepted images, do not analyze
 Jan 28, 2021: 0.39c -> 0.39d simplified when to take account wide parameters
 Feb 02, 2021: 0.39d -> 0.39e take correct finalAr (not finalAr_Feb2020.pkl)
 Apr 08, 2021: 0.39e -> 0.40 implented use_only_chi=True 
-
+Apr 08, 2021: 0.40 -> 0.40a print time when each step is starting
+Apr 20, 2021: 0.40a -> 0.40b do not hang when image is not found
+Apr 22, 2021: 0.40b -> 0.40c experiment with multi_background_factor
+Apr 27, 2021: 0.40c -> 0.40d further experiment with multi_background_factor
+May 06, 2021: 0.40d -> 0.40e set w=0.51
+May 07, 2021: 0.40e -> 0.40f array_of_multi_background_factors, changed to correct number of factors
+May 13, 2021: 0.40f -> 0.41 updated to again to be able to get focus analysis
 
 @author: Neven Caplar
 @contact: ncaplar@princeton.edu
@@ -57,6 +63,7 @@ print(str(socket.gethostname())+': Start time for importing is: '+time.ctime())
 import sys
 import os 
 import argparse
+from datetime import datetime
 from copy import deepcopy
 os.environ["MKL_NUM_THREADS"] = "1" 
 os.environ["NUMEXPR_NUM_THREADS"] = "1" 
@@ -98,7 +105,7 @@ import emcee
 #Zernike_Module
 from Zernike_Module import LN_PFS_single,LN_PFS_multi_same_spot,create_parInit,PFSLikelihoodModule,svd_invert,Tokovinin_multi,check_global_parameters
 
-__version__ = "0.40"
+__version__ = "0.41"
 
 parser = argparse.ArgumentParser(description="Starting args import",
                                  formatter_class=argparse.RawTextHelpFormatter,
@@ -196,7 +203,7 @@ if eps==5:
 if eps==6:
     options=[480,2.793,1.193]
 if eps==7:
-    options=[480,2.793,1.193]
+    options=[160,2.793,1.193]
 if eps==8:
     options=[240,2.793,1.593]
 if eps==9:
@@ -204,6 +211,9 @@ if eps==9:
     nsteps=int(2*nsteps)
 if eps==10:
     options=[390,1.893,2.893]
+    
+c1=options[1]
+c2=options[2]
 ################################################ 
 dataset=args.dataset
 
@@ -276,14 +286,15 @@ print('arc lamp is: '+str(arc))
     
 # inputs for Februaruy 2019 data, F/2.8 stop   
 # dataset=2
-if str(arc)=="HgAr":
-    single_number_focus=17017+54
-elif str(arc)=="Ne":
-    single_number_focus=16292 
-elif str(arc)=="Kr":
-    single_number_focus=17310+54
-else:
-    print("Not recognized arc-line")    
+if dataset==2:
+    if str(arc)=="HgAr":
+        single_number_focus=17017+54
+    elif str(arc)=="Ne":
+        single_number_focus=16292 
+    elif str(arc)=="Kr":
+        single_number_focus=17310+54
+    else:
+        print("Not recognized arc-line")    
     
 # inputs for April/May 2019 data, F/2.5 stop   
 # dataset=3
@@ -317,6 +328,7 @@ if dataset==6:
     elif str(arc)=="Kr":
         single_number_focus=34561+48
     else:
+        print('Arc line specified is '+str(arc))
         print("Not recognized arc-line")  
         
 ################################################  
@@ -412,10 +424,20 @@ list_of_times=[]
 
 for obs in list_of_obs:
     if single_number<120:
-        sci_image =np.load(STAMPS_FOLDER+'sci'+str(obs)+str(single_number)+str(arc)+'_Stacked.npy')
-        mask_image =np.load(STAMPS_FOLDER+'mask'+str(obs)+str(single_number)+str(arc)+'_Stacked.npy')    
-        var_image =np.load(STAMPS_FOLDER+'var'+str(obs)+str(single_number)+str(arc)+'_Stacked.npy')   
-        print('sci_image loaded from: '+STAMPS_FOLDER+'sci'+str(obs)+str(single_number)+str(arc)+'_Stacked.npy')
+        try:
+            sci_image =np.load(STAMPS_FOLDER+'sci'+str(obs)+str(single_number)+str(arc)+'_Stacked.npy')
+            mask_image =np.load(STAMPS_FOLDER+'mask'+str(obs)+str(single_number)+str(arc)+'_Stacked.npy')    
+            var_image =np.load(STAMPS_FOLDER+'var'+str(obs)+str(single_number)+str(arc)+'_Stacked.npy')   
+            print('sci_image loaded from: '+STAMPS_FOLDER+'sci'+str(obs)+str(single_number)+str(arc)+'_Stacked.npy')
+        except:
+            # change to that code does not fail and hang if the image is not found
+            # this will lead to pass statment in next step because np.sum(sci_image)=0
+            print('sci_image not found')
+            sci_image=np.zeros((20,20))
+            var_image=np.zeros((20,20))
+            mask_image=np.zeros((20,20))
+            
+            
         try:
             sci_image_focus_large =np.load(STAMPS_FOLDER+'sci'+str(single_number_focus)+str(single_number)+str(arc)+'_Stacked_large.npy')
             var_image_focus_large =np.load(STAMPS_FOLDER+'var'+str(single_number_focus)+str(single_number)+str(arc)+'_Stacked_large.npy')
@@ -474,39 +496,45 @@ if (len(list_of_obs_cleaned)/len(list_of_obs) ) <0.6:
 list_of_NAME_OF_CHAIN=[]
 list_of_NAME_OF_LIKELIHOOD_CHAIN=[]
 for obs in list_of_obs_cleaned:
-    NAME_OF_CHAIN='chain'+str(date_of_output)+'20_Single_P_'+str(obs)+str(single_number)+str(eps)+str(arc)
-    NAME_OF_LIKELIHOOD_CHAIN='likechain'+str(date_of_output)+'20_Single_P_'+str(obs)+str(single_number)+str(eps)+str(arc)
+    NAME_OF_CHAIN='chain'+str(date_of_output)+'_Single_P_'+str(obs)+str(single_number)+str(eps)+str(arc)
+    NAME_OF_LIKELIHOOD_CHAIN='likechain'+str(date_of_output)+'_Single_P_'+str(obs)+str(single_number)+str(eps)+str(arc)
     
     # if you are passing higher than 120
     if single_number_original>=120:
-        NAME_OF_CHAIN='chain'+str(date_of_output)+'20_Single_P_'+str(obs)+str(single_number_original)+str(eps)+str(arc)
-        NAME_OF_LIKELIHOOD_CHAIN='likechain'+str(date_of_output)+'20_Single_P_'+str(obs)+str(single_number_original)+str(eps)+str(arc)        
+        NAME_OF_CHAIN='chain'+str(date_of_output)+'_Single_P_'+str(obs)+str(single_number_original)+str(eps)+str(arc)
+        NAME_OF_LIKELIHOOD_CHAIN='likechain'+str(date_of_output)+'_Single_P_'+str(obs)+str(single_number_original)+str(eps)+str(arc)        
     
     
     list_of_NAME_OF_CHAIN.append(NAME_OF_CHAIN)
     list_of_NAME_OF_LIKELIHOOD_CHAIN.append(NAME_OF_LIKELIHOOD_CHAIN)
 
 
-# where are the dataframe which we use to guess the initial solution
-with open(DATAFRAMES_FOLDER + 'results_of_fit_many_'+str(direct_or_interpolation)+'_Ar_from_'+str(date_of_input)+'.pkl', 'rb') as f:
-    results_of_fit_input_HgAr=pickle.load(f)
-    print('results_of_fit_input_Ar is taken from: '+str(f))
-with open(DATAFRAMES_FOLDER+'finalAr_Feb2020', 'rb') as f:
-    finalAr_Feb2020_dataset=pickle.load(f) 
+# where are the dataframes which we use to guess the initial solution
+# Ar (Argon)
+if str(arc)=='Ar' or arc=='HgAr':
+    with open(DATAFRAMES_FOLDER + 'results_of_fit_many_'+str(direct_or_interpolation)+'_Ar_from_'+str(date_of_input)+'.pkl', 'rb') as f:
+        results_of_fit_input_HgAr=pickle.load(f)
+        #print(results_of_fit_input_HgAr)
+        print('results_of_fit_input_Ar is taken from: '+str(f))
+    with open(DATAFRAMES_FOLDER+'finalAr_Feb2020', 'rb') as f:
+        finalAr_Feb2020_dataset=pickle.load(f) 
 
-# Ne
-with open(DATAFRAMES_FOLDER + 'results_of_fit_many_'+str(direct_or_interpolation)+'_Ne_from_'+str(date_of_input)+'.pkl', 'rb') as f:
-    results_of_fit_input_Ne=pickle.load(f)
-print('results_of_fit_input_Ne is taken from: '+str(f))
-with open(DATAFRAMES_FOLDER + 'finalNe_Feb2020', 'rb') as f:
-    finalNe_Feb2020_dataset=pickle.load(f) 
+# Ne (Neon)
+if str(arc)=='Ne':
+    with open(DATAFRAMES_FOLDER + 'results_of_fit_many_'+str(direct_or_interpolation)+'_Ne_from_'+str(date_of_input)+'.pkl', 'rb') as f:
+        results_of_fit_input_Ne=pickle.load(f)
+    print('results_of_fit_input_Ne is taken from: '+str(f))
+    
+    with open(DATAFRAMES_FOLDER + 'finalNe_Feb2020', 'rb') as f:
+        finalNe_Feb2020_dataset=pickle.load(f) 
 
-# Kr
-with open(DATAFRAMES_FOLDER + 'results_of_fit_many_'+str(direct_or_interpolation)+'_Kr_from_'+str(date_of_input)+'.pkl', 'rb') as f:
-    results_of_fit_input_Kr=pickle.load(f)
-print('results_of_fit_input_Kr is taken from: '+str(f))
-with open(DATAFRAMES_FOLDER + 'finalKr_Feb2020', 'rb') as f:
-    finalKr_Feb2020_dataset=pickle.load(f)    
+# Kr (Krypton)
+if str(arc)=='Kr':
+    with open(DATAFRAMES_FOLDER + 'results_of_fit_many_'+str(direct_or_interpolation)+'_Kr_from_'+str(date_of_input)+'.pkl', 'rb') as f:
+        results_of_fit_input_Kr=pickle.load(f)
+    print('results_of_fit_input_Kr is taken from: '+str(f))
+    with open(DATAFRAMES_FOLDER + 'finalKr_Feb2020', 'rb') as f:
+        finalKr_Feb2020_dataset=pickle.load(f)    
     
 
 ##############################################    
@@ -524,52 +552,52 @@ with open(DATAFRAMES_FOLDER + 'finalKr_Feb2020', 'rb') as f:
 # F/3.2 data
 if dataset==1:
     if arc=='HgAr':
-        obs_possibilites=np.array([11796,11790,11784,11778,11772,11766,11760,11754,11748,11748,11694,11700,11706,11712,11718,11724,11730,11736])
+        obs_possibilites=np.array([11796,11790,11784,11778,11772,11766,11760,11754,11748,11694,11700,11706,11712,11718,11724,11730,11736])
     elif arc=='Ne':
-        obs_possibilites=np.array([12403,12397,12391,12385,12379,12373,12367,12361,12355,12355,12349,12343,12337,12331,12325,12319,12313,12307])  
+        obs_possibilites=np.array([12403,12397,12391,12385,12379,12373,12367,12361,12355,12349,12343,12337,12331,12325,12319,12313,12307])  
  
 # F/2.8 data       
 if dataset==2:
     if arc=='HgAr':
-        obs_possibilites=np.array([17023,17023+6,17023+12,17023+18,17023+24,17023+30,17023+36,17023+42,17023+48,17023+48,17023+54,17023+60,17023+66,17023+72,17023+78,17023+84,17023+90,17023+96,17023+48])
+        obs_possibilites=np.array([17023,17023+6,17023+12,17023+18,17023+24,17023+30,17023+36,17023+42,17023+48,17023+54,17023+60,17023+66,17023+72,17023+78,17023+84,17023+90,17023+96,17023+48])
     if arc=='Ne':
-        obs_possibilites=np.array([16238+6,16238+12,16238+18,16238+24,16238+30,16238+36,16238+42,16238+48,16238+54,16238+54,16238+60,16238+66,16238+72,16238+78,16238+84,16238+90,16238+96,16238+102,16238+54])
+        obs_possibilites=np.array([16238+6,16238+12,16238+18,16238+24,16238+30,16238+36,16238+42,16238+48,16238+54,16238+60,16238+66,16238+72,16238+78,16238+84,16238+90,16238+96,16238+102,16238+54])
     if arc=='Kr':
-         obs_possibilites=np.array([17310+6,17310+12,17310+18,17310+24,17310+30,17310+36,17310+42,17310+48,17310+54,17310+54,17310+60,17310+66,17310+72,17310+78,17310+84,17310+90,17310+96,17310+102,17310+54])
+         obs_possibilites=np.array([17310+6,17310+12,17310+18,17310+24,17310+30,17310+36,17310+42,17310+48,17310+54,17310+60,17310+66,17310+72,17310+78,17310+84,17310+90,17310+96,17310+102,17310+54])
 
 # F/2.5 data     
 if dataset==3:
     if arc=='HgAr':
-        obs_possibilites=np.array([19238,19238+6,19238+12,19238+18,19238+24,19238+30,19238+36,19238+42,19238+48,19238+48,19238+54,19238+60,19238+66,19238+72,19238+78,19238+84,19238+90,19238+96,19238+48])
+        obs_possibilites=np.array([19238,19238+6,19238+12,19238+18,19238+24,19238+30,19238+36,19238+42,19238+48,19238+54,19238+60,19238+66,19238+72,19238+78,19238+84,19238+90,19238+96,19238+48])
     elif arc=='Ne':
-        obs_possibilites=np.array([19472+6,19472+12,19472+18,19472+24,19472+30,19472+36,19472+42,19472+48,19472+54,19472+54,19472+60,19472+66,19472+72,19472+78,19472+84,19472+90,19472+96,19472+102,19472+54])    
+        obs_possibilites=np.array([19472+6,19472+12,19472+18,19472+24,19472+30,19472+36,19472+42,19472+48,19472+54,19472+60,19472+66,19472+72,19472+78,19472+84,19472+90,19472+96,19472+102,19472+54])    
 
 # F/2.8 July data        
 if dataset==4:
     if arc=='HgAr':
-        obs_possibilites=np.array([21346+6,21346+12,21346+18,21346+24,21346+30,21346+36,21346+42,21346+48,21346+54,21346+54,21346+60,21346+66,21346+72,21346+78,21346+84,21346+90,21346+96,21346+102,21346+48])
+        obs_possibilites=np.array([21346+6,21346+12,21346+18,21346+24,21346+30,21346+36,21346+42,21346+48,21346+54,21346+60,21346+66,21346+72,21346+78,21346+84,21346+90,21346+96,21346+102,21346+48])
     if arc=='Ne':
-        obs_possibilites=np.array([21550+6,21550+12,21550+18,21550+24,21550+30,21550+36,21550+42,21550+48,21550+54,21550+54,21550+60,21550+66,21550+72,21550+78,21550+84,21550+90,21550+96,21550+102,21550+54])
+        obs_possibilites=np.array([21550+6,21550+12,21550+18,21550+24,21550+30,21550+36,21550+42,21550+48,21550+54,21550+60,21550+66,21550+72,21550+78,21550+84,21550+90,21550+96,21550+102,21550+54])
     if arc=='Kr':
-         obs_possibilites=np.array([21754+6,21754+12,21754+18,21754+24,21754+30,21754+36,21754+42,21754+48,21754+54,21754+54,21754+60,21754+66,21754+72,21754+78,21754+84,21754+90,21754+96,21754+102,21754+54])
+         obs_possibilites=np.array([21754+6,21754+12,21754+18,21754+24,21754+30,21754+36,21754+42,21754+48,21754+54,21754+60,21754+66,21754+72,21754+78,21754+84,21754+90,21754+96,21754+102,21754+54])
      
 if dataset==6:
     if arc=='Ar':
-        obs_possibilites=np.array([34341,34341+6,34341+12,34341+18,34341+24,34341+30,34341+36,34341+42,34341+48,34341+48,\
+        obs_possibilites=np.array([34341,34341+6,34341+12,34341+18,34341+24,34341+30,34341+36,34341+42,34341+48,\
                                    34341+54,34341+60,34341+66,34341+72,34341+78,34341+84,34341+90,34341+96,21346+48])
     if arc=='Ne':
-        obs_possibilites=np.array([34217,34217+6,34217+12,34217+18,34217+24,34217+30,34217+36,34217+42,34217+48,34217+48,\
+        obs_possibilites=np.array([34217,34217+6,34217+12,34217+18,34217+24,34217+30,34217+36,34217+42,34217+48,\
                                    34217+54,34217+60,34217+66,34217+72,34217+78,34217+84,34217+90,34217+96,34217+48])
     if arc=='Kr':
-         obs_possibilites=np.array([34561,34561+6,34561+12,34561+18,34561+24,34561+30,34561+36,34561+42,34561+48,34561+48,\
+         obs_possibilites=np.array([34561,34561+6,34561+12,34561+18,34561+24,34561+30,34561+36,34561+42,34561+48,\
                                     34561+54,34561+60,34561+66,34561+72,34561+78,34561+84,34561+90,34561+96,34561+48])
         
      
  ##############################################    
 
 # associates each observation with the label in the supplied dataframe
-z4Input_possibilites=np.array([28,24.5,21,17.5,14,10.5,7,3.5,0,0,-3.5,-7,-10.5,-14,-17.5,-21,-24.5,-28,0])
-label=['m4','m35','m3','m25','m2','m15','m1','m05','0d','0','p05','p1','p15','p2','p25','p3','p35','p4','0p']
+z4Input_possibilites=np.array([28,24.5,21,17.5,14,10.5,7,3.5,0,-3.5,-7,-10.5,-14,-17.5,-21,-24.5,-28,0])
+label=['m4','m35','m3','m25','m2','m15','m1','m05','0','p05','p1','p15','p2','p25','p3','p35','p4','0p']
 
 list_of_z4Input=[]
 for obs in list_of_obs_cleaned:
@@ -590,7 +618,7 @@ print('list_of_labelInput: '+str(list_of_labelInput))
     
 # list of labels without values near focus (for possible analysis with Tokovinin alrogithm)
 list_of_labelInput_without_focus_or_near_focus=deepcopy(list_of_labelInput)
-for i in ['m15','m1','m05','0d','0','p05','p1','p15']:
+for i in ['m15','m1','m05','0','p05','p1','p15']:
     if i in list_of_labelInput:
         list_of_labelInput_without_focus_or_near_focus.remove(i)
     
@@ -606,7 +634,7 @@ print('index_of_list_of_labelInput_without_focus_or_near_focus: ' +str(index_of_
 
 # if we are going to analyzed focused images based on defocused analysis, go there 
 if analysis_type=='focus':
-    labelInput='0p'
+    labelInput='0'
 else:
     pass
 
@@ -662,7 +690,6 @@ elif arc=="Kr":
     results_of_fit_input=results_of_fit_input_Kr  
     finalArc=finalKr_Feb2020_dataset
 elif arc=="Ar":
-    # for use in December 2020 run
     results_of_fit_input=results_of_fit_input_HgAr
     finalArc=finalAr_Feb2020_dataset
 
@@ -712,7 +739,14 @@ else:
 if len(list_of_obs)==1:
     # results_of_fit_input contains proposal for parameters plus 2 values describing chi2 and chi2_max 
     # need to extract all values except the last two
-    allparameters_proposalp2=results_of_fit_input[labelInput].loc[int(single_number)].values
+    try:
+
+        allparameters_proposalp2=results_of_fit_input[labelInput].loc[int(single_number)].values
+
+    except:
+        # if you failed with integer index, use str version of the index
+
+        allparameters_proposalp2=results_of_fit_input[labelInput].loc[str(single_number)].values    
       
     # if you are analyzing with Zernike up to 22nd
     if zmax==22: 
@@ -726,6 +760,12 @@ if len(list_of_obs)==1:
     if zmax==11:
         # if input created with z11, copy the values
         allparameters_proposal=allparameters_proposalp2[:,len(columns)]
+        
+    if zmax>22:
+        #?
+
+        allparameters_proposal=allparameters_proposalp2
+        
         
     # protect the parameters from changing and unintentional mistakes
     allparameters_proposal_22=np.copy(allparameters_proposal)
@@ -750,15 +790,21 @@ else:
                 list_of_allparameters.append(results_of_fit_input[label].loc[int(37)].values)
                 list_of_defocuses.append(label)
             if int(single_number) < 120:
-                
+                print(results_of_fit_input[label].index.astype(int))
                 # if your single_number is avaliable go ahead
-                if int(single_number) in results_of_fit_input[label].index:
-            
-                    list_of_allparameters.append(results_of_fit_input[label].loc[int(single_number)].values)
+                if int(single_number) in results_of_fit_input[label].index.astype(int):
+                    print('checkpoint')
+                    if type(results_of_fit_input[label].index[0])==str:
+                        list_of_allparameters.append(results_of_fit_input[label].loc[str(single_number)].values)
+                        print('results_of_fit_input[label].loc[int(single_number)].values' + str(results_of_fit_input[label].loc[str(single_number)].values))
+                    else:
+                        #print('results_of_fit_input[label]'+str(results_of_fit_input[label]))
+                        list_of_allparameters.append(results_of_fit_input[label].loc[int(single_number)].values)
+                        print('results_of_fit_input[label].loc[int(single_number)].values' + str(results_of_fit_input[label].loc[int(single_number)].values))
                     list_of_defocuses.append(label)
-                    print('results_of_fit_input[label].loc[int(single_number)].values' + str(results_of_fit_input[label].loc[int(single_number)].values))
+                        
                 else:
-                    
+                    # find the closest avaliable, right?
                     x_positions=finalArc.loc[results_of_fit_input[labelInput].index]['xc_effective']
                     y_positions=finalArc.loc[results_of_fit_input[labelInput].index]['yc']
                     
@@ -767,48 +813,52 @@ else:
                     
                     distance_of_avaliable_spots=np.abs((x_positions-position_x_single_number)**2+(y_positions-position_y_single_number)**2)
                     single_number_input=distance_of_avaliable_spots[distance_of_avaliable_spots==np.min(distance_of_avaliable_spots)].index[0]
-
-                    list_of_allparameters.append(results_of_fit_input[label].loc[int(single_number_input)].values)
+                    if type(results_of_fit_input[label].index[0])==str:
+                        list_of_allparameters.append(results_of_fit_input[label].loc[str(single_number_input)].values)
+                    else:
+                        list_of_allparameters.append(results_of_fit_input[label].loc[int(single_number_input)].values)
                     list_of_defocuses.append(label)
                     print('results_of_fit_input[label].loc[int(single_number)].values' + str(results_of_fit_input[label].loc[int(single_number_input)].values))
                     
                     pass
 
         except:
-            
+            print('not able to add label '+str(label))
             pass
+        
         
     array_of_allparameters=np.array(list_of_allparameters)
     
     # based on the information from the previous step (results at list_of_defocuses), generate singular array_of_allparameters at list_of_labelInput positions        
     # has shape 2xN, N=number of parameters
-    
-    print('array_of_allparameters.shape: '+str(array_of_allparameters.shape))
     print('twentytwo_or_extra: '+str(twentytwo_or_extra))
-    array_of_polyfit_1_parameterizations_proposal=model_multi.create_resonable_allparameters_parametrizations(array_of_allparameters=array_of_allparameters,\
-                                                                list_of_defocuses_input=list_of_defocuses,zmax=twentytwo_or_extra,remove_last_n=2)
+    if analysis_type=='defocus':    
+        print('array_of_allparameters.shape: '+str(array_of_allparameters.shape))
     
-    # lets be explicit that the shape of the array is 2d
-    array_of_polyfit_1_parameterizations_proposal_shape_2d=array_of_polyfit_1_parameterizations_proposal
-    
-    
-    # if you are using the version in December 2020, with Module 0.39 you need to recast some of the parameters
-    if date_of_output[:3]=='Jan':
+        array_of_polyfit_1_parameterizations_proposal=model_multi.create_resonable_allparameters_parametrizations(array_of_allparameters=array_of_allparameters,\
+                                                                    list_of_defocuses_input=list_of_defocuses,zmax=twentytwo_or_extra,remove_last_n=2)
         
-        print('modifying wide and misalign parameters')
-        #array_of_polyfit_1_parameterizations_proposal_shape_2d
+        # lets be explicit that the shape of the array is 2d
+        array_of_polyfit_1_parameterizations_proposal_shape_2d=array_of_polyfit_1_parameterizations_proposal
     
-        pos_wide_0=np.arange(len(columns22))[np.array(columns22)=='wide_0'][0]
-        pos_wide_23=np.arange(len(columns22))[np.array(columns22)=='wide_23'][0]
-        pos_wide_43=np.arange(len(columns22))[np.array(columns22)=='wide_43'][0]
-        pos_misalign=np.arange(len(columns22))[np.array(columns22)=='misalign'][0]
-
-        array_of_polyfit_1_parameterizations_proposal_shape_2d[pos_wide_0,1]=0.1
-        array_of_polyfit_1_parameterizations_proposal_shape_2d[pos_wide_23,1]=0.1
-        array_of_polyfit_1_parameterizations_proposal_shape_2d[pos_wide_43,1]=0.1
-        array_of_polyfit_1_parameterizations_proposal_shape_2d[pos_misalign,1]=1
-    else:
-        print('not modifying wide and misalign parameters')        
+    #!!!!! EXTREMLY CAREFUL
+    # if you are using the version in December 2020, with Module 0.39 you need to recast some of the parameters
+    #if date_of_output[:3]=='May':
+    #    
+    #    print('modifying wide and misalign parameters')
+    #    #array_of_polyfit_1_parameterizations_proposal_shape_2d
+    #
+    #    pos_wide_0=np.arange(len(columns22))[np.array(columns22)=='wide_0'][0]
+    #    pos_wide_23=np.arange(len(columns22))[np.array(columns22)=='wide_23'][0]
+    #    pos_wide_43=np.arange(len(columns22))[np.array(columns22)=='wide_43'][0]
+    #    pos_misalign=np.arange(len(columns22))[np.array(columns22)=='misalign'][0]
+    #
+    #    array_of_polyfit_1_parameterizations_proposal_shape_2d[pos_wide_0,1]=0.25
+    #   array_of_polyfit_1_parameterizations_proposal_shape_2d[pos_wide_23,1]=0.25
+    #   array_of_polyfit_1_parameterizations_proposal_shape_2d[pos_wide_43,1]=0.25
+    #   array_of_polyfit_1_parameterizations_proposal_shape_2d[pos_misalign,1]=1
+    #else:
+    #    print('not modifying wide and misalign parameters')        
     
     
     
@@ -980,14 +1030,15 @@ if twentytwo_or_extra>=22:
             print('Name: '+str(NAME_OF_CHAIN)) 
             print('Zmax is: '+str(zmax))
             print(str(socket.gethostname())+': Starting calculation at: '+time.ctime())    
-        
+            
             
         #allparameters_proposal=allparameters_proposal_22
         # dirty hack to get things running
         if zmax>=22:
             columns=columns22
+            
         
-        sys.stdout.flush()
+        #sys.stdout.flush()
         
 
     
@@ -1028,7 +1079,11 @@ if twentytwo_or_extra>=22:
     # zero freedom in radiometric parameters
     # full freedom in wavefront parameters
     # less freedom in all other paramters
+    
+    
+
     if analysis_type=='focus':
+        # only gloal focus parameters and z4
         stronger_array_01=np.array([1,0,0,0,0,0,0,0,
                                 0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,
                                 0.0,0.0,0.0,0.0,0.0,0.0,
@@ -1037,7 +1092,18 @@ if twentytwo_or_extra>=22:
                                 0,0,0,0,
                                 1,1,1,
                                 1,1,1])  
+        # only gloal focus parameters and z4-z11
+        stronger_array_01=np.array([1,1,1,1,1,1,1,1,
+                                0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,
+                                0.0,0.0,0.0,0.0,0.0,0.0,
+                                0,0,0,0,
+                                0,0,0,
+                                0,0,0,0,
+                                1,1,1,
+                                1,1,1]) 
+        
     else:
+        # if working with defocus, but only one image
         if len(list_of_obs)==1:
             stronger_array_01=np.array([1,1,1,1,1,1,1,1,
                                     1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0, 
@@ -1058,7 +1124,7 @@ if twentytwo_or_extra>=22:
                         0.2,0.2,0.2,
                         0.2,0.2,1])
             """            
-            
+            # if working with defocus, but many images
             stronger_array_01=np.array([0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
                         0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
                         1.2,1.2,1.2,1.2,1.2,1.2,
@@ -1069,29 +1135,66 @@ if twentytwo_or_extra>=22:
                         1.2,1.2,1])            
             
      # should do Tokovinin here, then scatter parameters       
-            
-    print('array_of_polyfit_1_parameterizations_proposal_shape_2d: '+str(array_of_polyfit_1_parameterizations_proposal_shape_2d))
+    """
+    allparameters_proposal_22=np.array([    0.16492145,    -0.88632798,    -0.51669564,    -0.31938941,
+           0.50845528,    -0.4275001 ,    -0.58096021,     0.58544687,
+           0.03863879,     0.22954357,    -0.04948961,     0.03281349,
+           0.0587434 ,     0.050954  ,     0.02756475,    -0.03203576,
+          -0.03294923,     0.02517083,     0.04498642,     0.6982929 ,
+           0.10099376,    -0.22868679,     0.27114778,     0.06266987,
+           0.10090548,     0.2078081 ,     0.31853494,     0.31105295,
+           1.28564277,    -0.0509813 ,    -0.0183548 ,     0.87879873,
+           0.03103068,     0.7212447 ,     1.04674646,     0.57226047,
+       30096.76438941,     2.31074047,     0.00645553,     0.49203847,
+           1.83713253,     0.99250387,    -0.01291785,    -0.01807254,
+          -0.00805709,     0.01291273,     0.00101384,     0.00141808,
+          -0.01207241,     0.00628245,    -0.00219551,     0.01574115,
+           0.00356404,    -0.0226188 ,     0.00086017,     0.01206215,
+           0.00444335,    -0.00095454,    -0.00213609,     0.00216633,
+           0.01068864,    -0.00586613,     0.00746922,    -0.00992799,
+          -0.00369008,    -0.01585207,    -0.00102798,     0.00326984,
+          -0.00046356,    -0.00617323,    -0.01062363,     0.00643621,
+           0.00136246,     0.00197025,     0.00300083,     0.0008643 ])
+    """
+    #print(allparameters_proposal_22.shape)
+
     
     # create inital parameters  
-    parInit1=create_parInit(allparameters_proposal=array_of_polyfit_1_parameterizations_proposal_shape_2d,multi=multi_var,pupil_parameters=None,\
-                            allparameters_proposal_err=None,\
-                            stronger=stronger_array_01,use_optPSF=None,deduced_scattering_slope=None,zmax=zmax_input)
-    # the number of walkers is given by options array
-    while len(parInit1)<options[0]:
-        parInit1_2=create_parInit(allparameters_proposal=array_of_polyfit_1_parameterizations_proposal_shape_2d,multi=multi_var,pupil_parameters=None,\
-                                  allparameters_proposal_err=None,\
-                                  stronger= stronger_array_01,use_optPSF=None,deduced_scattering_slope=None,zmax=zmax_input)
-        parInit1=np.vstack((parInit1,parInit1_2))
- 
-    parInit1_std=[]
-    for i in range(23):
-        parInit1_std.append(np.std(parInit1[:,19*2+i]))
+    if len(list_of_obs)==1:
+        # if passing only one images, you have to create and pass parameters
+        print('allparameters_proposal_22: '+str(allparameters_proposal_22))
+        parInit1=create_parInit(allparameters_proposal=allparameters_proposal_22,multi=None,pupil_parameters=None,\
+                        allparameters_proposal_err=None,\
+                        stronger=stronger_array_01,use_optPSF=None,deduced_scattering_slope=None,zmax=zmax_input)
     
+        # the number of walkers is given by options array, specified with the parameter eps at the start
+        while len(parInit1)<options[0]:
+            parInit1_2=create_parInit(allparameters_proposal=allparameters_proposal_22,multi=None,pupil_parameters=None,\
+                                      allparameters_proposal_err=None,\
+                                      stronger= stronger_array_01,use_optPSF=None,deduced_scattering_slope=None,zmax=zmax_input)
+            parInit1=np.vstack((parInit1,parInit1_2))
+    
+    else:
+        # if passing multi, you pass the parametrizations
+        print('array_of_polyfit_1_parameterizations_proposal_shape_2d: '+str(array_of_polyfit_1_parameterizations_proposal_shape_2d))
+        parInit1=create_parInit(allparameters_proposal=array_of_polyfit_1_parameterizations_proposal_shape_2d,multi=multi_var,pupil_parameters=None,\
+                                allparameters_proposal_err=None,\
+                                stronger=stronger_array_01,use_optPSF=None,deduced_scattering_slope=None,zmax=zmax_input)
+            
+        # the number of walkers is given by options array, specified with the parameter eps at the start
+        while len(parInit1)<options[0]:
+            parInit1_2=create_parInit(allparameters_proposal=array_of_polyfit_1_parameterizations_proposal_shape_2d,multi=multi_var,pupil_parameters=None,\
+                                      allparameters_proposal_err=None,\
+                                      stronger= stronger_array_01,use_optPSF=None,deduced_scattering_slope=None,zmax=zmax_input)
+            parInit1=np.vstack((parInit1,parInit1_2))
+ 
+    # standard deviation of parameters (for control only?)
+    parInit1_std=[]
+    for i in range(parInit1.shape[1]):
+        parInit1_std.append(np.std(parInit1[:,i])) 
     parInit1_std=np.array(parInit1_std)
     print('parInit1_std: '+str(parInit1_std))
- 
-    
- 
+
     
     # number of particles and number of parameters
     particleCount=options[0]  
@@ -1105,49 +1208,108 @@ if twentytwo_or_extra>=22:
     best_particle_likelihood=particle_likelihood[0]    
 
     # 
+
     array_of_particle_position_proposal=parInit1[0:particleCount]
     array_of_particle_velocity_proposal=np.zeros((particleCount,paramCount))
+
+    
+    
     list_of_swarm=[]
     list_of_best_particle=[]
     
+    list_of_particles=[]
+    list_of_likelihood_of_particles=[]
     
-    print('Starting work on the initial best result')
-    time_start_initial=time.time()
-    best_result=Tokovinin_multi_instance_with_pool(array_of_polyfit_1_parameterizations_proposal_shape_2d,\
-                                                   return_Images=True,num_iter=None,previous_best_result=None,\
-                                                       use_only_chi=True)    
-    time_end_initial=time.time()
-    print('time for the initial evaluation is '+str(time_end_initial-time_start_initial))
+    if analysis_type=='defocus':
+        now = datetime.now()
+        print('Starting work on the initial best result (defocus) at '+str(now))
+        time_start_initial=time.time()
+        best_result=Tokovinin_multi_instance_with_pool(array_of_polyfit_1_parameterizations_proposal_shape_2d,\
+                                                       return_Images=True,num_iter=None,previous_best_result=None,\
+                                                           use_only_chi=True)    
+        time_end_initial=time.time()
+        print('time for the initial evaluation is '+str(time_end_initial-time_start_initial))
+    else:
+        # if you are infocus
+        now = datetime.now()
+        print('Starting work on the initial best result (focus) at '+str(now))
+        time_start_initial=time.time()
+                
+        best_result=model(allparameters_proposal_22,return_Image=False,use_only_chi=True)    
+        time_end_initial=time.time()
+        print('time for the initial evaluation is '+str(time_end_initial-time_start_initial))
         
    
-    #print('best_result' + str(best_result))
-    
+
+    if analysis_type=='defocus':    
+        # changed in version 0.45
+        #print('Initial evaluation output is: '+str(best_result[0]))
+        # the best likelihood after evaluation is now at stop 1 
+        # 0 shows likelihood before evaluation
+        print('Initial evaluation output is: '+str(best_result[1]))
+    else:
+        # 0 is where the likelihood coming from single model
+        print('Initial evaluation output is: '+str(best_result[0]))
     print('Finished work on the initial best result') 
     
+    array_of_particle_pbest_position=np.zeros((particleCount,paramCount))
+    array_of_particle_pbest_likelihood=np.ones((particleCount,1))*-9999999
     
-    c1=1.193
-    c2=1.193
+    np.save(RESULT_FOLDER+'initial_best_result_'+str(single_number)+str(arc)+str(eps),best_result)
+    
+    if analysis_type=='defocus':    
+        array_of_multi_background_factors=np.concatenate((np.arange(80,3,-(80-3)/(nsteps-1)),np.array([3])) )
+    else:
+        array_of_multi_background_factors=np.ones((nsteps))*3
+
+        
     
     for step in range(nsteps):
         
-        
-         
-        #np.save(RESULT_FOLDER+'array_of_particle_position_proposal'+str(step),array_of_particle_position_proposal)       
-        #np.save(RESULT_FOLDER+'best_result_m1'+str(step),best_result[-1])    
-        
-        print('Starting step '+str(step)+' out of '+str(nsteps))
+        #np.save(RESULT_FOLDER+'best_result'+str(step),best_result)
+        #np.save(RESULT_FOLDER+'array_of_particle_position_proposal'+str(step),array_of_particle_position_proposal)         
+  
+        now = datetime.now()
+        print('############################################################')
+        print('Starting step '+str(step)+' out of '+str(nsteps)+' at '+str(now))
+        print('array_of_multi_background_factors[step]: '+str(array_of_multi_background_factors[step]))
         time_start_evo_step=time.time()
         print('pool is: '+str(pool))
         # code that moves Zernike parameters via small movements
+        # each particle is evaluated individually
+        # but the changes of Zernike parameters are assumed from the previous best result
         # reports likelihod, but minimizes absolute different of images/std - model/std
-        out1=pool.map(partial(Tokovinin_multi_instance_without_pool, return_Images=True,\
-                              previous_best_result=best_result[-1],use_only_chi=True), array_of_particle_position_proposal)        
-        out2=np.array(list(out1))
-        time_end_evo_step=time.time()
-        print('time for the evaluation of a step '+str(step)+' is '+str(time_end_evo_step-time_start_evo_step))        
+        #out1=pool.map(partial(Tokovinin_multi_instance_without_pool, return_Images=True,\
+        #                      previous_best_result=best_result[-1],use_only_chi=True,\
+        #                      multi_background_factor=array_of_multi_background_factors[step]), array_of_particle_position_proposal)  
         
+        if analysis_type=='defocus':           
+            out1=pool.map(partial(Tokovinin_multi_instance_without_pool, return_Images=True,\
+                                  previous_best_result=best_result,use_only_chi=True,\
+                                  multi_background_factor=array_of_multi_background_factors[step]), array_of_particle_position_proposal)  
+            out2=np.array(list(out1))
+                
+            time_end_evo_step=time.time()
 
+            print('time for the evaluation of initial Tokovinin_multi_instance_without_pool in step '+str(step)+\
+            ' is '+str(time_end_evo_step-time_start_evo_step))   
         
+        else:
+            #list_of_particle_postion_focus_proposal=[]
+            #for l in range(len(array_of_particle_position_proposal)):
+            #    list_of_minchain=model_multi.create_list_of_allparameters(array_of_particle_position_proposal[0],\
+            #                                                          list_of_defocuses=['0'],zmax=56)
+            #    list_of_particle_postion_focus_proposal.append(list_of_minchain)
+            #array_of_particle_postion_focus_proposal=np.array(list_of_particle_postion_focus_proposal)
+            
+            out1=pool.map(partial(model, return_Image=True,use_only_chi=True), array_of_particle_position_proposal) 
+            out2=np.array(list(out1))
+
+            time_end_evo_step=time.time()
+
+            print('time for the evaluation of initial partial evulation over model in step '+str(step)+\
+            ' is '+str(time_end_evo_step-time_start_evo_step))   
+
         #print('out2.shape '+str(out2.shape))
         #np.save(RESULT_FOLDER+'out2'+str(step),out2)
 
@@ -1156,11 +1318,19 @@ if twentytwo_or_extra>=22:
         # swarm contains each particle - 0. likelihood, 1. position (after computation), 
         # 2. velocity (that brought you here, i.e., before computation)
         # initialized with outputs from Tokovinin_multi_instance_without_pool
+
+        
         swarm_list=[]
         for i in range(particleCount):
-            likelihood_single_particle=out2[i][0]
-            position_single_particle=out2[i][3]
             
+            if analysis_type=='defocus':  
+                # old version - 0, new version, after 0.45 - 1
+                likelihood_single_particle=out2[i][1]
+                # old version - 3/4, new version, after 0.45 - 8
+                position_single_particle=out2[i][8]
+            else:
+                likelihood_single_particle=out2[i][0]
+                position_single_particle=out2[i][2]
             
             if step==0:
                 velocity_single_particle=array_of_particle_velocity_proposal[i]
@@ -1180,43 +1350,67 @@ if twentytwo_or_extra>=22:
         swarm_likelihood=swarm[:,0]
     
         index_of_best=np.arange(len(swarm_likelihood))[swarm_likelihood==np.max(swarm_likelihood)][0]
-        best_particle_this_step=swarm[index_of_best]      
+        best_particle_this_step=swarm[index_of_best] 
+        #print('best_particle_this_step'+str(best_particle_this_step))
         best_particle_likelihood_this_step=best_particle_this_step[0]
         #np.save(RESULT_FOLDER+'best_particle_this_step'+str(step),best_particle_this_step)  
-        #print('best_particle_likelihood until now: '+str(best_particle_likelihood))            
-        print('proposed best_particle_likelihood_this_step: '+str(best_particle_likelihood_this_step))
-        # if the best particle from the swarm is suspected to be best particle overall
-        # compute the best_result 
-        if best_particle_likelihood_this_step>best_particle_likelihood:
-            # if the suggested likelihood is better than the best particle likelihood calculate and see if it is true
-            best_particle_proposal=best_particle_this_step
-            best_particle_proposal_position=best_particle_proposal[1]
+        print('best_particle_likelihood until now, step '+str(step)+': '+str(best_particle_likelihood))            
+        print('proposed best_particle_likelihood_this_step, step '+str(step)+': '+str(best_particle_likelihood_this_step))
+        
+        if analysis_type=='defocus': 
             
-            # update best_result
-            print('Starting work on the best result in step '+str(step))
-            print('Proposing best result: '+str(best_particle_proposal_position[:5]))
-            time_start_best=time.time()
-            best_result=Tokovinin_multi_instance_with_pool(best_particle_proposal_position,\
-                                                           return_Images=True,num_iter=None,previous_best_result=None,
-                                                           use_only_chi=True)    
-            time_end_best=time.time()
-            print('time for the best evaluation in step '+str(step)+' is '+str(time_end_best-time_start_best))
-
-            best_particle_likelihood_this_step=best_result[0]
-            best_particle_position_this_step=best_result[3]
-            
-            print('Best result output is: '+str(best_particle_proposal_position[:5]))
-            print('best_particle_likelihood until now: '+str(best_particle_likelihood))            
-            print('final best_particle_likelihood_this_step: '+str(best_particle_likelihood_this_step))
-
-            # if it is true, replace the best particle
+            # until 0.45, if the best particle from the swarm is suspected to be best particle overall we would compute the best_result 
+            # if best_particle_likelihood_this_step>best_particle_likelihood:
+            # testing in 0.45
+            if best_particle_likelihood_this_step>-9999:
+    
+                best_particle_proposal=best_particle_this_step
+                best_particle_proposal_position=best_particle_proposal[1]
+                
+                # update best_result
+                # we are computing if the best solution is actually as good as proposed solution
+                print('Starting work on the new proposed best result in step '+str(step))
+                time_start_best=time.time()
+                best_result=Tokovinin_multi_instance_with_pool(best_particle_proposal_position,\
+                                                               return_Images=True,num_iter=step,previous_best_result=None,
+                                                               use_only_chi=True,multi_background_factor=array_of_multi_background_factors[step])   
+                time_end_best=time.time()
+                print('Time for the best evaluation in step '+str(step)+' is '+str(time_end_best-time_start_best))
+    
+                best_particle_likelihood_this_step=best_result[1]
+                best_particle_position_this_step=best_result[8]
+                
+                print('Best result output is: '+str(best_particle_proposal_position[:5]))
+                print('best_particle_likelihood until now: '+str(best_particle_likelihood))            
+                print('final best_particle_likelihood_this_step: '+str(best_particle_likelihood_this_step))
+    
+                # until 0.45 if the particle is better than previous best result, replace the best particle
+                
+                # test in 0.45 - do it always
+                #if best_particle_likelihood_this_step>best_particle_likelihood:
+                if best_particle_likelihood_this_step>-9999:
+                    best_particle_likelihood=best_particle_likelihood_this_step
+                    best_particle_position=best_particle_position_this_step
+                    # likelihood of the best particle, its position and velocity is zero
+                    best_particle=[best_particle_likelihood,best_particle_position,np.zeros(paramCount)]
+            else:
+                # in 0.45 this should never happen unless the evaluation fails
+                print('Proposed solution is worse than current, so do not evaluate')
+        
+        else:
             if best_particle_likelihood_this_step>best_particle_likelihood:
+                
+                best_particle_likelihood_this_step=best_particle_this_step[0]
+                best_particle_position_this_step=best_particle_this_step[1]
+                
                 best_particle_likelihood=best_particle_likelihood_this_step
                 best_particle_position=best_particle_position_this_step
                 # likelihood of the best particle, its position and velocity is zero
                 best_particle=[best_particle_likelihood,best_particle_position,np.zeros(paramCount)]
-        
-
+                
+                
+                
+                
         # save result of the search for the best particle and result
         #np.save(RESULT_FOLDER+'best_particle'+str(step),best_particle)   
         #np.save(RESULT_FOLDER+'best_result'+str(step),best_result)    
@@ -1233,6 +1427,7 @@ if twentytwo_or_extra>=22:
             particle_likelihood=np.array(swarm[i][0])
             particle_position=np.array(swarm[i][1])
             
+            
             # if the particle failed (because it went outside global range), reduce its velocity
             #if particle_likelihood<=-9999999:
             #    particle_velocity=np.array(swarm[i][2])/5
@@ -1241,13 +1436,13 @@ if twentytwo_or_extra>=22:
               
             particle_velocity=np.array(swarm[i][2]) 
 
-            w = 0.5 + np.random.uniform(0,1,size=paramCount)/2
-            #w=0.72
+            #w = 0.5 + np.random.uniform(0,1,size=paramCount)/2
+            w=0.51
             part_vel = w * particle_velocity
+            # cog_vel set at 0 at the moment
             #cog_vel = c1 * numpy.random.uniform(0,1,size=paramCount) * (particle.pbest.position - particle.position)   
             cog_vel = c1 * np.random.uniform(0,1,size=paramCount) * (particle_position - particle_position)         
     
-            #soc_vel = c2 * np.random.uniform(0,1,size=paramCount) * (best_particle_position - particle_position)
             soc_vel = c2 * w * (best_particle_position - particle_position)
             
             
@@ -1257,15 +1452,28 @@ if twentytwo_or_extra>=22:
             # propose the position for next step and check if it is within limits
             # modify if it tries to venture outside limits
             proposed_particle_position = particle_position + proposed_particle_velocity
-            proposed_global_parameters=proposed_particle_position[38:38+23]
-            checked_global_parameters=check_global_parameters(proposed_global_parameters)
             
-            # warn if the checking algorithm changes one of the parameters
-            #if proposed_global_parameters!=checked_global_parameters:
-            #    print('checked_global_parameters are different from the proposed ones ')
+            if multi_var==False or multi_var==None:
+                proposed_global_parameters=proposed_particle_position[19:19+23]
+                checked_global_parameters=check_global_parameters(proposed_global_parameters)
             
-            new_particle_position=np.copy(proposed_particle_position)
-            new_particle_position[38:38+23]=checked_global_parameters
+                # warn if the checking algorithm changes one of the parameters
+                #if proposed_global_parameters!=checked_global_parameters:
+                    #    print('checked_global_parameters are different from the proposed ones ')
+            
+                new_particle_position=np.copy(proposed_particle_position)
+                new_particle_position[19:19+23]=checked_global_parameters                
+                
+            else:
+                proposed_global_parameters=proposed_particle_position[38:38+23]
+                checked_global_parameters=check_global_parameters(proposed_global_parameters)
+            
+                # warn if the checking algorithm changes one of the parameters
+                #if proposed_global_parameters!=checked_global_parameters:
+                    #    print('checked_global_parameters are different from the proposed ones ')
+            
+                new_particle_position=np.copy(proposed_particle_position)
+                new_particle_position[38:38+23]=checked_global_parameters
             
             particle_velocity=new_particle_position-particle_position            
             

@@ -93,7 +93,16 @@ Apr 01, 2021: 0.41e -> 0.42 changed bug/feature in checking wide_43 and wide_42 
 Apr 02, 2021: 0.42 -> 0.43 changed width of slit shadow and slit holder shadow
 Apr 04, 2021: 0.43 -> 0.44 implemented f_multiplier_factor 
 Apr 04, 2021: 0.44 -> 0.44a implemented possibility for using np.abs(chi) as likelihood
-Aor 08, 2021: 0.44a -> 0.44b propagated change from 0.44a to Tokovinin algorithm
+Apr 08, 2021: 0.44a -> 0.44b propagated change from 0.44a to Tokovinin algorithm
+Apr 12, 2021: 0.44b -> 0.44c modified renormalization factors for abs(chi) value
+Apr 13, 2021: 0.44c -> 0.44d fixed bug in the estimate of mean_value_of_background
+Apr 14, 2021: 0.44d -> 0.44e mean_value_of_background estimated from sci or var data
+Apr 22, 2021: 0.44e -> 0.44f introduced multi_background_factor
+Apr 27, 2021: 0.44f -> 0.45 Tokovinin now works much quicker with multi_background_factor (create_simplified_H updated)
+Apr 29, 2021: 0.45 -> 0.45a many changes in order to run create_simplified_H efficently
+May 07, 2021: 0.45a -> 0.45b if Premodel analysis failed, return 15 values
+May 08, 2021: 0.45b -> 0.45c changed that images of same size do not crash out_images creation
+May 14, 2021: 0.45c -> 0.45d create_parInit, changed from <> to <= and >=
 
 @author: Neven Caplar
 @contact: ncaplar@princeton.edu
@@ -170,7 +179,7 @@ __all__ = ['PupilFactory', 'Pupil','ZernikeFitter_PFS','LN_PFS_multi_same_spot',
            'sky_scale','sky_size','remove_pupil_parameters_from_all_parameters',\
            'resize','_interval_overlap','svd_invert','Tokovinin_multi','find_centroid_of_flux','create_custom_var']
 
-__version__ = "0.44a"
+__version__ = "0.45d"
 
 
 
@@ -857,7 +866,7 @@ class PFSPupilFactory(PupilFactory):
         time_misalign_end=time.time()
         
         if self.verbosity==1:
-            print('time misalign '+str(time_misalign_end-time_misalign_start))
+            print('Time to execute illumination considerations due to misalignment '+str(time_misalign_end-time_misalign_start))
         
         ####
         # misaligment ends here
@@ -884,11 +893,11 @@ class PFSPupilFactory(PupilFactory):
         
         # Cout out the acceptance angle of the camera
         #self._cutCircleExterior(pupil, (0.0, 0.0), subaruRadius)        
-        #print('checkpoint 1')  
+
         #print(self.det_vert)          
         # Cut out detector shadow
         #self._cutSquare(pupil, (camX, camY), hscRadius,self.input_angle,self.det_vert)       
-        #print('checkpoint 2')           
+         
         #No vignetting of this kind for the spectroscopic camera
         #self._cutCircleExterior(pupil, (lensX, lensY), lensRadius)
      
@@ -1759,13 +1768,14 @@ class ZernikeFitter_PFS(object):
         #  run the code for centering
         time_start_single=time.time()
         # set simulation_00='None', the simulated at 00 image has been created above
+        
+        #print('self.explicit_psf_position in main body'+str(self.explicit_psf_position))
+
         optPsf_cut_fiber_convolved_downsampled,psf_position=single_Psf_position.find_single_realization_min_cut(optPsf_cut_grating_convolved,
                                                                                int(round(oversampling)),shape[0],self.image,self.image_var,self.image_mask,
                                                                                v_flux=v['flux'],simulation_00='None',
                                                                                double_sources=self.double_sources,double_sources_positions_ratios=self.double_sources_positions_ratios,
                                                                                verbosity=self.verbosity,explicit_psf_position=self.explicit_psf_position)
-
-        
 
         time_end_single=time.time()
         if self.verbosity==1:
@@ -1981,9 +1991,6 @@ class ZernikeFitter_PFS(object):
         if self.verbosity==1:  
             print('size_of_ilum_in_units_of_radius: '+str(size_of_ilum_in_units_of_radius))
             
-        if self.verbosity==1: 
-            print('radiometric parameters are: ')     
-            print('x_ilum,y_ilum,radiometricEffect,radiometricExponent'+str([params['x_ilum'],params['y_ilum'],params['radiometricEffect'],params['radiometricExponent']]))    
 
 
         # do not caculate the ``radiometric effect (difference between entrance and exit pupil) if paramters are too small to make any difference
@@ -1993,6 +2000,11 @@ class ZernikeFitter_PFS(object):
             if self.verbosity==1:  
                 print('skiping ``radiometric effect\'\' ')
             ilum_radiometric=ilum
+            
+            if self.verbosity==1: 
+                print('radiometric parameters are: ')     
+                print('x_ilum,y_ilum,radiometricEffect,radiometricExponent'+str([params['x_ilum'],params['y_ilum'],params['radiometricEffect'],params['radiometricExponent']]))    
+
         else:
             # add the change of flux between the entrance and exit pupil
             # end product is radiometricEffectArray
@@ -2663,83 +2675,111 @@ class LN_PFS_multi_same_spot(object):
         return array_of_polyfit_1_parameterizations
         
 
-    def lnlike_Neven_multi_same_spot(self,list_of_allparameters_input,return_Images=False,use_only_chi=False):
+    def lnlike_Neven_multi_same_spot(self,list_of_allparameters_input,return_Images=False,\
+                                     use_only_chi=False,multi_background_factor=3):
         
-
         
         list_of_single_res=[]
         if return_Images==True:
             list_of_single_model_image=[]
             list_of_single_allparameters=[]
             list_of_single_chi_results=[]
-            
-        #print(len(self.list_of_sci_images))
-        #print(len(list_of_allparameters_input))
-        
+      
         if len(self.list_of_sci_images)==len(list_of_allparameters_input):
             list_of_allparameters=np.copy(list_of_allparameters_input)
+
         else:
-            #print(self.list_of_defocuses)
             allparametrization=list_of_allparameters_input
+            
+            print('self.list_of_defocuses: '+str(self.list_of_defocuses))
+            print('allparametrization.type: '+str(allparametrization.type))
             list_of_allparameters=self.create_list_of_allparameters(allparametrization,list_of_defocuses=self.list_of_defocuses)
 
             if self.verbosity==1:
                 print('Starting LN_PFS_multi_same_spot for parameters-hash '+str(hash(str(allparametrization.data)))+' at '+str(time.time())+' in thread '+str(threading.get_ident())) 
         
-
         assert len(self.list_of_sci_images)==len(list_of_allparameters)
         
+
         #print(len(self.list_of_sci_images))
         #print(len(list_of_allparameters)) 
+
         
-        # find image with lowest variance - pressumably the one in focus
-        array_of_var_sum=np.array(list(map(np.sum,self.list_of_var_images)))
-        index_of_max_var_sum=np.where(array_of_var_sum==np.min(array_of_var_sum))[0][0]
-        # find what variance selectes top 20% of pixels
-        # this is done to weight more the images in focus and less the image out of focus in the 
-        # final likelihood result
-        quantile_08_focus=np.quantile(self.list_of_sci_images[index_of_max_var_sum],0.8)
-        
-        list_of_var_sums=[]
-        for i in range(len(list_of_allparameters)):
-            # taking from create_chi_2_almost function in LN_PFS_single
+   
+        # use same weights, experiment
+        if use_only_chi==True:
+            renormalization_of_var_sum=np.ones((len(self.list_of_sci_images)))
+        else:
+            
+      
+            # find image with lowest variance - pressumably the one in focus
+            array_of_var_sum=np.array(list(map(np.sum,self.list_of_var_images)))
+            index_of_max_var_sum=np.where(array_of_var_sum==np.min(array_of_var_sum))[0][0]
+            # find what variance selectes top 20% of pixels
+            # this is done to weight more the images in focus and less the image out of focus in the 
+            # final likelihood result
+            quantile_08_focus=np.quantile(self.list_of_sci_images[index_of_max_var_sum],0.8)
             
             
-            mask_image=self.list_of_mask_images[i]
-            var_image=self.list_of_var_images[i]
-            sci_image=self.list_of_sci_images[i]
-            # array that has True for values which are good and False for bad values
-            inverted_mask=~mask_image.astype(bool)
+            list_of_var_sums=[]
+            for i in range(len(list_of_allparameters)):
+                # taking from create_chi_2_almost function in LN_PFS_single
+                
+                
+                mask_image=self.list_of_mask_images[i]
+                var_image=self.list_of_var_images[i]
+                sci_image=self.list_of_sci_images[i]
+                # array that has True for values which are good and False for bad values
+                inverted_mask=~mask_image.astype(bool)
+                
+                try:
+                    mean_value_of_background=np.mean([np.median(var_image[0]),np.median(var_image[-1]),\
+                                                  np.median(var_image[:,0]),np.median(var_image[:,-1])])*multi_background_factor
+                except:
+                    pass
+    
+                # select only images with above 80% percentile of the image with max variance?         
+                var_image_masked=var_image*inverted_mask
+                var_image_masked_without_nan = var_image_masked.ravel()[var_image_masked.ravel()>quantile_08_focus]
+                
+                
+                
+                if use_only_chi==False:
+                    # if you level is too high
+                    if len(var_image_masked_without_nan)==0:
+                        var_sum=-1/2
+                    else:
+                        var_sum=-(1/2)*(np.sum(np.log(2*np.pi*var_image_masked_without_nan)))
+    
+                else:
+    
+    
+                    # if you level is too high
+                    if len(var_image_masked_without_nan)==0:
+                        var_sum=-(1)
+                    else:
+                        var_sum=-(1)*(np.mean(np.abs(var_image_masked_without_nan)))
+                list_of_var_sums.append(var_sum)
+    
+    
+            # renormalization needs to be reconsidered?
+            array_of_var_sum=np.array(list_of_var_sums)
+            max_of_array_of_var_sum=np.max(array_of_var_sum)
             
-            try:
-                mean_value_of_background=np.mean([np.median(sci_image),np.median(sci_image),\
-                      np.median(sci_image),np.median(sci_image)])*3
-            except:
-                pass
-            
-            #         
-            var_image_masked=var_image*inverted_mask
-            var_image_masked_without_nan = var_image_masked.ravel()[var_image_masked.ravel()>quantile_08_focus]
-            
-            var_sum=-(1/2)*(np.sum(np.log(2*np.pi*var_image_masked_without_nan)))
-            
-            list_of_var_sums.append(var_sum)
-        
-        # renormalization needs to be reconsidered?
-        array_of_var_sum=np.array(list_of_var_sums)
-        max_of_array_of_var_sum=np.max(array_of_var_sum)
-        renormalization_of_var_sum=array_of_var_sum/max_of_array_of_var_sum
+    
+            renormalization_of_var_sum=array_of_var_sum/max_of_array_of_var_sum
+
         list_of_psf_positions_output=[]
-        
-        
+
+
+
         for i in range(len(list_of_allparameters)):
-            
+
             if self.verbosity==1:
                 print('################################')
                 print('analyzing image '+str(i+1)+' out of '+str(len(list_of_allparameters)))
                 print(' ')           
 
-            
             # if this is the first image, do the full analysis, generate new pupil and illumination
             if i==0:
                 model_single=LN_PFS_single(self.list_of_sci_images[i],self.list_of_var_images[i],self.list_of_mask_images[i],dithering=self.dithering,save=self.save,verbosity=self.verbosity,
@@ -2751,7 +2791,8 @@ class LN_PFS_multi_same_spot(object):
 
                 res_single_with_intermediate_images=model_single(list_of_allparameters[i],\
                                                                  return_Image=True,return_intermediate_images=True,
-                                                                 use_only_chi=use_only_chi)
+                                                                 use_only_chi=use_only_chi,\
+                                                                 multi_background_factor=multi_background_factor)
                 #print(res_single_with_intermediate_images)
                 if res_single_with_intermediate_images==-np.inf:
                     return -np.inf
@@ -2789,7 +2830,8 @@ class LN_PFS_multi_same_spot(object):
 
                     res_single_without_intermediate_images=model_single(list_of_allparameters[i],\
                                                                         return_Image=return_Images,\
-                                                                        use_only_chi=use_only_chi)
+                                                                        use_only_chi=use_only_chi,\
+                                                                        multi_background_factor=multi_background_factor)
                     #print(res_single_without_intermediate_images)
             
                     likelihood_result=res_single_without_intermediate_images[0]
@@ -2850,26 +2892,33 @@ class LN_PFS_multi_same_spot(object):
         if return_Images==False:
             return mean_res_of_multi_same_spot
         if return_Images==True:
-            # mean_res_of_multi_same_spot - mean likelihood per images
-            # list_of_single_res - likelihood per image
-            # list_of_single_model_image - list of created model images
-            # list_of_single_allparameters - list of parameters per image?
-            # list_of_single_chi_results - list of arrays describing quality of fitting
+            # 0. mean_res_of_multi_same_spot - mean likelihood per images
+            # 1. list_of_single_res - likelihood per image
+            # 2. list_of_single_model_image - list of created model images
+            # 3. list_of_single_allparameters - list of parameters per image?
+            # 4. list_of_single_chi_results - list of arrays describing quality of fitting
             #           1. chi2_max value, 2. Qvalue, 3. chi2/d.o.f., 4. chi2_max/d.o.f.  
-            # array_of_psf_positions_output - list showing the centering of images
+            # 5. array_of_psf_positions_output - list showing the centering of images
             
             return mean_res_of_multi_same_spot,list_of_single_res,list_of_single_model_image,\
                 list_of_single_allparameters,list_of_single_chi_results,array_of_psf_positions_output
         
 
 
-    def __call__(self, list_of_allparameters,return_Images=False,use_only_chi=False):
-            return self.lnlike_Neven_multi_same_spot(list_of_allparameters,return_Images=return_Images,use_only_chi=use_only_chi)
+    def __call__(self, list_of_allparameters,return_Images=False,use_only_chi=False,multi_background_factor=3):
+            return self.lnlike_Neven_multi_same_spot(list_of_allparameters,return_Images=return_Images,\
+                                                     use_only_chi=use_only_chi,\
+                                                     multi_background_factor=multi_background_factor)
             
 class Tokovinin_multi(object):
     
     """
     
+    # improvments possible - modify by how much to move parameters based on the previous step
+    # in simplied H, take new model into account where doing changes
+    
+    ########################################
+    # old 
     final_model_result,list_of_final_model_result,list_of_image_final,\
     allparameters_parametrization_proposal_after_iteration,\
     list_of_finalinput_parameters,list_of_after_chi2,list_of_final_psf_positions
@@ -2878,12 +2927,47 @@ class Tokovinin_multi(object):
         
     0. likelihood averaged over all images
     1. likelihood per image (output from model_multi)
-    2. list of final model images
-    3. parametrization after the function
-    4. list of parameters per image 
-    5. list of chi2 per image 
-    6. list of psf position of image
-
+    2. out_images
+    3. list of final model images
+    4. parametrization after the function
+    5. list of parameters per image 
+    6. list of chi2 per image 
+    7. list of psf position of image
+    
+    ########################################    
+    # new version
+    initial_model_result,final_model_result,\
+    list_of_initial_model_result,list_of_final_model_result,\
+    out_images, pre_images, list_of_image_final,\
+    allparameters_parametrization_proposal, allparameters_parametrization_proposal_after_iteration,\
+    list_of_initial_input_parameters, list_of_finalinput_parameters,\
+    list_of_pre_chi2,list_of_after_chi2,\
+    list_of_psf_positions,list_of_final_psf_positions,\
+    [uber_images_normalized,uber_M0_std,H_std,array_of_delta_z_parametrizations_None,list_of_final_psf_positions] 
+    
+    0. likelihood averaged over all images (before the function)    
+    1. likelihood averaged over all images (after the function)
+    2. likelihood per image (output from model_multi) (before the function)
+    3. likelihood per image (output from model_multi) (after the function)
+    4. out_images
+    5. list of initial model images
+    6. list of final model images 
+    7. parametrization before the function
+    8. parametrization after the function
+    9. list of parameters per image (before the function)
+    10. list of parameters per image (after the function)
+    11. list of chi2 per image (before the function)
+    12. list of chi2 per image (after the function)
+    13. list of psf position of image (function the function)
+    14. list of psf position of image (after the function)
+    
+    15. [uber_images_normalized,uber_M0,H,array_of_delta_z_parametrizations_None,list_of_final_psf_positions]
+    15.0. uber_images_normalized
+    15.1. uber_M0
+    15.2. H
+    15.3. array_of_delta_z_parametrizations_None
+    15.4. list_of_final_psf_positions
+    
     
     
     """
@@ -2904,7 +2988,7 @@ class Tokovinin_multi(object):
         @param list_of_mask_images                     list of mask images, 2d arrays, which are the same size as sci_image
         @param dithering                               dithering, 1=normal, 2=two times higher resolution, 3=not supported
         @param save                                    save intermediate result in the process (set value at 1 for saving)
-        @param verbosity                               verbosity of the process (set value at 1 for full output, 0==nothing)
+        @param verbosity                               verbosity of the process (set value at 2 for full output, 1 only in Tokovinin, 0==nothing)
         
         @param pupil_parameters
         @param use_pupil_parameters
@@ -2926,7 +3010,7 @@ class Tokovinin_multi(object):
         @param test_run                                if True, skips the creation of model and return science image - useful for testing
                                                        interaction of outputs of the module in broader setting quickly 
                                                        
-        @param explicit_psf_position                   gives position of the opt_psf
+        @param list_of_psf_positions                   gives position of the opt_psf
         @param num_iter                                number of iteration
         @param move_allparameters                      if True change all parameters i.e., also ``global'' parameters, i.e., not just wavefront parameters
         @param pool                                    pass pool of workers to calculate
@@ -2947,8 +3031,10 @@ class Tokovinin_multi(object):
             assert np.sum(np.abs(double_sources_positions_ratios))>0    
 
         if zmax is None:
-            zmax=11
-                      
+            zmax=22
+                       
+            
+        """             
         if zmax==11:
             self.columns=['z4','z5','z6','z7','z8','z9','z10','z11',
                           'hscFrac','strutFrac','dxFocal','dyFocal','slitFrac','slitFrac_dy',
@@ -2964,6 +3050,23 @@ class Tokovinin_multi(object):
               'x_fiber','y_fiber','effective_ilum_radius','frd_sigma','frd_lorentz_factor','det_vert','slitHolder_frac_dx',
               'grating_lines','scattering_slope','scattering_amplitude',
               'pixel_effect','fiber_r','flux']    
+        """  
+        
+        if zmax==11:
+            self.columns=['z4','z5','z6','z7','z8','z9','z10','z11',
+                          'hscFrac','strutFrac','dxFocal','dyFocal','slitFrac','slitFrac_dy',
+                          'wide_0','wide_23','wide_43','misalign',
+                          'x_fiber','y_fiber','effective_ilum_radius','frd_sigma','frd_lorentz_factor','det_vert','slitHolder_frac_dx',
+                          'grating_lines','scattering_slope','scattering_amplitude',
+                          'pixel_effect','fiber_r','flux']         
+        if zmax>=22:
+            self.columns=['z4','z5','z6','z7','z8','z9','z10','z11',
+                          'z12','z13','z14','z15','z16','z17','z18','z19','z20','z21','z22', 
+              'hscFrac','strutFrac','dxFocal','dyFocal','slitFrac','slitFrac_dy',
+              'wide_0','wide_23','wide_43','misalign',
+              'x_fiber','y_fiber','effective_ilum_radius','frd_sigma','frd_lorentz_factor','det_vert','slitHolder_frac_dx',
+              'grating_lines','scattering_slope','scattering_amplitude',
+              'pixel_effect','fiber_r','flux']  
         
         self.list_of_sci_images=list_of_sci_images
         self.list_of_var_images=list_of_var_images
@@ -3020,15 +3123,30 @@ class Tokovinin_multi(object):
         
     def Tokovinin_algorithm_chi_multi(self,allparameters_parametrization_proposal,\
                                       return_Images=False,num_iter=None,previous_best_result=None,
-                                      use_only_chi=False):
+                                      use_only_chi=False,multi_background_factor=3,up_to_which_z=None):
         
         
         """
-        
-        
+        @param allparameters_parametrization_proposal
+        @param return_Images
+        @param num_iter
+        @param previous_best_result
+        @param use_only_chi
+        @param multi_background_factor
         """
         
-
+        
+        if self.verbosity>=1:
+            print('Tokovinin, return_Images: '+str(return_Images))
+            print('Tokovinin, num_iter: '+str(num_iter))
+            print('Tokovinin, use_only_chi: '+str(use_only_chi))
+            print('Tokovinin, multi_background_factor: '+str(multi_background_factor))
+            
+            print('allparameters_parametrization_proposal'+str(allparameters_parametrization_proposal))
+            print('allparameters_parametrization_proposal.shape'+str(allparameters_parametrization_proposal.shape))
+        
+        
+        
         
         list_of_sci_images=self.list_of_sci_images
         list_of_var_images=self.list_of_var_images
@@ -3048,11 +3166,16 @@ class Tokovinin_multi(object):
         move_allparameters=self.move_allparameters
         
         # if you passed previous best result, set the list_of_explicit_psf_positions
-        # by default it is put as the last element in the previous_best_result output
+        # by default it is put as the last element in the last cell in the previous_best_result output
         if previous_best_result is not None:
-            self.list_of_psf_positions=previous_best_result[-1]
+            # to be compatible with versions before 0.45
+            if len(previous_best_result)==5:
+                self.list_of_psf_positions=previous_best_result[-1]   
+            else:
+                self.list_of_psf_positions=previous_best_result[-1][-1]   
+
             
-        
+
 
         
         #########################################################################################################
@@ -3061,6 +3184,10 @@ class Tokovinin_multi(object):
         # 3. pre_input_parameters, 4. chi_2_before_iteration_array, 5. list_of_psf_positions
         if self.verbosity>=1:
             print('list_of_defocuses analyzed: '+str(list_of_defocuses_input_long))
+            
+
+        #print('self.list_of_psf_positions in Tokovinin: '+str(self.list_of_psf_positions))
+            
         model_multi=LN_PFS_multi_same_spot(list_of_sci_images,list_of_var_images,list_of_mask_images=list_of_mask_images,\
                                            dithering=self.dithering,save=self.save,zmax=self.zmax,verbosity=self.verbosity_model,\
                                            double_sources=self.double_sources, double_sources_positions_ratios=self.double_sources_positions_ratios,\
@@ -3089,17 +3216,23 @@ class Tokovinin_multi(object):
         if self.verbosity>=1:
             print('Starting premodel analysis ') 
             
+        # results from initial run, before running fitting algorithm
         # pre_model_result - mean likelihood across all images
         # model_results - likelihood per image
         # pre_images - list of created model images
         # pre_input_parameters - list of parameters per image?
         # chi_2_before_iteration_array - list of lists describing quality of fitting      
         # list_of_psf_positions -?        
-        try:    
+        try:
+            #print('checkpoint 0')
+            #print('len(list_of_minchain): '+str(len(list_of_minchain)))
+            #print('list_of_minchain[0] '+str(list_of_minchain[0]))
             pre_model_result,model_results,pre_images,pre_input_parameters,chi_2_before_iteration_array,list_of_psf_positions=\
-                model_multi(list_of_minchain,return_Images=True,use_only_chi=use_only_chi)
+                model_multi(list_of_minchain,return_Images=True,use_only_chi=use_only_chi,\
+                            multi_background_factor=multi_background_factor)
+            #print('checkpoint 1')
             # modify variance image according to the models that have just been created
-            ### first time modifying variance image
+            ######## first time modifying variance image
             list_of_single_model_image=pre_images
             list_of_var_images_via_model=[]
             for index_of_single_image in range(len(list_of_sci_images)):
@@ -3107,20 +3240,26 @@ class Tokovinin_multi(object):
                                                 var_image=list_of_var_images[index_of_single_image],mask_image=list_of_mask_images[index_of_single_image])
                 
                 list_of_var_images_via_model.append(single_var_image_via_model)
+                   
+            #print('checkpoint 2')   
             # replace the variance images provided with these custom variance images
             list_of_var_images=list_of_var_images_via_model
             self.list_of_var_images=list_of_var_images
                 
-        except:
+        except Exception as e: 
+            print(e)
             if self.verbosity>=1:
-                print('premodel analysis failed')
+                print('Premodel analysis failed')
             # if the modelling failed
             # returning 7 nan values to be consistent with what would be the return if the algorithm passed    
             # at position 0 return extremly likelihood to indicate failure
             # at position 3 return the input parametrization
-            return -9999999,np.nan,np.nan,allparameters_parametrization_proposal,np.nan,np.nan,np.nan
+            #return -9999999,np.nan,np.nan,allparameters_parametrization_proposal,np.nan,np.nan,np.nan
+            return -9999999,-9999999, np.nan,np.nan,np.nan, np.nan, np.nan,
+            allparameters_parametrization_proposal,allparameters_parametrization_proposal,
+            np.nan,np.nan,np.nan,np.nan,np.nan,np.nan
 
-                
+    
             
         if self.verbosity>=1:
             print('list_of_psf_positions at the input stage: '+str(np.array(list_of_psf_positions)))
@@ -3145,33 +3284,36 @@ class Tokovinin_multi(object):
         
     
         # this needs to change - do I ever use this?!?
-        chi_2_before_iteration=chi_2_before_iteration_array[2]
+        #chi_2_before_iteration=chi_2_before_iteration_array[2]
 
         # extract the parameters which will not change in this function, i.e., not-wavefront parameters
         nonwavefront_par=list_of_minchain[0][19:42]
         time_end_single=time.time()
         if self.verbosity>=1:
             print('Total time taken was  '+str(time_end_single-time_start_single)+' seconds')
-            print('chi_2_pre_input_parameters is: '+str(chi_2_before_iteration_array[2]))  
+            print('chi_2_before_iteration is: '+str(chi_2_before_iteration_array))  
 
             print('Ended premodel analysis ')    
             print('***********************') 
 
         
-        # import science images and mask them     
+        # import science images and determine the flux mask      
         list_of_mean_value_of_background=[]
         list_of_flux_mask=[]
         list_of_sci_image_std=[]
         for i in range(len(list_of_sci_images)):
             sci_image=list_of_sci_images[i]
+            var_image=list_of_var_images[i]
     
-            mean_value_of_background=np.mean([np.median(sci_image[0]),np.median(sci_image[-1]),\
-                                              np.median(sci_image[:,0]),np.median(sci_image[:,-1])])*5
+            mean_value_of_background_via_var=np.mean([np.median(var_image[0]),np.median(var_image[-1]),\
+                                                  np.median(var_image[:,0]),np.median(var_image[:,-1])])*multi_background_factor
+         
+            mean_value_of_background_via_sci=np.mean([np.median(sci_image[0]),np.median(sci_image[-1]),\
+                                                  np.median(sci_image[:,0]),np.median(sci_image[:,-1])])*multi_background_factor
                 
-            if move_allparameters==True:
-                # why did I do this?
-                mean_value_of_background=np.mean([np.median(sci_image[0]),np.median(sci_image[-1]),\
-                                      np.median(sci_image[:,0]),np.median(sci_image[:,-1])])*3
+            mean_value_of_background=np.max([mean_value_of_background_via_var,mean_value_of_background_via_sci])
+            if self.verbosity>1:
+                print(str(multi_background_factor)+'x mean_value_of_background in image with index'+str(i)+' is estimated to be: '+str(mean_value_of_background))
                 
     
             list_of_mean_value_of_background.append(mean_value_of_background)
@@ -3184,7 +3326,8 @@ class Tokovinin_multi(object):
             list_of_sci_image_std.append(sci_image_std)
             list_of_flux_mask.append(flux_mask)
 
-        
+        self.list_of_flux_mask=list_of_flux_mask
+        self.list_of_sci_image_std=list_of_sci_image_std
         ######################################################################################################### 
         # masked science image
         list_of_I=[]
@@ -3217,6 +3360,8 @@ class Tokovinin_multi(object):
         if num_iter!=None:
             np.save('/tigress/ncaplar/Results/list_of_sci_images_'+str(num_iter),\
                     list_of_sci_images)   
+            np.save('/tigress/ncaplar/Results/list_of_mean_value_of_background_'+str(num_iter),\
+                    list_of_mean_value_of_background)  
             np.save('/tigress/ncaplar/Results/list_of_flux_mask_'+str(num_iter),\
                     list_of_flux_mask)   
             np.save('/tigress/ncaplar/Results/uber_std_'+str(num_iter),\
@@ -3246,13 +3391,15 @@ class Tokovinin_multi(object):
         
         number_of_non_decreses=[0]
         
-        for iteration_number in range(1): 
+        for iteration_number in range(5): 
     
     
             if iteration_number==0:
                 
                 # initial SVD treshold
                 thresh0 = 0.02
+            else:
+                pass
                 
         
     
@@ -3282,13 +3429,24 @@ class Tokovinin_multi(object):
                 if np.mod(z_par_i,2)==1:
                     list_of_delta_z_parametrizations.append(0.05/np.sqrt(z_par_i))
                         
-    
+            array_of_delta_z_parametrizations=np.array(list_of_delta_z_parametrizations)*(1)
+               
+            
+            if iteration_number==0: 
+                pass
+            else:
+                #array_of_delta_z_parametrizations=first_proposal_Tokovnin/4
+                array_of_delta_z_parametrizations=np.maximum(array_of_delta_z_parametrizations,first_proposal_Tokovnin/4)
+                
+                
+            # this code might work with global parameters?
             array_of_delta_global_parametrizations=np.array([0.1,0.02,0.1,0.1,0.1,0.1,
                                             0.3,1,0.1,0.1,
                                             0.15,0.15,0.1,
                                             0.07,0.05,0.05,0.4,
                                             30000,0.5,0.001,
                                             0.05,0.05,0.01])
+            #array_of_delta_global_parametrizations=array_of_delta_global_parametrizations/1
             array_of_delta_global_parametrizations=array_of_delta_global_parametrizations/10
     
             # array, randomized delta extra zernike
@@ -3297,7 +3455,7 @@ class Tokovinin_multi(object):
             #array_of_delta_z_parametrizations=+np.array(list_of_delta_z_parametrizations)*array_of_delta_parametrizations_randomize
             
             
-            array_of_delta_z_parametrizations=np.array(list_of_delta_z_parametrizations)*(1)
+
             
             if move_allparameters==True:
                 array_of_delta_all_parametrizations=np.concatenate((array_of_delta_z_parametrizations[0:19*2],\
@@ -3318,6 +3476,9 @@ class Tokovinin_multi(object):
             # initialize 
             # if this is the first iteration of the iterative algorithm
             if iteration_number==0:
+                
+                
+                
                 thresh=thresh0
                 all_global_parametrization_old=allparameters_parametrization_proposal[19*2:19*2+23]
                 if number_of_extra_zernike==0:
@@ -3390,7 +3551,9 @@ class Tokovinin_multi(object):
             list_of_minchain=model_multi.create_list_of_allparameters(initial_input_parameterization,list_of_defocuses=list_of_defocuses_input_long,zmax=self.zmax)
             #list_of_minchain=model_multi.create_list_of_allparameters(allparameters_parametrization_proposal,list_of_defocuses=list_of_defocuses_input_long,zmax=56)
     
-            res_multi=model_multi(list_of_minchain,return_Images=True,use_only_chi=use_only_chi)            
+            # moved in under `else` statment
+            #res_multi=model_multi(list_of_minchain,return_Images=True,use_only_chi=use_only_chi,\
+            #                      multi_background_factor=multi_background_factor)            
             
             # if this is the first iteration take over the results from premodel run
             if iteration_number==0:
@@ -3398,13 +3561,14 @@ class Tokovinin_multi(object):
                         list_of_initial_input_parameters,list_of_pre_chi2,list_of_psf_positions=\
                         pre_model_result,model_results,pre_images,pre_input_parameters,chi_2_before_iteration_array,list_of_psf_positions
             else:
-
+                res_multi=model_multi(list_of_minchain,return_Images=True,use_only_chi=use_only_chi,\
+                                  multi_background_factor=multi_background_factor)    
                 #mean_res_of_multi_same_spot_proposal,list_of_single_res_proposal,list_of_single_model_image_proposal,\
                 #            list_of_single_allparameters_proposal,list_of_single_chi_results_proposal=res_multi  
                 initial_model_result,list_of_initial_model_result,list_of_image_0,\
                             list_of_initial_input_parameters,list_of_pre_chi2,list_of_psf_positions=res_multi   
                 # modify variance image according to the models that have just been created
-                ### second time modifying variance image
+                ######## second time modifying variance image
                 list_of_single_model_image=list_of_image_0
                 list_of_var_images_via_model=[]
                 for index_of_single_image in range(len(list_of_sci_images)):
@@ -3444,8 +3608,8 @@ class Tokovinin_multi(object):
             
         
             ######################################################################################################### 
-            # masked model images at the start of this iteration, before modifying parameters
-            
+            # mask model images at the start of this iteration, before modifying parameters
+            # create uber_M0
             
             list_of_M0=[]
             list_of_M0_std=[]
@@ -3475,6 +3639,7 @@ class Tokovinin_multi(object):
             #uber_M0_std=uber_M0_std/np.sum(uber_M0_std)
         
             self.uber_M0=uber_M0
+            self.uber_M0_std=uber_M0_std
         
             if num_iter!=None:
                 np.save('/tigress/ncaplar/Results/uber_M0_'+str(num_iter)+'_'+str(iteration_number),\
@@ -3495,11 +3660,12 @@ class Tokovinin_multi(object):
             
             # mean of differences of our images - should we use mean?; probably not... needs to be normalized?
             unitary_IM_start=np.mean(IM_start)  
-            #unitary_IM_start_std=np.mean(IM_start_std)  
+            unitary_IM_start_std=np.mean(IM_start_std)  
                 
             #print list_of_IM_start_std
             if self.verbosity==1:
                 print('np.sum(np.abs(I-M0)) before iteration '+str(num_iter)+'_'+str(iteration_number)+': '+str(unitary_IM_start))  
+                print('np.sum(np.abs(I_std-M0_std)) before iteration '+str(num_iter)+'_'+str(iteration_number)+': '+str(unitary_IM_start_std))  
             #print('np.sum(np.abs(I_std-M0_std)) before iteration '+str(iteration_number)+': '+str(unitary_IM_start_std))  
         
         
@@ -3511,7 +3677,7 @@ class Tokovinin_multi(object):
             # create two lists:
             # 1. one contains only wavefront parametrizations
             # 2. second contains the whole parametrizations
-            
+            #print('checkpoint 0')
             if move_allparameters==True:
                 list_of_all_wavefront_z_parameterization=[]
                 list_of_input_parameterizations=[]
@@ -3526,7 +3692,7 @@ class Tokovinin_multi(object):
                     parametrization_proposal=np.concatenate((up_to_z22_start,nonwavefront_par,from_z22_start))
                     # actually it is parametrization
                     list_of_input_parameterizations.append(parametrization_proposal)  
-    
+                    #print('checkpoint 1')
                 for g_par in range(23):
                     all_global_parametrization_list=np.copy(all_global_parametrization_old)
                     all_global_parametrization_list[g_par]=all_global_parametrization_list[g_par]+array_of_delta_global_parametrizations[g_par]
@@ -3538,7 +3704,7 @@ class Tokovinin_multi(object):
                     parametrization_proposal=np.concatenate((up_to_z22_start,all_global_parametrization_list,from_z22_start))
                     # actually it is parametrization
                     list_of_input_parameterizations.append(parametrization_proposal)  
-    
+                    #print('checkpoint 2')
                 for z_par in range(19*2,len(all_wavefront_z_parametrization_old)):
                     all_wavefront_z_parametrization_list=np.copy(all_wavefront_z_parametrization_old)
                     all_wavefront_z_parametrization_list[z_par]=all_wavefront_z_parametrization_list[z_par]+array_of_delta_z_parametrizations[z_par]
@@ -3550,7 +3716,7 @@ class Tokovinin_multi(object):
                     parametrization_proposal=np.concatenate((up_to_z22_start,nonwavefront_par,from_z22_start))
                     # actually it is parametrization
                     list_of_input_parameterizations.append(parametrization_proposal)  
-    
+                    #print('checkpoint 3')
                 
             else:
                 list_of_all_wavefront_z_parameterization=[]
@@ -3566,6 +3732,7 @@ class Tokovinin_multi(object):
                     parametrization_proposal=np.concatenate((up_to_z22_start,nonwavefront_par,from_z22_start))
                     # actually it is parametrization
                     list_of_input_parameterizations.append(parametrization_proposal)    
+                    #print('checkpoint 4')
             
             ######################################################################################################### 
             # Starting testing new set of parameters
@@ -3622,37 +3789,43 @@ class Tokovinin_multi(object):
                 
                 
             ######## start of creating H
+            
+            # H is normalized difference between pixel values of model image that result from changing the j-th term
+            # This is expensive because we have to generate new image for each change of j-th term
             if previous_best_result==None:
                     
                 if self.verbosity>=1:
                     print('self.pool parameter is: '+str(self.pool))
                 
+                # generate images
                 if self.pool is None:   
-                    out1=map(partial(model_multi_out, return_Images=True,use_only_chi=use_only_chi), uber_list_of_input_parameters)
+                    out1=map(partial(model_multi_out, return_Images=True,\
+                                     use_only_chi=use_only_chi,multi_background_factor=multi_background_factor), uber_list_of_input_parameters)
                 else:
-                    out1=self.pool.map(partial(model_multi_out, return_Images=True,use_only_chi=use_only_chi), uber_list_of_input_parameters)
-                # out1=pool.map(partial(model_multi, return_Images=True), uber_list_of_input_parameters)
+                    out1=self.pool.map(partial(model_multi_out, return_Images=True,\
+                                               use_only_chi=use_only_chi,multi_background_factor=multi_background_factor), uber_list_of_input_parameters)
                 out1=list(out1)
                 time_end=time.time()
                 if self.verbosity>=1:
-                    print('time_end-time_start for creating model_multi_out '+str(time_end-time_start))       
+                    print('time_end-time_start for creating model_multi_out '+str(time_end-time_start))    
+                    
                 #out1=map(partial(model, return_Image=True), input_parameters)
                 #out1=list(out1)
+                
+                #print('len(out1)'+str(len(out1)))
+                #print('out1[0].shape'+str(len(out1[0])))
             
-                # normalization of the preinput run
+                # normalization of the preinput run? (what did I mean that)
                 pre_input_parameters=np.array(pre_input_parameters)
                 if self.verbosity>=1:
                     print('pre_input_parameters.shape '+str(pre_input_parameters.shape))
-                    print('pre_input_parameters[0] '+str(pre_input_parameters[0]))
-    
-                #print('pre_input_parameters[0] '+str(iteration_number)+' '+str(pre_input_parameters[0:5]))
+                    print('pre_input_parameters[0][0:5] '+str(pre_input_parameters[0][0:5]))
+        
                 
+                # select the column specifying the flux normalization from the input images
                 array_of_normalizations_pre_input=pre_input_parameters[:,41]
             
-            
-            
-            
-            
+
                 #out1=a_pool.map(model,input_parameters,repeat(True))
                 for i in range(len(uber_list_of_input_parameters)):
                     #print(i)
@@ -3670,20 +3843,29 @@ class Tokovinin_multi(object):
                     
                     out_images_pre_renormalization=np.array(out1[i][2])
                     out_parameters_single_move=np.array(out1[i][3])
+                    # replace the normalizations in the output imags with the normalizations from the input images
                     array_of_normalizations_out=out_parameters_single_move[:,41]
-                    
                     out_renormalization_parameters=array_of_normalizations_pre_input/array_of_normalizations_out
                     
                     
                     out_ln.append(out1[i][0])
                     out_ln_ind.append(out1[i][1])
-                    out_images.append(out_images_pre_renormalization*out_renormalization_parameters)
+                    #print('out_images_pre_renormalization.shape: '+str(out_images_pre_renormalization.shape))
+                    #print('out_renormalization_parameters.shape: '+str(out_renormalization_parameters.shape))
+                    np.save('/tigress/ncaplar/Results/out_images_pre_renormalization',out_images_pre_renormalization)
+                    
+                    out_images_step=[]
+                    for l in range(len(out_renormalization_parameters)):
+                        out_images_step.append(out_images_pre_renormalization[l]*out_renormalization_parameters[l])  
+                    out_images.append(out_images_step)                        
+                    
+                    #out_images.append(out_images_pre_renormalization*out_renormalization_parameters)
                     out_parameters.append(out1[i][3])
                     out_chi2.append(out1[i][4])
                     out_pfs_positions.append(out1[i][5])
                     
                     # we use these out_images to study the differences due to changing parameters,
-                    # so we do not want the normalization to affect things (and position of optical center)
+                    # we do not want the normalization to affect things (and position of optical center)
                     # so we renormalize to that multiplication constants are the same as in the input 
                     
                     
@@ -3704,27 +3886,36 @@ class Tokovinin_multi(object):
                 ######################################################################################################### 
                 # Normalize created images
                 
-                #We created (zmax*2) x N images, where N is the number of defocused images
-                # loop over all of (zmax*2) combinations and double-normalize and ravel N images
-                # double-normalize = set sum of each image to 1 and then set the sum of all raveled images to 1
+                # We created (zmax*2) x N images, where N is the number of defocused images
                 
+                ###########
+                # !old comments as of April 2021
+                # !loop over all of (zmax*2) combinations and double-normalize and ravel N images
+                # !double-normalize (I used to do that before, not anymore) = set sum of each image to 1 and then set the sum of all raveled images to 1
+                # !hm.....
+                ###########
+                
+                # join all images together
                 list_of_images_normalized_uber=[]
                 list_of_images_normalized_std_uber=[]
-                # go over zmax*2 images
+                # go over (zmax-3)*2 images
                 for j in range(len(out_images)):
                     # two steps for what could have been achived in one, but to ease up transition from previous code 
                     out_images_single_parameter_change=out_images[j]
                     optpsf_list=out_images_single_parameter_change
-                    ### breaking here
+                    
                     # flux image has to correct per image
-                    # normalize and mask images that have been created in the fitting procedure
+                    #  mask images that have been created in the fitting procedure with the appropriate flux mask
                     images_normalized=[]
                     for i in range(len(optpsf_list)):
                         
                         flux_mask=list_of_flux_mask[i]
                         images_normalized.append((optpsf_list[i][flux_mask]).ravel())                
-                        #images_normalized.append((optpsf_list[i][flux_mask]/np.sum(optpsf_list[i][flux_mask])).ravel())
+                        # !old double-normalizing code
+                        # !images_normalized.append((optpsf_list[i][flux_mask]/np.sum(optpsf_list[i][flux_mask])).ravel())
+                    
                         
+                    
                     images_normalized_flat=[item for sublist in images_normalized for item in sublist]  
                     images_normalized_flat=np.array(images_normalized_flat)
                     #images_normalized_flat=np.array(images_normalized_flat)/len(optpsf_list)        
@@ -3779,6 +3970,7 @@ class Tokovinin_multi(object):
                 
                 if self.verbosity>=1:
                     print('images_normalized (uber).shape: '+str(uber_images_normalized.shape))
+                    print('array_of_delta_z_parametrizations[:,None].shape'+str(array_of_delta_z_parametrizations[:,None].shape))
                 # equation A1 from Tokovinin 2006
                 # new model minus old model
                 if move_allparameters==True:
@@ -3806,7 +3998,9 @@ class Tokovinin_multi(object):
             
             
             
-            
+            if num_iter!=None and previous_best_result==None:
+                np.save('/tigress/ncaplar/Results/array_of_delta_z_parametrizations_None_'+str(num_iter)+'_'+str(iteration_number),\
+                        array_of_delta_z_parametrizations_None)              
             
             
             
@@ -3817,6 +4011,12 @@ class Tokovinin_multi(object):
                 np.save('/tigress/ncaplar/Results/H_std_'+str(num_iter)+'_'+str(iteration_number),\
                         H_std)                  
             
+            
+            
+            first_proposal_Tokovnin,first_proposal_Tokovnin_std=self.create_first_proposal_Tokovnin(H,H_std,\
+                                                                uber_I,uber_M0,uber_std,up_to_which_z=up_to_which_z)
+            
+            """
             #print('np.mean(H,axis=0).shape)'+str(np.mean(H,axis=0).shape))
             singlular_parameters=np.arange(H.shape[1])[np.abs((np.mean(H,axis=0)))<0.01]
             non_singlular_parameters=np.arange(H.shape[1])[np.abs((np.mean(H,axis=0)))>0.01]
@@ -3841,7 +4041,9 @@ class Tokovinin_multi(object):
             first_proposal_Tokovnin=np.matmul(invHHtHt,uber_I-uber_M0)
             #first_proposal_Tokovnin_std=np.matmul(invHHtHt_std,uber_I_std-uber_M0_std)
             first_proposal_Tokovnin_std=np.matmul(invHHtHt_std,(uber_I-uber_M0)/uber_std.ravel())  
-            
+   
+
+   
             # if you have removed certain parameters because of the singularity, return them here, with no change
             if len(singlular_parameters)>0:
                 for i in range(len(singlular_parameters)):
@@ -3850,8 +4052,15 @@ class Tokovinin_multi(object):
             #print('first_proposal_Tokovnin_std'+str(first_proposal_Tokovnin_std.shape))
             #print('invHHtHt_std.shape'+str(invHHtHt_std.shape))
             
+            """
             
-            
+            if self.verbosity>=1:
+                print('first_proposal_Tokovnin[:5] is: '+str(first_proposal_Tokovnin[:8*2]))
+                print('first_proposal_Tokovnin_std[:5] is: '+str(first_proposal_Tokovnin_std[:8*2]))               
+                try:
+                    print('ratio is of proposed to initial parameters (std) is: '+str(first_proposal_Tokovnin_std/array_of_delta_z_parametrizations))
+                except:
+                    pass
         
             #Tokovnin_proposal=0.7*first_proposal_Tokovnin
             if move_allparameters==True:
@@ -3885,9 +4094,15 @@ class Tokovinin_multi(object):
 
             # if the Tokovinin proposal is not made, return the initial result 
             if len(Tokovnin_proposal)<10:
-                return initial_model_result,list_of_initial_model_result,list_of_image_0,\
-                    allparameters_parametrization_proposal,list_of_initial_input_parameters,list_of_pre_chi2,list_of_psf_positions
-   
+                #return initial_model_result,list_of_initial_model_result,list_of_image_0,\
+                #    allparameters_parametrization_proposal,list_of_initial_input_parameters,list_of_pre_chi2,list_of_psf_positions
+                return initial_model_result,initial_model_result,\
+                       list_of_initial_model_result,list_of_initial_model_result,\
+                       out_images,list_of_image_0,list_of_image_0,\
+                       allparameters_parametrization_proposal,allparameters_parametrization_proposal,\
+                       list_of_initial_input_parameters,list_of_initial_input_parameters,\
+                       list_of_pre_chi2,list_of_pre_chi2,\
+                       list_of_psf_positions, list_of_psf_positions   
 
     
                 break                
@@ -3925,13 +4140,20 @@ class Tokovinin_multi(object):
             #########################
             # Creating single exposure with new proposed parameters and seeing if there is improvment    
             time_start_final=time.time()
+            
+            
+            
+            
 
             list_of_parameters_after_iteration=model_multi.create_list_of_allparameters(allparameters_parametrization_proposal_after_iteration,\
                                                                                         list_of_defocuses=list_of_defocuses_input_long,zmax=self.zmax)
-            res_multi=model_multi(list_of_parameters_after_iteration,return_Images=True,use_only_chi=use_only_chi)
+            res_multi=model_multi(list_of_parameters_after_iteration,return_Images=True,\
+                                  use_only_chi=use_only_chi,multi_background_factor=multi_background_factor)
     
+            if self.verbosity>=1:
+                print('allparameters_parametrization_proposal_after_iteration '+str(allparameters_parametrization_proposal_after_iteration[0:5]))
+                print('list_of_parameters_after_iteration[0][0:5] '+str(list_of_parameters_after_iteration[0][0:5]))
     
-            
             final_model_result,list_of_final_model_result,list_of_image_final,\
                         list_of_finalinput_parameters,list_of_after_chi2,list_of_final_psf_positions=res_multi
             ### third (last?) time modifying variance image
@@ -4034,7 +4256,10 @@ class Tokovinin_multi(object):
                 
                 print('Likelihood before iteration '+str(iteration_number)+': '+str(initial_model_result))
                 print('Likelihood after iteration '+str(iteration_number)+': '+str(final_model_result))
-                
+
+                print('Likelihood before iteration per image: '+str(iteration_number)+': '+str(list_of_initial_model_result))
+                print('Likelihood after iteration per image '+str(iteration_number)+': '+str(list_of_final_model_result))                
+
                 #print('chi_2_after_iteration/chi_2_before_iteration '+str(chi_2_after_iteration/chi_2_before_iteration ))
                 print('IM_final/IM_start '+str(IM_final/IM_start))
                 print('IM_final_std/IM_start_std '+str(IM_final_std/IM_start_std))
@@ -4058,7 +4283,7 @@ class Tokovinin_multi(object):
                     allparameters_parametrization_proposal_after_iteration=initial_input_parameterization
                 else:
                     all_wavefront_z_parametrization_new=np.copy(all_wavefront_z_parametrization_old)
-                    chi_2_after_iteration=chi_2_before_iteration
+                    #chi_2_after_iteration=chi_2_before_iteration
                     up_to_z22_end=all_wavefront_z_parametrization_new[:19*2]
                     from_z22_start=all_wavefront_z_parametrization_new[19*2:]
                     allparameters_parametrization_proposal_after_iteration=np.concatenate((up_to_z22_start,nonwavefront_par,from_z22_start))
@@ -4067,64 +4292,395 @@ class Tokovinin_multi(object):
                 if self.verbosity>=1:
                     print('number_of_non_decreses:' + str(number_of_non_decreses))
                     print('current value of number_of_non_decreses is: '+str(np.sum(number_of_non_decreses)))
-                    print('#############################################')
+                    print('##########################################################################################')
+                    print('##########################################################################################')
         
-            if np.sum(number_of_non_decreses)==1:
+            #if np.sum(number_of_non_decreses)==1:
+            if np.sum(number_of_non_decreses)==5:
                 if return_Images==False:
                     return final_model_result
                 else:
                     if previous_best_result==None:
-                        return final_model_result,list_of_final_model_result,list_of_image_final,\
-                            allparameters_parametrization_proposal_after_iteration,list_of_finalinput_parameters,list_of_after_chi2,list_of_final_psf_positions,\
-                                [uber_images_normalized,uber_M0,H,array_of_delta_z_parametrizations_None,list_of_final_psf_positions]                    
+                        return initial_model_result,final_model_result,\
+                list_of_initial_model_result,list_of_final_model_result,\
+                out_images, pre_images, list_of_image_final,\
+                allparameters_parametrization_proposal, allparameters_parametrization_proposal_after_iteration,\
+                list_of_initial_input_parameters, list_of_finalinput_parameters,\
+                list_of_pre_chi2,list_of_after_chi2,\
+                list_of_psf_positions,list_of_final_psf_positions,\
+                [uber_images_normalized,uber_M0_std,H_std,array_of_delta_z_parametrizations_None,list_of_final_psf_positions]                 
                     else:
-                        return final_model_result,list_of_final_model_result,list_of_image_final,\
-                            allparameters_parametrization_proposal_after_iteration,list_of_finalinput_parameters,list_of_after_chi2,list_of_final_psf_positions
+                        return  initial_model_result,final_model_result,\
+                list_of_initial_model_result,list_of_final_model_result,\
+                out_images, pre_images, list_of_image_final,\
+                allparameters_parametrization_proposal, allparameters_parametrization_proposal_after_iteration,\
+                list_of_initial_input_parameters, list_of_finalinput_parameters,\
+                list_of_pre_chi2,list_of_after_chi2,\
+                list_of_psf_positions,list_of_final_psf_positions
                 
                 break
         
-
+        # if return_Images==False just return the mean likelihood
         if return_Images==False:
             return final_model_result
         else:
+            # if you return images, return full 
             if previous_best_result==None:
-                return final_model_result,list_of_final_model_result,list_of_image_final,\
-                    allparameters_parametrization_proposal_after_iteration,list_of_finalinput_parameters,list_of_after_chi2,list_of_final_psf_positions,\
-                        [uber_images_normalized,uber_M0,H,array_of_delta_z_parametrizations_None,list_of_final_psf_positions]                    
+                # 0. likelihood averaged over all images (before the function) 1. ikelihood averaged over all images (after the function) 
+                # 2. likelihood per image (output from model_multi) (before the function) 3. likelihood per image (output from model_multi) (after the function)
+                # 4. out_images 5. list of initial model images 6. list of final model images 
+                # 7. parametrization before the function 8. parametrization after the function
+                # 9. list of parameters per image (before the function) 10. list of parameters per image (after the function)
+                # 11. list of chi2 per image (before the function) 12. list of chi2 per image (after the function)
+                # 13. list of psf position of image (function the function) 14. list of psf position of image (after the function)
+                return initial_model_result,final_model_result,\
+                list_of_initial_model_result,list_of_final_model_result,\
+                out_images, pre_images, list_of_image_final,\
+                allparameters_parametrization_proposal, allparameters_parametrization_proposal_after_iteration,\
+                list_of_initial_input_parameters, list_of_finalinput_parameters,\
+                list_of_pre_chi2,list_of_after_chi2,\
+                list_of_psf_positions,list_of_final_psf_positions,\
+                [uber_images_normalized,uber_M0_std,H_std,array_of_delta_z_parametrizations_None,list_of_final_psf_positions] 
+                #return final_model_result,list_of_final_model_result,out_images,list_of_image_final,\
+                #    allparameters_parametrization_proposal_after_iteration,list_of_finalinput_parameters,\
+                #        list_of_after_chi2,list_of_final_psf_positions,\
+                #        [uber_images_normalized,uber_M0_std,H_std,array_of_delta_z_parametrizations_None,list_of_final_psf_positions] 
+                        
             else:
-                return final_model_result,list_of_final_model_result,list_of_image_final,\
-                    allparameters_parametrization_proposal_after_iteration,list_of_finalinput_parameters,list_of_after_chi2,list_of_final_psf_positions
+                return initial_model_result,final_model_result,\
+                list_of_initial_model_result,list_of_final_model_result,\
+                out_images, pre_images, list_of_image_final,\
+                allparameters_parametrization_proposal, allparameters_parametrization_proposal_after_iteration,\
+                list_of_initial_input_parameters, list_of_finalinput_parameters,\
+                list_of_pre_chi2,list_of_after_chi2,\
+                list_of_psf_positions,list_of_final_psf_positions
 
     
-    def create_simplified_H(self,previous_best_result):
+    def create_simplified_H(self,previous_best_result,multi_background_factor=3):
         
+        """
+        create matrix H using the provided images and changes
+        
+        H - normalized difference between pixel values
+        
+        it assumes that the changes are still the same in this iteration as in the previous iteration
+        
+        """
+        
+        # to be compatable with version before 0.45 where previous_best_result was actually only the last part of len=5
+        # 
+        if len(previous_best_result)==5:
+            previous_best_result=previous_best_result
+        else:
+            # if you are passing the whole best result, separte the parts of the result
+            main_body_of_best_result=previous_best_result[:-1]
+            previous_best_result=previous_best_result[-1]
+
+
+        # we need actual final model images from the previous best result
+        #list_of_image_0_from_previous_best_result=main_body_of_best_result[6]
+        #list_of_image_0=list_of_image_0_from_previous_best_result
+        
+        # we need actual initial model images from the previous best result
+        # this will be used to evalute change of model due to changes in singel wavefront parameters
+        # i.e., to estimate matrix H
+        list_of_image_0_from_previous_best_result=main_body_of_best_result[5]
+        list_of_image_0=list_of_image_0_from_previous_best_result
+        
+        ########################################################
+        # import science images and determine the flux mask     
+        #
+        #list_of_mean_value_of_background=[]
+        #list_of_flux_mask=[]
+        #list_of_sci_image_std=[]
+        #for i in range(len(self.list_of_sci_images)):
+        #    sci_image=self.list_of_sci_images[i]
+        #    var_image=self.list_of_var_images[i]
+        #
+        #    mean_value_of_background_via_var=np.mean([np.median(var_image[0]),np.median(var_image[-1]),\
+        #                                          np.median(var_image[:,0]),np.median(var_image[:,-1])])*multi_background_factor
+        # 
+        #    mean_value_of_background_via_sci=np.mean([np.median(sci_image[0]),np.median(sci_image[-1]),\
+        #                                          np.median(sci_image[:,0]),np.median(sci_image[:,-1])])*multi_background_factor
+        #        
+        #    mean_value_of_background=np.max([mean_value_of_background_via_var,mean_value_of_background_via_sci])
+        #    if self.verbosity>1:
+        #        print(str(multi_background_factor)+'x mean_value_of_background in image with index'+str(i)+' is estimated to be: '+str(mean_value_of_background))
+        #        
+        #
+        #    list_of_mean_value_of_background.append(mean_value_of_background)
+        #    flux_mask=sci_image>(mean_value_of_background)
+        #
+        #    
+            # normalized science image
+        #   var_image=self.list_of_var_images[i]
+        #   sci_image_std=sci_image/np.sqrt(var_image)
+        #   list_of_sci_image_std.append(sci_image_std)
+        #    list_of_flux_mask.append(flux_mask)
+            
+        list_of_flux_mask=self.list_of_flux_mask 
+        list_of_sci_image_std=self.list_of_sci_image_std
+            
+        ######################################################################################################### 
+        # divided model images by their standard deviations
+        
+        list_of_image_0_std=[]
+        for i in range(len(list_of_image_0)):
+            # normalizing by standard deviation image
+            STD=np.sqrt(self.list_of_var_images[i])    
+            image_0=list_of_image_0[i]
+            list_of_image_0_std.append(image_0/STD)            
+            
+        ########################################################        
+             
+        # mask model images at the start of this iteration, before modifying parameters
+        # create uber_M0_previous_best - uber_M0 derived from previous best, but with current flux mask
+        
+        list_of_M0=[]
+        list_of_M0_std=[]
+        for i in range(len(list_of_image_0_std)):
+            
+            image_0=list_of_image_0[i]
+            image_0_std=list_of_image_0_std[i]
+            flux_mask=list_of_flux_mask[i]
+
+
+            M0=image_0[flux_mask].ravel()            
+            #M0=((image_0[flux_mask])/np.sum(image_0[flux_mask])).ravel()
+            M0_std=((image_0_std[flux_mask])/1).ravel()
+            #M0_std=((image_0_std[flux_mask])/np.sum(image_0_std[flux_mask])).ravel()
+            
+            list_of_M0.append(M0)
+            list_of_M0_std.append(M0_std)
+    
+        # join all M0,M0_std from invidiual images into one uber M0,M0_std
+        uber_M0_previous_best=[item for sublist in list_of_M0 for item in sublist]
+        uber_M0_previous_best_std=[item for sublist in list_of_M0_std for item in sublist]    
+        
+        uber_M0_previous_best=np.array(uber_M0_previous_best)
+        uber_M0_previous_best_std=np.array(uber_M0_previous_best_std)
+        
+        #uber_M0=uber_M0/np.sum(uber_M0)
+        #uber_M0_std=uber_M0_std/np.sum(uber_M0_std)
+    
+        self.uber_M0_previous_best=uber_M0_previous_best
+        self.uber_M0_previous_best_std=uber_M0_previous_best_std
+        
+        ########################################################      
+        # uber_images_normalized_previous_best, but with current flux mask
+        
+        # previous uber images - not used 
+        #uber_images_normalized_previous_best_old_flux_mask=previous_best_result[0]        
+        # previous uber model - not used 
+        #uber_M0_previous_best_old_flux_mask=previous_best_result[1]
+        
+        # we need out images showing difference from original image due to 
+        # changing a single Zernike parameter
+        out_images=main_body_of_best_result[4]   
+        
+        # join all images together
+        list_of_images_normalized_uber=[]
+        list_of_images_normalized_std_uber=[]
+        # go over (zmax-3)*2 images
+        for j in range(len(out_images)):
+            # two steps for what could have been achived in one, but to ease up transition from previous code 
+            out_images_single_parameter_change=out_images[j]
+            optpsf_list=out_images_single_parameter_change
+            
+            # flux image has to correct per image
+            #  mask images that have been created in the fitting procedure with the appropriate flux mask
+            images_normalized=[]
+            for i in range(len(optpsf_list)):
+                
+                flux_mask=list_of_flux_mask[i]
+                if j==0:
+
+                    #print('sum_flux_in images'+str([i,np.sum(flux_mask)]))
+                    pass
+                images_normalized.append((optpsf_list[i][flux_mask]).ravel())                
+                # !old double-normalizing code
+                # !images_normalized.append((optpsf_list[i][flux_mask]/np.sum(optpsf_list[i][flux_mask])).ravel())
+            
+                
+            
+            images_normalized_flat=[item for sublist in images_normalized for item in sublist]  
+            images_normalized_flat=np.array(images_normalized_flat)
+            #images_normalized_flat=np.array(images_normalized_flat)/len(optpsf_list)        
+            
+            # list of (zmax-3)*2 raveled images
+            list_of_images_normalized_uber.append(images_normalized_flat)
+            
+            # same but divided by STD
+            images_normalized_std=[]
+            for i in range(len(optpsf_list)):   
+                # seems that I am a bit more verbose here with my definitions
+                optpsf_list_i=optpsf_list[i]
+                
+                
+                # do I want to generate new STD images, from each image?
+                STD=list_of_sci_image_std[i]
+                optpsf_list_i_STD=optpsf_list_i/STD    
+                flux_mask=list_of_flux_mask[i]
+                #images_normalized_std.append((optpsf_list_i_STD[flux_mask]/np.sum(optpsf_list_i_STD[flux_mask])).ravel())
+            
+            # join all images together
+            #images_normalized_std_flat=[item for sublist in images_normalized_std for item in sublist]  
+            # normalize so that the sum is still one
+            #images_normalized_std_flat=np.array(images_normalized_std_flat)/len(optpsf_list)
+            
+            #list_of_images_normalized_std_uber.append(images_normalized_std_flat)
+            
+        # create uber images_normalized,images_normalized_std    
+        # images that have zmax*2 rows and very large number of columns (number of non-masked pixels from all N images)
+        uber_images_normalized_previous_best=np.array(list_of_images_normalized_uber)            
+        
+        
+        
+        ########################################################              
+        # current model image
         uber_M0=self.uber_M0
         
+        # current change of the parameters
         if self.move_allparameters==True:    
             array_of_delta_all_parametrizations=self.array_of_delta_all_parametrizations  
         else:
             array_of_delta_parametrizations=self.array_of_delta_z_parametrizations  
         
 
-        
-        uber_images_normalized_previous_best=previous_best_result[0]
-        uber_M0_previous_best=previous_best_result[1]
-        H_previous_best=previous_best_result[2]
+        # previous uber model
+        #uber_M0_previous_best=previous_best_result[1]
+        # previous H (not used)
+        #H_previous_best=previous_best_result[2]
+        # how much has delta parametrizations changed in the previous result
         array_of_delta_parametrizations_None_previous_best=previous_best_result[3]
         
+        # ratio between current parametrization and the previous (provided) changed parametrization
         ratio_of_parametrizations=(array_of_delta_parametrizations[:,None]/array_of_delta_parametrizations_None_previous_best)
-        #array_of_wavefront_changes=(H_previous_best*array_of_delta_wavefront_parametrizations_in_global_step_None[:,0])
-        array_of_wavefront_changes=np.transpose(ratio_of_parametrizations*np.array(uber_images_normalized_previous_best-uber_M0_previous_best)/(array_of_delta_parametrizations_None_previous_best))  
         
+        # create the array of how wavefront changes the uber_model by multiply the changes with new ratios
+        array_of_wavefront_changes=np.transpose(ratio_of_parametrizations*\
+                                                np.array(uber_images_normalized_previous_best-uber_M0_previous_best)/(array_of_delta_parametrizations_None_previous_best))  
+        
+        # difference between current model image and previous model image
+        
+        #print('uber_images_normalized_previous_best.shape'+str(uber_images_normalized_previous_best.shape))
+        #print('uber_M0_previous_best.shape'+str(uber_M0_previous_best.shape))
+        #print('uber_M0.shape'+str(uber_M0.shape))
+        
+        # change between the initial model in this step and the imported model
         global_change=uber_M0-uber_M0_previous_best
-        H=array_of_wavefront_changes+global_change[:,None]
+        # global_change_proposed
+        global_change_proposed=(uber_M0-uber_M0_previous_best)/array_of_delta_parametrizations[:,None]
+
+        
+        # H is a change of wavefront 
+        H=array_of_wavefront_changes 
+
+        # H is a change of wavefront and change of model (is it?)        
+        # H=array_of_wavefront_changes + global_change[:,None]
+        
+        #np.save('/tigress/ncaplar/Results/global_change_'+str(2)+'_'+str(0),\
+        #            global_change)     
+
+        #np.save('/tigress/ncaplar/Results/global_change_proposed_'+str(2)+'_'+str(0),\
+        #            global_change_proposed)                            
+        #np.save('/tigress/ncaplar/Results/array_of_wavefront_changes_'+str(2)+'_'+str(0),\
+        #            array_of_wavefront_changes)    
+        #np.save('/tigress/ncaplar/Results/H_'+str(2)+'_'+str(0),\
+        #            array_of_wavefront_changes)    
+
         return H
+    
+    def create_first_proposal_Tokovnin(self,H,H_std,uber_I,uber_M0,uber_std,up_to_which_z=None):
+        
+        
+            H_shape=H.shape
+            
+            #print('H_shape'+str(H_shape))
+            #print('up_to_which_z:'+str(up_to_which_z))
+            
+            if up_to_which_z!=None:
+                #H=H[:,1:(up_to_which_z-3)*2:2]
+                #H_std=H_std[:,1:(up_to_which_z-3)*2:2]    
+                
+                H=H[:,0:(up_to_which_z-3)*2]
+                H_std=H_std[:,0:(up_to_which_z-3)*2] 
+                
+            else:
+                pass
+            
+            H=np.nan_to_num(H,0)
+            
+            #print('np.mean(H,axis=0).shape)'+str(np.mean(H,axis=0).shape))
+            singlular_parameters=np.arange(H.shape[1])[np.abs((np.mean(H,axis=0)))<0.001]
+            non_singlular_parameters=np.arange(H.shape[1])[np.abs((np.mean(H,axis=0)))>0.001]
+            
+            #print('np.abs((np.mean(H,axis=0)))'+str(np.abs((np.mean(H,axis=0)))))
+            #print('non_singlular_parameters.shape)'+str(non_singlular_parameters.shape))
+            #print('singlular_parameters)'+str(singlular_parameters))
+            
+            H=H[:,non_singlular_parameters]
+            H_std=H_std[:,non_singlular_parameters]
+    
+            HHt=np.matmul(np.transpose(H),H)
+            HHt_std=np.matmul(np.transpose(H_std),H_std) 
+            #print('svd thresh is '+str(thresh))
+            #invHHt=svd_invert(HHt,thresh)
+            #invHHt_std=svd_invert(HHt_std,thresh)
+            invHHt=np.linalg.inv(HHt)        
+            invHHt_std=np.linalg.inv(HHt_std)
+    
+            invHHtHt=np.matmul(invHHt,np.transpose(H))
+            invHHtHt_std=np.matmul(invHHt_std,np.transpose(H_std))
+    
+    
+            # I is uber_I now (science images)
+            # M0 is uber_M0 now (set of models before the iteration)
+            first_proposal_Tokovnin=np.matmul(invHHtHt,uber_I-uber_M0)
+            #first_proposal_Tokovnin_std=np.matmul(invHHtHt_std,uber_I_std-uber_M0_std)
+            first_proposal_Tokovnin_std=np.matmul(invHHtHt_std,(uber_I-uber_M0)/uber_std.ravel())  
+    
+    
+            #print('first_proposal_Tokovnin.shape before sing'+str(first_proposal_Tokovnin.shape))
+    
+            # if you have removed certain parameters because of the singularity, return them here, with no change
+            if len(singlular_parameters)>0:
+                for i in range(len(singlular_parameters)):
+                    first_proposal_Tokovnin=np.insert(first_proposal_Tokovnin,singlular_parameters[i],0)
+                    first_proposal_Tokovnin_std=np.insert(first_proposal_Tokovnin_std,singlular_parameters[i],0)    
+                    
+            #print('first_proposal_Tokovnin.shape after sing'+str(first_proposal_Tokovnin.shape))
+                        
+            if up_to_which_z!=None:
+                #H=H[:,1:(up_to_which_z-3)*2:2]
+                #H_std=H_std[:,1:(up_to_which_z-3)*2:2]    
+                
+                first_proposal_Tokovnin_0=np.zeros((H_shape[1]))
+                first_proposal_Tokovnin_0_std=np.zeros((H_shape[1]))
+                #print('first_proposal_Tokovnin_0.shape'+str(first_proposal_Tokovnin_0.shape))
+                
+                #print('up_to_which_z: '+str(up_to_which_z))
+                #print('first_proposal_Tokovnin:' +str(first_proposal_Tokovnin))
+                
+                #print(first_proposal_Tokovnin_0[0:(up_to_which_z-3)*2].shape)
+                #print(first_proposal_Tokovnin.shape)
+                first_proposal_Tokovnin_0[0:(up_to_which_z-3)*2]=first_proposal_Tokovnin
+                first_proposal_Tokovnin_0_std[0:(up_to_which_z-3)*2]=first_proposal_Tokovnin_std
+                
+                first_proposal_Tokovnin=first_proposal_Tokovnin_0
+                first_proposal_Tokovnin_std=first_proposal_Tokovnin_0_std
+            else:
+                pass 
+    
+            return first_proposal_Tokovnin,first_proposal_Tokovnin_std
         
 
 
-    def __call__(self, allparameters_parametrization_proposal,return_Images=True,num_iter=None,previous_best_result=None,use_only_chi=False):
+    def __call__(self, allparameters_parametrization_proposal,return_Images=True,num_iter=None,\
+                 previous_best_result=None,use_only_chi=False,multi_background_factor=3):
             return self.Tokovinin_algorithm_chi_multi(allparameters_parametrization_proposal,return_Images=return_Images,num_iter=num_iter,\
-                                                  previous_best_result=previous_best_result,use_only_chi=use_only_chi)
+                                                  previous_best_result=previous_best_result,use_only_chi=use_only_chi,\
+                                                  multi_background_factor=multi_background_factor)
 
 
 
@@ -4332,14 +4888,16 @@ class LN_PFS_single(object):
         return custom_var_image
 
 
-    def create_chi_2_almost(self,modelImg,sci_image,var_image,mask_image,use_only_chi=False):
+    def create_chi_2_almost(self,modelImg,sci_image,var_image,mask_image,use_only_chi=False,multi_background_factor=3):
         """
         @param modelImg    model image
         @param sci_image    scientific image 
         @param var_image    variance image        
         @param mask_image   mask image  
+        @param use_only_chi if True, the program is reporting np.abs(chi), not chi^2
         
-        returns array with 3 values
+        
+        returns array with 5 values (descriptions below with use_only_chi=False)
         1. normal chi**2
         2. what is 'instrinsic' chi**2, i.e., just sum((scientific image)**2/variance)
         3. 'Q' value = sum(abs(model - scientific image))/sum(scientific image)
@@ -4347,10 +4905,16 @@ class LN_PFS_single(object):
         5. chi**2 reduced 'intrinsic'
         
         """ 
-        
+
         try:
-            mean_value_of_background=np.mean([np.median(sci_image),np.median(sci_image),\
-                      np.median(sci_image),np.median(sci_image)])*3
+            mean_value_of_background_via_var=np.mean([np.median(var_image[0]),np.median(var_image[-1]),\
+                                                  np.median(var_image[:,0]),np.median(var_image[:,-1])])*multi_background_factor
+         
+            mean_value_of_background_via_sci=np.mean([np.median(sci_image[0]),np.median(sci_image[-1]),\
+                                                  np.median(sci_image[:,0]),np.median(sci_image[:,-1])])*multi_background_factor
+                
+            mean_value_of_background=np.max([mean_value_of_background_via_var,mean_value_of_background_via_sci])
+            
             flux_mask=sci_image>(mean_value_of_background)
             inverted_flux_mask=flux_mask.astype(bool)
         except:
@@ -4406,6 +4970,9 @@ class LN_PFS_single(object):
             chi2_res=np.abs(chi_without_nan)**1
             chi2_intrinsic_res=np.abs(chi_intrinsic_without_nan)**1        
 
+        #print('use_only_chi variable in create_chi_2_almost is: '+str(use_only_chi))
+        #print('chi2_res '+str(np.sum(chi2_res)))
+        #print('chi2_intrinsic_res '+str(np.sum(chi2_intrinsic_res)))
         
         # calculates 'Q' values
         Qlist=np.abs((sci_image_masked - modelImg_masked))
@@ -4416,7 +4983,7 @@ class LN_PFS_single(object):
         # return the result
         return [np.sum(chi2_res),np.sum(chi2_intrinsic_res),Qvalue,np.mean(chi2_res),np.mean(chi2_intrinsic_res)]
     
-    def lnlike_Neven(self,allparameters,return_Image=False,return_intermediate_images=False,use_only_chi=False):
+    def lnlike_Neven(self,allparameters,return_Image=False,return_intermediate_images=False,use_only_chi=False,multi_background_factor=3):
         """
         report likelihood given the parameters of the model
         give -np.inf if outside of the parameters range specified below 
@@ -4464,7 +5031,7 @@ class LN_PFS_single(object):
             
         #When running big fits these are limits which ensure that the code does not wander off in totally non physical region
         #hsc frac
-        if globalparameters[0]<=0.6 or globalparameters[0]>0.8:
+        if globalparameters[0]<0.6 or globalparameters[0]>0.8:
             print('globalparameters[0] outside limits; value: '+str(globalparameters[0])) if test_print == 1 else False 
             return -np.inf
         
@@ -4539,7 +5106,7 @@ class LN_PFS_single(object):
         if globalparameters[9]<0:
             print('globalparameters[9] outside limits') if test_print == 1 else False 
             return -np.inf
-        if globalparameters[9]>10:
+        if globalparameters[9]>12:
             print('globalparameters[9] outside limits') if test_print == 1 else False 
             return -np.inf   
         
@@ -4745,22 +5312,33 @@ class LN_PFS_single(object):
         
         
         # returns 0. chi2 value, 1. chi2_max value, 2. Qvalue, 3. chi2/d.o.f., 4. chi2_max/d.o.f.  
-        chi_2_almost_multi_values=self.create_chi_2_almost(modelImg,self.sci_image,self.var_image,self.mask_image,use_only_chi=use_only_chi)
+        chi_2_almost_multi_values=self.create_chi_2_almost(modelImg,self.sci_image,self.var_image,self.mask_image,\
+                                                           use_only_chi=use_only_chi,\
+                                                           multi_background_factor=multi_background_factor)
         chi_2_almost=chi_2_almost_multi_values[0]
         chi_2_almost_max=chi_2_almost_multi_values[1]
         chi_2_almost_dof=chi_2_almost_multi_values[3]
         chi_2_almost_max_dof=chi_2_almost_multi_values[4]
-        # old, wrongly defined, result
-        #res=-(1/2)*(chi_2_almost+np.log(2*np.pi*np.sum(self.var_image)))
+
         
         
         # res stands for ``result'' 
-        res=-(1/2)*(chi_2_almost+np.sum(np.log(2*np.pi*self.var_image)))
+        if use_only_chi==False:
+            # reporting likelihood in chi^2 case
+            res=-(1/2)*(chi_2_almost+np.sum(np.log(2*np.pi*self.var_image)))
+        else:
+            # reporting np.abs(chi) per d.o.f.
+            res=-(1/1)*(chi_2_almost_dof)
 
         time_lnlike_end=time.time()  
         if self.verbosity==True:
             print('Finished with lnlike_Neven')
-            print('chi_2_almost/d.o.f is '+str(chi_2_almost_dof)+'; chi_2_almost_max_dof is '+str(chi_2_almost_max_dof)+' log(improvment) is '+str(np.log10(chi_2_almost_dof/chi_2_almost_max_dof)))
+            if use_only_chi==False:
+                print('chi_2_almost/d.o.f is '+str(chi_2_almost_dof)+'; chi_2_almost_max_dof is '+str(chi_2_almost_max_dof)+' log(improvment) is '+str(np.log10(chi_2_almost_dof/chi_2_almost_max_dof)))
+            else:
+                print('chi_almost/d.o.f is '+str(chi_2_almost_dof)+'; chi_almost_max_dof is '+str(chi_2_almost_max_dof)+' log(improvment) is '+str(np.log10(chi_2_almost_dof/chi_2_almost_max_dof)))
+     
+            print('The likelihood reported is: '+str(res))
             print('multiprocessing.current_process() '+str(current_process())+' thread '+str(threading.get_ident()))
             print(str(platform.uname()))
             print('Time for lnlike_Neven function in thread '+str(threading.get_ident())+' is: '+str(time_lnlike_end-time_lnlike_start) +str(' seconds'))    
@@ -4798,10 +5376,12 @@ class LN_PFS_single(object):
     
         return x
 
-    def __call__(self, allparameters,return_Image=False,return_intermediate_images=False,use_only_chi=False):
+    def __call__(self, allparameters,return_Image=False,return_intermediate_images=False,\
+                 use_only_chi=False,multi_background_factor=3):
         return self.lnlike_Neven(allparameters,return_Image=return_Image,\
                                  return_intermediate_images=return_intermediate_images,\
-                                 use_only_chi=use_only_chi)
+                                 use_only_chi=use_only_chi,\
+                                 multi_background_factor=multi_background_factor)
 
 class LNP_PFS(object):
     def __init__(self,  image=None,image_var=None):
@@ -5553,7 +6133,8 @@ class Psf_position(object):
         self.var_image=var_image
         self.mask_image=mask_image
         self.v_flux=v_flux
-        
+
+
         # if you are just asking for simulated image at (0,0) there is no possibility to create double sources
         if simulation_00==1:
             double_sources=None
@@ -5571,7 +6152,6 @@ class Psf_position(object):
         self.shape_of_sci_image=shape_of_sci_image
         
 
-
         # depending on if there is a second source in the image split here
         # double_sources is always None when using simulated images
         if double_sources==None or double_sources is False:
@@ -5580,26 +6160,36 @@ class Psf_position(object):
                 if verbosity==1:
                     print('simulation_00 is set to 1 - I am just returing the image at (0,0) coordinates ')                
       
+
                 # return the solution with x and y is zero
                 mean_res,single_realization_primary_renormalized,single_realization_secondary_renormalized,complete_realization_renormalized \
                 =self.create_complete_realization([0,0], return_full_result=True)          
             
             # if you are fitting an actual image go through the full process
             else:
+
                 # if you did not pass explict position search for the best position
                 if explicit_psf_position is None:
                     
-                    
+
                     # create one complete realization with default parameters - estimate centorids and use that knowledge to put fitting limits in the next step
                     centroid_of_sci_image=find_centroid_of_flux(sci_image)
-                    initial_complete_realization=self.create_complete_realization([0,0,-double_sources_positions_ratios[0]*self.oversampling,double_sources_positions_ratios[1]],return_full_result=True)[-1]
-                    centroid_of_initial_complete_realization=find_centroid_of_flux(initial_complete_realization)
+  
                     
+  
+                    
+                    initial_complete_realization=self.create_complete_realization([0,0,\
+                                                                                   -double_sources_positions_ratios[0]*self.oversampling,\
+                                                                                   double_sources_positions_ratios[1]],return_full_result=True)[-1]
+
+
+                    centroid_of_initial_complete_realization=find_centroid_of_flux(initial_complete_realization)
+
 
 
                     #determine offset between the initial guess and the data
                     offset_initial_and_sci=np.array(find_centroid_of_flux(initial_complete_realization))-np.array(find_centroid_of_flux(sci_image))
-                    
+
                     if verbosity==1:
                         print('offset_initial_and_sci: '+str(offset_initial_and_sci))
                     
@@ -5647,9 +6237,10 @@ class Psf_position(object):
                     return complete_realization_renormalized,primary_position_and_ratio_x
                 # if you did pass explicit_psf_position for the solution
                 else:
+
                     mean_res,single_realization_primary_renormalized,single_realization_secondary_renormalized,complete_realization_renormalized \
                     =self.create_complete_realization(explicit_psf_position, return_full_result=True)
-                        
+  
                         
                     if self.save==1:
                             np.save(TESTING_FINAL_IMAGES_FOLDER+'single_realization_primary_renormalized',single_realization_primary_renormalized) 
@@ -5674,7 +6265,7 @@ class Psf_position(object):
             
             # create one complete realization with default parameters - estimate centorids and use that knowledge to put fitting limits in the next step
             centroid_of_sci_image=find_centroid_of_flux(sci_image)
-            print('initial double_sources_positions_ratios is: '+str(double_sources_positions_ratios))
+            #print('initial double_sources_positions_ratios is: '+str(double_sources_positions_ratios))
             initial_complete_realization=self.create_complete_realization([0,0,\
                                                                            -double_sources_positions_ratios[0]*self.oversampling,double_sources_positions_ratios[1]],return_full_result=True)[-1]
             centroid_of_initial_complete_realization=find_centroid_of_flux(initial_complete_realization)
@@ -5722,6 +6313,7 @@ class Psf_position(object):
     
     def create_complete_realization(self, x, return_full_result=False):
         # need to include masking
+        # fits for best chi2, even if algorithm is asking for chi
         """
         create one complete realization of the image from the full oversampled image
         
@@ -5729,9 +6321,10 @@ class Psf_position(object):
         @bol       return_full_result                                         if True, returns the images iteself (not just chi**2)
         """
         
+        #print('len(x): '+str(len(x)))
         #print('x passed to create_complete_realization is: '+str(x))
         #print('return_full_result '+str(return_full_result))     
-
+        #print('image.shape: '+str(self.image.shape))
         
         image=self.image
         # I think I use sci_image only for its shape
@@ -5824,6 +6417,7 @@ class Psf_position(object):
                                                                                         input_img_single_realization_before_downsampling_primary_floor_floor,input_img_single_realization_before_downsampling_primary_floor_ceiling,\
                                                                                         input_img_single_realization_before_downsampling_primary_ceiling_floor,input_img_single_realization_before_downsampling_primary_ceiling_ceiling)
         
+        #print('input_img_single_realization_before_downsampling_primary:'+str(input_img_single_realization_before_downsampling_primary))
         # downsample the primary image    
         single_primary_realization=resize(input_img_single_realization_before_downsampling_primary,(shape_of_sci_image,shape_of_sci_image))
          
@@ -6182,7 +6776,8 @@ def find_centroid_of_flux(image,mask=None):
 
     return(x_center,y_center)
 
-def create_parInit(allparameters_proposal,multi=None,pupil_parameters=None,allparameters_proposal_err=None,stronger=None,use_optPSF=None,deduced_scattering_slope=None,zmax=None):
+def create_parInit(allparameters_proposal,multi=None,pupil_parameters=None,allparameters_proposal_err=None,\
+                   stronger=None,use_optPSF=None,deduced_scattering_slope=None,zmax=None):
     
     """!given the suggested parametrs create array with randomized starting values to supply to fitting code
     
@@ -6281,7 +6876,7 @@ def create_parInit(allparameters_proposal,multi=None,pupil_parameters=None,allpa
         extra_Zernike_parameters_number=zmax-22
         #print('extra_Zernike_parameters_number in parInit:' +str(extra_Zernike_parameters_number))
         if allparameters_proposal_err is None:
-            if multi is None:
+            if multi is None or multi is False:
                 # 19 values describing z4-z22
                 # smaller values for z12-z22
                 #['z4','z5','z6','z7','z8','z9','z10','z11',
@@ -6302,7 +6897,7 @@ def create_parInit(allparameters_proposal,multi=None,pupil_parameters=None,allpa
                                                      60000,0.95,0.014,
                                                      0.2,0.14,0.015])
                 if extra_Zernike_parameters_number > 0:
-                    extra_Zernike_proposal=0.05*np.ones((extra_Zernike_parameters_number,))
+                    extra_Zernike_proposal=0.0*np.ones((extra_Zernike_parameters_number,))
                     allparameters_proposal_err=np.concatenate((allparameters_proposal_err,extra_Zernike_proposal))
                 
                 # fixed scattering slope at number deduced from larger defocused image
@@ -6338,7 +6933,7 @@ def create_parInit(allparameters_proposal,multi=None,pupil_parameters=None,allpa
     
     
     if zmax==11:
-        if multi is None:
+        if multi is None or multi is False:
             zparameters_flatten=allparameters_proposal[0:8]
             zparameters_flatten_err=allparameters_proposal_err[0:8]
             globalparameters_flatten=allparameters_proposal[8:]
@@ -6351,12 +6946,13 @@ def create_parInit(allparameters_proposal,multi=None,pupil_parameters=None,allpa
             globalparameters_flatten_err=allparameters_proposal_err[8*2:]
     # if we have 22 or more        
     if zmax>=22:
-        if multi is None:
+        if multi is None or multi is False:
             zparameters_flatten=allparameters_proposal[0:8+11]
             zparameters_flatten_err=allparameters_proposal_err[0:8+11]
-            globalparameters_flatten=allparameters_proposal[8+11:]
-            globalparameters_flatten_err=allparameters_proposal_err[8+11:]
-            #print(globalparameters_flatten_err)
+            globalparameters_flatten=allparameters_proposal[8+11:8+11+23]
+            globalparameters_flatten_err=allparameters_proposal_err[8+11:8+11+23]
+            zparameters_extra_flatten=allparameters_proposal[(8+11)*1+23:]
+            zparameters_extra_flatten_err=allparameters_proposal_err[(8+11)*1+23:]
         else:
             zparameters_flatten=allparameters_proposal[0:(8+11)*2]
             zparameters_flatten_err=allparameters_proposal_err[0:(8+11)*2]
@@ -6394,8 +6990,9 @@ def create_parInit(allparameters_proposal,multi=None,pupil_parameters=None,allpa
                 
     # if we have 22 or more            
     if zmax>=22:
-        if multi is None:
+        if multi is None or multi is False:
             try: 
+
                 for i in range(8+11):
                     if i==0:
                         zparameters_flat_single_par=np.concatenate(([zparameters_flatten[i]],np.random.normal(zparameters_flatten[i],zparameters_flatten_err[i],nwalkers-1)))
@@ -6405,6 +7002,23 @@ def create_parInit(allparameters_proposal,multi=None,pupil_parameters=None,allpa
                         zparameters_flat=zparameters_flat_single_par
                     else:
                         zparameters_flat=np.column_stack((zparameters_flat,zparameters_flat_single_par))
+                 
+                # if you are going for extra Zernike parameters
+                # copied the same code from multi
+                for i in range(extra_Zernike_parameters_number):
+
+                        zparameters_extra_flat_single_par=np.concatenate(([zparameters_extra_flatten[i]],\
+                                                                         np.random.normal(zparameters_extra_flatten[i],\
+                                                                         zparameters_extra_flatten_err[i],nwalkers-1)))
+
+                        #zparameters_extra_flat_single_par=np.random.normal(0,0.05,nwalkers)
+                        #print(zparameters_extra_flat_single_par.shape)
+                        if i==0:
+                            zparameters_extra_flat=zparameters_extra_flat_single_par
+                        else:
+                            zparameters_extra_flat=np.column_stack((zparameters_extra_flat,zparameters_extra_flat_single_par))
+                    
+                        
             except NameError:
                 print('NameError!')
                 
@@ -6417,10 +7031,10 @@ def create_parInit(allparameters_proposal,multi=None,pupil_parameters=None,allpa
                     #print('zparameters_flatten_err[i]: '+str(zparameters_flatten_err[i]))
                     #print('nwalkers-1: '+str(nwalkers-1))
                     #print(np.random.normal(zparameters_flatten[i],zparameters_flatten_err[i],nwalkers-1))
-                    zparameters_flat_single_par=np.concatenate(([zparameters_flatten[i]],np.random.normal(zparameters_flatten[i],zparameters_flatten_err[i],nwalkers-1)))
-
-                    
-                    
+                    zparameters_flat_single_par=np.concatenate(([zparameters_flatten[i]],
+                                                                np.random.normal(zparameters_flatten[i],\
+                                                                zparameters_flatten_err[i],nwalkers-1)))
+        
                     if i==0:
                         zparameters_flat=zparameters_flat_single_par
                     else:
@@ -6444,34 +7058,33 @@ def create_parInit(allparameters_proposal,multi=None,pupil_parameters=None,allpa
                 print('NameError!')        
     
     try:
-        #print(globalparameters_flatten)
-        #print(globalparameters_flatten_err)
+
         # hscFrac always positive
         globalparameters_flat_0=np.abs(np.random.normal(globalparameters_flatten[0],globalparameters_flatten_err[0],nwalkers*20))
         globalparameters_flat_0=np.concatenate(([globalparameters_flatten[0]],
-                                                globalparameters_flat_0[np.all((globalparameters_flat_0>0.6,globalparameters_flat_0<0.8),axis=0)][0:nwalkers-1]))
+                                                globalparameters_flat_0[np.all((globalparameters_flat_0>=0.6,globalparameters_flat_0<=0.8),axis=0)][0:nwalkers-1]))
         # strutFrac always positive
         globalparameters_flat_1_long=np.abs(np.random.normal(globalparameters_flatten[1],globalparameters_flatten_err[1],nwalkers*200))
         globalparameters_flat_1=globalparameters_flat_1_long
         globalparameters_flat_1=np.concatenate(([globalparameters_flatten[1]],
-                                                globalparameters_flat_1[np.all((globalparameters_flat_1>0.07,globalparameters_flat_1<0.13),axis=0)][0:nwalkers-1]))
+                                                globalparameters_flat_1[np.all((globalparameters_flat_1>=0.07,globalparameters_flat_1<=0.13),axis=0)][0:nwalkers-1]))
         # dxFocal
         globalparameters_flat_2=np.random.normal(globalparameters_flatten[2],globalparameters_flatten_err[2],nwalkers*20)
         globalparameters_flat_2=np.concatenate(([globalparameters_flatten[2]],
-                                                globalparameters_flat_2[np.all((globalparameters_flat_2>-0.4,globalparameters_flat_2<0.4),axis=0)][0:nwalkers-1]))
+                                                globalparameters_flat_2[np.all((globalparameters_flat_2>=-0.4,globalparameters_flat_2<=0.4),axis=0)][0:nwalkers-1]))
         # dyFocal
         globalparameters_flat_3=np.random.normal(globalparameters_flatten[3],globalparameters_flatten_err[3],nwalkers*20)
         globalparameters_flat_3=np.concatenate(([globalparameters_flatten[3]],
-                                                globalparameters_flat_3[np.all((globalparameters_flat_3>-0.4,globalparameters_flat_3<0.4),axis=0)][0:nwalkers-1]))
+                                                globalparameters_flat_3[np.all((globalparameters_flat_3>=-0.4,globalparameters_flat_3<=0.4),axis=0)][0:nwalkers-1]))
         # slitFrac
         globalparameters_flat_4=np.abs(np.random.normal(globalparameters_flatten[4],globalparameters_flatten_err[4],nwalkers*20))
         #print(globalparameters_flatten_err[4])
         globalparameters_flat_4=np.concatenate(([globalparameters_flatten[4]],
-                                                globalparameters_flat_4[np.all((globalparameters_flat_4>0.05,globalparameters_flat_4<0.09),axis=0)][0:nwalkers-1]))
+                                                globalparameters_flat_4[np.all((globalparameters_flat_4>=0.05,globalparameters_flat_4<=0.09),axis=0)][0:nwalkers-1]))
         # slitFrac_dy
         globalparameters_flat_5=np.abs(np.random.normal(globalparameters_flatten[5],globalparameters_flatten_err[5],nwalkers*20))      
         globalparameters_flat_5=np.concatenate(([globalparameters_flatten[5]],
-                                                globalparameters_flat_5[np.all((globalparameters_flat_5>-0.5,globalparameters_flat_5<0.5),axis=0)][0:nwalkers-1]))
+                                                globalparameters_flat_5[np.all((globalparameters_flat_5>=-0.5,globalparameters_flat_5<=0.5),axis=0)][0:nwalkers-1]))
         # wide_0
         globalparameters_flat_6=np.abs(np.random.normal(globalparameters_flatten[6],globalparameters_flatten_err[6],nwalkers*20))
         globalparameters_flat_6=np.concatenate(([globalparameters_flatten[6]],
@@ -6479,68 +7092,68 @@ def create_parInit(allparameters_proposal,multi=None,pupil_parameters=None,allpa
         # wide_23
         globalparameters_flat_7=np.random.normal(globalparameters_flatten[7],globalparameters_flatten_err[7],nwalkers*20)
         globalparameters_flat_7=np.concatenate(([globalparameters_flatten[7]],
-                                                globalparameters_flat_7[np.all((globalparameters_flat_7>=0.0,globalparameters_flat_7<1),axis=0)][0:nwalkers-1]))
+                                                globalparameters_flat_7[np.all((globalparameters_flat_7>=0.0,globalparameters_flat_7<=1),axis=0)][0:nwalkers-1]))
         # wide_43 
         globalparameters_flat_8=np.abs(np.random.normal(globalparameters_flatten[8],globalparameters_flatten_err[8],nwalkers*20))
         globalparameters_flat_8=np.concatenate(([globalparameters_flatten[8]],
-                                                globalparameters_flat_8[np.all((globalparameters_flat_8>=0,globalparameters_flat_8<1),axis=0)][0:nwalkers-1]))
-        # mislaign
+                                                globalparameters_flat_8[np.all((globalparameters_flat_8>=0,globalparameters_flat_8<=1),axis=0)][0:nwalkers-1]))
+        # misalign
         globalparameters_flat_9=np.abs(np.random.normal(globalparameters_flatten[9],globalparameters_flatten_err[9],nwalkers*20))
         globalparameters_flat_9=np.concatenate(([globalparameters_flatten[9]],
-                                                globalparameters_flat_9[np.all((globalparameters_flat_9>=0,globalparameters_flat_9<10),axis=0)][0:nwalkers-1]))
+                                                globalparameters_flat_9[np.all((globalparameters_flat_9>=0,globalparameters_flat_9<=12),axis=0)][0:nwalkers-1]))
         # x_fiber
         globalparameters_flat_10=np.random.normal(globalparameters_flatten[10],globalparameters_flatten_err[10],nwalkers*20)
         globalparameters_flat_10=np.concatenate(([globalparameters_flatten[10]],
-                                                 globalparameters_flat_10[np.all((globalparameters_flat_10>-0.4,globalparameters_flat_10<0.4),axis=0)][0:nwalkers-1]))
+                                                 globalparameters_flat_10[np.all((globalparameters_flat_10>=-0.4,globalparameters_flat_10<=0.4),axis=0)][0:nwalkers-1]))
         # y_fiber
         globalparameters_flat_11=np.random.normal(globalparameters_flatten[11],globalparameters_flatten_err[11],nwalkers*20)
         globalparameters_flat_11=np.concatenate(([globalparameters_flatten[11]],
-                                                 globalparameters_flat_11[np.all((globalparameters_flat_11>-0.4,globalparameters_flat_11<0.4),axis=0)][0:nwalkers-1]))
+                                                 globalparameters_flat_11[np.all((globalparameters_flat_11>=-0.4,globalparameters_flat_11<=0.4),axis=0)][0:nwalkers-1]))
         
         #effective_radius_illumination
         globalparameters_flat_12=np.random.normal(globalparameters_flatten[12],globalparameters_flatten_err[12],nwalkers*20)
         globalparameters_flat_12=np.concatenate(([globalparameters_flatten[12]],
-                                                 globalparameters_flat_12[np.all((globalparameters_flat_12>0.7,globalparameters_flat_12<1.0),axis=0)][0:nwalkers-1]))
+                                                 globalparameters_flat_12[np.all((globalparameters_flat_12>=0.7,globalparameters_flat_12<=1.0),axis=0)][0:nwalkers-1]))
         
         if globalparameters_flatten[13]<0.01:
             globalparameters_flatten[13]=0.01
         # frd_sigma
         globalparameters_flat_13=np.random.normal(globalparameters_flatten[13],globalparameters_flatten_err[13],nwalkers*20)
         globalparameters_flat_13=np.concatenate(([globalparameters_flatten[13]],
-                                                 globalparameters_flat_13[np.all((globalparameters_flat_13>=0.01,globalparameters_flat_13<0.4),axis=0)][0:nwalkers-1]))
+                                                 globalparameters_flat_13[np.all((globalparameters_flat_13>=0.01,globalparameters_flat_13<=0.4),axis=0)][0:nwalkers-1]))
         
         # frd_lorentz_factor
         globalparameters_flat_14=np.random.normal(globalparameters_flatten[14],globalparameters_flatten_err[14],nwalkers*20)
         globalparameters_flat_14=np.concatenate(([globalparameters_flatten[14]],
-                                                 globalparameters_flat_14[np.all((globalparameters_flat_14>0.01,globalparameters_flat_14<1),axis=0)][0:nwalkers-1]))       
+                                                 globalparameters_flat_14[np.all((globalparameters_flat_14>=0.01,globalparameters_flat_14<=1),axis=0)][0:nwalkers-1]))       
         
         # det_vert
         globalparameters_flat_15=np.random.normal(globalparameters_flatten[15],globalparameters_flatten_err[15],nwalkers*20)
         globalparameters_flat_15=np.concatenate(([globalparameters_flatten[15]],
-                                                 globalparameters_flat_15[np.all((globalparameters_flat_15>0.85,globalparameters_flat_15<1.15),axis=0)][0:nwalkers-1]))
+                                                 globalparameters_flat_15[np.all((globalparameters_flat_15>=0.85,globalparameters_flat_15<=1.15),axis=0)][0:nwalkers-1]))
         
         #slitHolder_frac_dx
         globalparameters_flat_16=np.random.normal(globalparameters_flatten[16],globalparameters_flatten_err[16],nwalkers*20)
         globalparameters_flat_16=np.concatenate(([globalparameters_flatten[16]],
-                                                 globalparameters_flat_16[np.all((globalparameters_flat_16>-0.8,globalparameters_flat_16<0.8),axis=0)][0:nwalkers-1]))
+                                                 globalparameters_flat_16[np.all((globalparameters_flat_16>=-0.8,globalparameters_flat_16<=0.8),axis=0)][0:nwalkers-1]))
 
         # grating lines
         globalparameters_flat_17=np.random.normal(globalparameters_flatten[17],globalparameters_flatten_err[17],nwalkers*20)
         globalparameters_flat_17=np.concatenate(([globalparameters_flatten[17]],
-                                                 globalparameters_flat_17[np.all((globalparameters_flat_17>1200,globalparameters_flat_17<120000),axis=0)][0:nwalkers-1]))
+                                                 globalparameters_flat_17[np.all((globalparameters_flat_17>=1200,globalparameters_flat_17<=120000),axis=0)][0:nwalkers-1]))
 
         # scattering_slope
         globalparameters_flat_18=np.random.normal(globalparameters_flatten[18],globalparameters_flatten_err[18],nwalkers*20)
         globalparameters_flat_18=np.concatenate(([globalparameters_flatten[18]],
-                                                 globalparameters_flat_18[np.all((globalparameters_flat_18>1.5,globalparameters_flat_18<3.0),axis=0)][0:nwalkers-1]))
+                                                 globalparameters_flat_18[np.all((globalparameters_flat_18>=1.5,globalparameters_flat_18<=3.0),axis=0)][0:nwalkers-1]))
         # scattering_amplitude
         globalparameters_flat_19=np.random.normal(globalparameters_flatten[19],globalparameters_flatten_err[19],nwalkers*20)
         globalparameters_flat_19=np.concatenate(([globalparameters_flatten[19]],
-                                                 globalparameters_flat_19[np.all((globalparameters_flat_19>0.0,globalparameters_flat_19<0.4),axis=0)][0:nwalkers-1]))
+                                                 globalparameters_flat_19[np.all((globalparameters_flat_19>=0.0,globalparameters_flat_19<=0.4),axis=0)][0:nwalkers-1]))
         # pixel_effect
         globalparameters_flat_20=np.random.normal(globalparameters_flatten[20],globalparameters_flatten_err[20],nwalkers*20)
         globalparameters_flat_20=np.concatenate(([globalparameters_flatten[20]],
-                                                 globalparameters_flat_20[np.all((globalparameters_flat_20>0.15,globalparameters_flat_20<0.8),axis=0)][0:nwalkers-1]))
+                                                 globalparameters_flat_20[np.all((globalparameters_flat_20>=0.15,globalparameters_flat_20<=0.8),axis=0)][0:nwalkers-1]))
         
         # fiber_r
         if globalparameters_flatten[21]<1.74:
@@ -6548,13 +7161,13 @@ def create_parInit(allparameters_proposal,multi=None,pupil_parameters=None,allpa
         
         globalparameters_flat_21=np.random.normal(globalparameters_flatten[21],globalparameters_flatten_err[21],nwalkers*20)
         globalparameters_flat_21=np.concatenate(([globalparameters_flatten[21]],
-                                                 globalparameters_flat_21[np.all((globalparameters_flat_21>1.74,globalparameters_flat_21<1.98),axis=0)][0:nwalkers-1]))
+                                                 globalparameters_flat_21[np.all((globalparameters_flat_21>=1.74,globalparameters_flat_21<=1.98),axis=0)][0:nwalkers-1]))
         
         if len(globalparameters_flatten)==23:
             # flux
             globalparameters_flat_22=np.random.normal(globalparameters_flatten[22],globalparameters_flatten_err[22],nwalkers*20)
             globalparameters_flat_22=np.concatenate(([globalparameters_flatten[22]],
-                                                     globalparameters_flat_22[np.all((globalparameters_flat_22>0.98,globalparameters_flat_22<1.02),axis=0)][0:nwalkers-1]))
+                                                     globalparameters_flat_22[np.all((globalparameters_flat_22>=0.98,globalparameters_flat_22<=1.02),axis=0)][0:nwalkers-1]))
         else:
             pass
 
@@ -6570,7 +7183,7 @@ def create_parInit(allparameters_proposal,multi=None,pupil_parameters=None,allpa
                                                    globalparameters_flat_17,globalparameters_flat_18,globalparameters_flat_19,
                                                    globalparameters_flat_20,globalparameters_flat_21,globalparameters_flat_22]:
             print(str(i[0])+': '+str(len(i)))
-        """
+        """        
         if pupil_parameters is None:
             if len(globalparameters_flatten)==23:
                 #print('considering globalparameters_flatten 23 ')
@@ -6616,7 +7229,7 @@ def create_parInit(allparameters_proposal,multi=None,pupil_parameters=None,allpa
     if zmax<=22:    
         allparameters=np.column_stack((zparameters_flat,globalparameters_flat))
     if zmax>22:  
-        print('globalparameters_flat.shape'+str(zparameters_extra_flat.shape) )
+        #print('globalparameters_flat.shape'+str(zparameters_extra_flat.shape) )
         allparameters=np.column_stack((zparameters_flat,globalparameters_flat,zparameters_extra_flat))    
       
     parInit=allparameters.reshape(nwalkers,number_of_par)   
@@ -6850,7 +7463,7 @@ def check_global_parameters(globalparameters,test_print=None,fit_for_flux=None):
     globalparameters_output=np.copy(globalparameters)
     
     # hsc frac
-    if globalparameters[0]<0.6 or globalparameters[0]>0.8:
+    if globalparameters[0]<=0.6 or globalparameters[0]>=0.8:
         print('globalparameters[0] outside limits; value: '+str(globalparameters[0])) if test_print == 1 else False 
     if globalparameters[0]<=0.6:
         globalparameters_output[0]=0.6
@@ -6932,9 +7545,9 @@ def check_global_parameters(globalparameters,test_print=None,fit_for_flux=None):
     if globalparameters[9]<0:
         print('globalparameters[9] outside limits') if test_print == 1 else False 
         globalparameters_output[9]=0
-    if globalparameters[9]>10:
+    if globalparameters[9]>12:
         print('globalparameters[9] outside limits') if test_print == 1 else False 
-        globalparameters_output[9]=10
+        globalparameters_output[9]=12
 
     # x_fiber
     if globalparameters[10]<-0.4:
