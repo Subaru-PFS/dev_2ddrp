@@ -43,7 +43,7 @@ np.seterr(divide='ignore', invalid='ignore')
 from multiprocessing import current_process
 from functools import lru_cache
 
-from tqdm import tqdm
+#from tqdm import tqdm
 #import pyfftw
 #import pandas as pd
 
@@ -64,7 +64,7 @@ from astropy.convolution import Gaussian2DKernel
 
 # scipy and skimage
 import scipy.misc
-import skimage.transform
+#import skimage.transform
 import scipy.optimize as optimize
 from scipy.ndimage.filters import gaussian_filter
 
@@ -164,7 +164,9 @@ class Zernike_Analysis(object):
             if socket.gethostname()=='IapetusUSA':
                 STAMPS_FOLDER=PSF_DIRECTORY+"ReducedData/Data_Nov_20_2020/Stamps_cleaned/"    
             else:
-                STAMPS_FOLDER=PSF_DIRECTORY+"ReducedData/Data_Nov_20/Stamps_cleaned/"    
+                STAMPS_FOLDER=PSF_DIRECTORY+"ReducedData/Data_Nov_20/Stamps_cleaned/"  
+        if dataset==7:
+                STAMPS_FOLDER=PSF_DIRECTORY+"ReducedData/Data_May_21_2021/Stamps_cleaned/"              
                  
         print('STAMPS_FOLDER: '+str(STAMPS_FOLDER))
         
@@ -254,11 +256,28 @@ class Zernike_Analysis(object):
                  single_number_focus=34561+48
                  obs_possibilites=np.array([34561,34561+6,34561+12,34561+18,34561+24,34561+30,34561+36,34561+42,34561+48,34561+48,\
                                             34561+54,34561+60,34561+66,34561+72,34561+78,34561+84,34561+90,34561+96,34561+48])
+                     
+        if dataset==7:
+            #if str(arc)=="Ar":
+            #    single_number_focus=34341+48
+            if str(arc)=="Ne":
+                single_number_focus=27677
+                if multi_var==True:
+                    obs_multi=27719
+
+                obs_possibilites=np.array([27713,-999,27683,-999,-999,-999,-999,-999,27677,-999,\
+                                   -999,-999,-999,-999,-999,27698,-999,27719,-999])
+                    
+                    
+            #elif str(arc)=="Kr":
+            #    single_number_focus=34561+48
+
 
 
         #  if multi ??
-        if multi_var==True:
+        if multi_var==True and dataset<7:
             obs_multi=single_number_focus+48
+        if multi_var==True:
             self.obs_multi=obs_multi
             obs_single=obs
             self.obs_single=obs_single
@@ -276,7 +295,7 @@ class Zernike_Analysis(object):
         
         
         
-        if dataset in [0,1,2,3,4,6]:
+        if dataset in [0,1,2,3,4,6,7]:
             labelInput=label[list(obs_possibilites).index(obs_int)]
         if dataset in [5]:
             labelInput=label_fine_defocus[list(obs_possibilites).index(obs_int)]
@@ -292,7 +311,7 @@ class Zernike_Analysis(object):
         if multi_var==True:
 
             for labelInput in self.list_of_defocuses:
-                if dataset in [0,1,2,3,4,6]:
+                if dataset in [0,1,2,3,4,6,7]:
                     obs_single=obs_possibilites[label.index(labelInput)]
                 if dataset in [5]:
                     obs_single=obs_possibilites[label_fine_defocus.index(labelInput)]
@@ -318,9 +337,15 @@ class Zernike_Analysis(object):
             
             
             for obs_v in list_of_obs:
-                sci_image =np.load(STAMPS_FOLDER+'sci'+str(obs_v)+str(single_number)+str(arc)+'_Stacked.npy')
-                mask_image =np.load(STAMPS_FOLDER+'mask'+str(obs_v)+str(single_number)+str(arc)+'_Stacked.npy')
-                var_image =np.load(STAMPS_FOLDER+'var'+str(obs_v)+str(single_number)+str(arc)+'_Stacked.npy')
+                if obs_v>0:
+                    sci_image =np.load(STAMPS_FOLDER+'sci'+str(obs_v)+str(single_number)+str(arc)+'_Stacked.npy')
+                    mask_image =np.load(STAMPS_FOLDER+'mask'+str(obs_v)+str(single_number)+str(arc)+'_Stacked.npy')
+                    var_image =np.load(STAMPS_FOLDER+'var'+str(obs_v)+str(single_number)+str(arc)+'_Stacked.npy')
+                else:
+                    # if the image is not avaliable (has obs_v negative) make some dummy images
+                    sci_image=np.ones((20,20))
+                    mask_image=np.ones((20,20))
+                    var_image=np.ones((20,20))
                 
                 list_of_sci_images.append(sci_image)
                 list_of_mask_images.append(mask_image)
@@ -409,7 +434,7 @@ class Zernike_Analysis(object):
             else:
                 print("Not recognized arc-line")   
                 
-        if dataset==6:   
+        if dataset==6 or dataset==7:   
                 
             if socket.gethostname()=='IapetusUSA':
                 with open(PSF_DIRECTORY+'ReducedData/Data_Nov_20_2020/Dataframes/finalHgAr_Feb2020', 'rb') as f:
@@ -1110,7 +1135,7 @@ class Zernike_Analysis(object):
                                      custom_sci_image=None,custom_var_image=None,\
                                          use_max_chi_scaling=False,use_max_flux_scaling=False,
                                          show_flux_mask=False,show_impact_pixels_mask=False,
-                                         save=False): 
+                                         save=False,multi_background_factor=3): 
         
         if custom_model_image is None:
             optPsf_cut_fiber_convolved_downsampled=np.load(TESTING_FINAL_IMAGES_FOLDER+'optPsf_cut_fiber_convolved_downsampled.npy')
@@ -1133,13 +1158,13 @@ class Zernike_Analysis(object):
 
 
         mean_value_of_background_via_var=np.mean([np.median(var_image[0]),np.median(var_image[-1]),\
-                                              np.median(var_image[:,0]),np.median(var_image[:,-1])])*3
+                                              np.median(var_image[:,0]),np.median(var_image[:,-1])])*multi_background_factor
      
         mean_value_of_background_via_sci=np.mean([np.median(sci_image[0]),np.median(sci_image[-1]),\
-                                              np.median(sci_image[:,0]),np.median(sci_image[:,-1])])*3
+                                              np.median(sci_image[:,0]),np.median(sci_image[:,-1])])*multi_background_factor
             
         mean_value_of_background=np.max([mean_value_of_background_via_var,mean_value_of_background_via_sci])
-        print('3x mean_value_of_background via sci is estimated to be: '+str(mean_value_of_background))
+        print(str(multi_background_factor)+'x mean_value_of_background via sci is estimated to be: '+str(mean_value_of_background))
         if type(show_flux_mask)==bool:
             flux_mask=sci_image>(mean_value_of_background)
         else:
@@ -1878,8 +1903,18 @@ class Zernike_result_analysis(object):
                 elif arc=="Ne":
                     single_number_focus=34217+48 
                 if str(arc)=="Kr":
-                    single_number_focus=34561+48,   
+                    single_number_focus=34561+48
                     
+        if dataset==7:
+            STAMPS_FOLDER="/Volumes/Saturn_USA/PFS/ReducedData/Data_Nov_20_2020/Stamps_cleaned/"
+            multi_var=True
+            #if str(arc)=="Ar":
+            #    single_number_focus=34341+48
+            if str(arc)=="Ne":
+                single_number_focus=27677
+                if multi_var==True:
+                    obs_multi=27719
+
                     
 
         self.STAMPS_FOLDER=STAMPS_FOLDER

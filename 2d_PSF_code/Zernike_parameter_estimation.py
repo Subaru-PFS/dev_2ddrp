@@ -49,6 +49,10 @@ Apr 27, 2021: 0.40c -> 0.40d further experiment with multi_background_factor
 May 06, 2021: 0.40d -> 0.40e set w=0.51
 May 07, 2021: 0.40e -> 0.40f array_of_multi_background_factors, changed to correct number of factors
 May 13, 2021: 0.40f -> 0.41 updated to again to be able to get focus analysis
+May 20, 2021: 0.41 -> 0.41b updated eps=8 parameter and set w=0.81
+May 27, 2021: 0.41b -> 0.42 introduced wavelength in the estimation algorithm
+Jun 15, 2021: 0.42 -> 0.42b dataset 7, only Neon included
+
 
 @author: Neven Caplar
 @contact: ncaplar@princeton.edu
@@ -105,7 +109,7 @@ import emcee
 #Zernike_Module
 from Zernike_Module import LN_PFS_single,LN_PFS_multi_same_spot,create_parInit,PFSLikelihoodModule,svd_invert,Tokovinin_multi,check_global_parameters
 
-__version__ = "0.41"
+__version__ = "0.42b"
 
 parser = argparse.ArgumentParser(description="Starting args import",
                                  formatter_class=argparse.RawTextHelpFormatter,
@@ -137,7 +141,7 @@ parser.add_argument("-nsteps", help="number of steps each walker will take ",typ
 parser.add_argument("-eps", help="input argument that controls the paramters of the cosmo_hammer process; if in doubt, eps=5 is probably a solid option ",type=int)
 ################################################    
 # which dataset is being analyzed [numerical value of 0,1,2,3,4 or 5]   
-parser.add_argument("-dataset", help="which dataset is being analyzed [numerical value of 0,1,2,3,4 or 5] ",type=int, choices=[0, 1, 2,3,4,5,6])
+parser.add_argument("-dataset", help="which dataset is being analyzed [numerical value of 0,1,2,3,4 or 5] ",type=int, choices=[0, 1, 2,3,4,5,6,7])
 ################################################    
 parser.add_argument("-arc", help="which arc lamp is being analyzed (HgAr for Mercury-Argon, Ne for Neon, Kr for Krypton)  ", choices=["HgAr","Ar", "Ne", "Kr"])
 ################################################ 
@@ -199,13 +203,13 @@ if eps==3:
 if eps==4:
     options=[390,0.993,1.193]
 if eps==5:
-    options=[390,2.793,1.593]
+    options=[480,2.793,1.593]
 if eps==6:
     options=[480,2.793,1.193]
 if eps==7:
     options=[160,2.793,1.193]
 if eps==8:
-    options=[240,2.793,1.593]
+    options=[480,2.793,0.193]
 if eps==9:
     options=[190,1.193,1.193]
     nsteps=int(2*nsteps)
@@ -250,6 +254,11 @@ if dataset==4 or dataset==5:
 # folder contaning the data taken with F/2.8 stop in November 2020 on Subaru
 if dataset==6:
     DATA_FOLDER='/tigress/ncaplar/ReducedData/Data_Nov_20/'   
+    
+# folder contaning the data taken with F/2.8 stop in June 2021, at LAM, on SM2
+if dataset==7:
+    DATA_FOLDER='/tigress/ncaplar/ReducedData/Data_May_21_2021/'    
+    
 
           
     
@@ -327,6 +336,18 @@ if dataset==6:
         single_number_focus=34217+48
     elif str(arc)=="Kr":
         single_number_focus=34561+48
+    else:
+        print('Arc line specified is '+str(arc))
+        print("Not recognized arc-line")  
+        
+# defocused data from June 2021, at LAM, at SM2, corrected    
+if dataset==7:   
+    #if str(arc)=="Ar":
+    #    single_number_focus=34341+48
+    if str(arc)=="Ne":
+        single_number_focus=27677
+    #elif str(arc)=="Kr":
+    #    single_number_focus=34561+48
     else:
         print('Arc line specified is '+str(arc))
         print("Not recognized arc-line")  
@@ -436,6 +457,8 @@ for obs in list_of_obs:
             sci_image=np.zeros((20,20))
             var_image=np.zeros((20,20))
             mask_image=np.zeros((20,20))
+            
+            print('not able to load image at: '+str(STAMPS_FOLDER+'sci'+str(obs)+str(single_number)+str(arc)+'_Stacked.npy'))
             
             
         try:
@@ -592,7 +615,18 @@ if dataset==6:
          obs_possibilites=np.array([34561,34561+6,34561+12,34561+18,34561+24,34561+30,34561+36,34561+42,34561+48,\
                                     34561+54,34561+60,34561+66,34561+72,34561+78,34561+84,34561+90,34561+96,34561+48])
         
-     
+    
+if dataset==7:
+    #if arc=='Ar':
+    #    obs_possibilites=np.array([34341,34341+6,34341+12,34341+18,34341+24,34341+30,34341+36,34341+42,34341+48,\
+    #                               34341+54,34341+60,34341+66,34341+72,34341+78,34341+84,34341+90,34341+96,21346+48])
+    if arc=='Ne':
+        obs_possibilites=np.array([27713,-999,27683,-999,-999,-999,-999,-999,27677,\
+                                   -999,-999,-999,-999,-999,27698,-999,27719,-999])
+    #if arc=='Kr':
+    #     obs_possibilites=np.array([34561,34561+6,34561+12,34561+18,34561+24,34561+30,34561+36,34561+42,34561+48,\
+    #                                34561+54,34561+60,34561+66,34561+72,34561+78,34561+84,34561+90,34561+96,34561+48])        
+        
  ##############################################    
 
 # associates each observation with the label in the supplied dataframe
@@ -696,7 +730,9 @@ elif arc=="Ar":
 else:
     print("what has happened here? Only Argon, HgAr, Neon and Krypton implemented")
 
-
+wavelength=float(finalArc.iloc[int(single_number)]['wavelength'])
+wavelength=None
+print("wavelength used [nm] is: "+str(wavelength))
 #pool = MPIPool()
 #if not pool.is_master():
 #    pool.wait()
@@ -716,17 +752,17 @@ else:
     # otherwise, if you are passing multiple images
     # model_multi is only needed to create reasonable parametrizations and could possibly be avoided in future versions?
     model_multi = LN_PFS_multi_same_spot(list_of_sci_images=list_of_sci_images,list_of_var_images=list_of_var_images,list_of_mask_images=list_of_mask_images,\
-                                         dithering=1,save=0,verbosity=0,npix=1536,list_of_defocuses=list_of_labelInput,zmax=zmax,double_sources=double_sources,\
+                                         wavelength=wavelength,dithering=1,save=0,verbosity=0,npix=1536,list_of_defocuses=list_of_labelInput,zmax=zmax,double_sources=double_sources,\
                                          double_sources_positions_ratios=double_sources_positions_ratios,test_run=False)           
 
     Tokovinin_multi_instance_with_pool=Tokovinin_multi(list_of_sci_images,list_of_var_images,list_of_mask_images=list_of_mask_images,\
-                                        dithering=1,save=0,verbosity=0,npix=1536,zmax=twentytwo_or_extra,\
+                                        wavelength=wavelength,dithering=1,save=0,verbosity=1,npix=1536,zmax=twentytwo_or_extra,\
                                         list_of_defocuses=list_of_defocuses_input_long,double_sources=double_sources,\
                                         double_sources_positions_ratios=double_sources_positions_ratios,fit_for_flux=True,test_run=False, \
                                         num_iter=None,pool=pool)
         
     Tokovinin_multi_instance_without_pool=Tokovinin_multi(list_of_sci_images,list_of_var_images,list_of_mask_images=list_of_mask_images,\
-                                        dithering=1,save=0,verbosity=0,npix=1536,zmax=twentytwo_or_extra,\
+                                        wavelength=wavelength,dithering=1,save=0,verbosity=0,npix=1536,zmax=twentytwo_or_extra,\
                                         list_of_defocuses=list_of_defocuses_input_long,double_sources=double_sources,\
                                         double_sources_positions_ratios=double_sources_positions_ratios,fit_for_flux=True,test_run=False,\
                                         num_iter=None,pool=None)    
@@ -793,10 +829,10 @@ else:
                 print(results_of_fit_input[label].index.astype(int))
                 # if your single_number is avaliable go ahead
                 if int(single_number) in results_of_fit_input[label].index.astype(int):
-                    print('checkpoint')
+                    # print('checkpoint')
                     if type(results_of_fit_input[label].index[0])==str:
                         list_of_allparameters.append(results_of_fit_input[label].loc[str(single_number)].values)
-                        print('results_of_fit_input[label].loc[int(single_number)].values' + str(results_of_fit_input[label].loc[str(single_number)].values))
+                        print('results_of_fit_input['+str(label)+'].loc['+str(int(single_number))+'].values' + str(results_of_fit_input[label].loc[str(single_number)].values))
                     else:
                         #print('results_of_fit_input[label]'+str(results_of_fit_input[label]))
                         list_of_allparameters.append(results_of_fit_input[label].loc[int(single_number)].values)
@@ -1156,6 +1192,8 @@ if twentytwo_or_extra>=22:
           -0.00046356,    -0.00617323,    -0.01062363,     0.00643621,
            0.00136246,     0.00197025,     0.00300083,     0.0008643 ])
     """
+    
+
     #print(allparameters_proposal_22.shape)
 
     
@@ -1176,6 +1214,12 @@ if twentytwo_or_extra>=22:
     
     else:
         # if passing multi, you pass the parametrizations
+        #from Zernike_Module import check_global_parameters
+        global_parameters=array_of_polyfit_1_parameterizations_proposal_shape_2d[:,1][19:19+23]
+        checked_global_parameters=check_global_parameters(global_parameters)
+        array_of_polyfit_1_parameterizations_proposal_shape_2d[:,1][19:19+23]=checked_global_parameters
+        
+        
         print('array_of_polyfit_1_parameterizations_proposal_shape_2d: '+str(array_of_polyfit_1_parameterizations_proposal_shape_2d))
         parInit1=create_parInit(allparameters_proposal=array_of_polyfit_1_parameterizations_proposal_shape_2d,multi=multi_var,pupil_parameters=None,\
                                 allparameters_proposal_err=None,\
@@ -1223,9 +1267,18 @@ if twentytwo_or_extra>=22:
     if analysis_type=='defocus':
         now = datetime.now()
         print('Starting work on the initial best result (defocus) at '+str(now))
+        
+        # Uncomment if you need to test the algorithm
+        #print('Starting custom test')
+        #list_of_minchain=model_multi.create_list_of_allparameters(array_of_polyfit_1_parameterizations_proposal_shape_2d,\
+        #                                                          list_of_defocuses=['m4','0','p4'],zmax=56)
+        #res_multi=model_multi(list_of_minchain,return_Images=True,use_only_chi=True)
+        #print('res_multi'+str(res_multi))
+        #print('Ended custom test')
+        
         time_start_initial=time.time()
         best_result=Tokovinin_multi_instance_with_pool(array_of_polyfit_1_parameterizations_proposal_shape_2d,\
-                                                       return_Images=True,num_iter=None,previous_best_result=None,\
+                                                       return_Images=True,num_iter='initial',previous_best_result=None,\
                                                            use_only_chi=True)    
         time_end_initial=time.time()
         print('time for the initial evaluation is '+str(time_end_initial-time_start_initial))
@@ -1255,10 +1308,13 @@ if twentytwo_or_extra>=22:
     array_of_particle_pbest_position=np.zeros((particleCount,paramCount))
     array_of_particle_pbest_likelihood=np.ones((particleCount,1))*-9999999
     
-    np.save(RESULT_FOLDER+'initial_best_result_'+str(single_number)+str(arc)+str(eps),best_result)
+    np.save(RESULT_FOLDER+'initial_best_result_'+str(date_of_output)+'_Single_P_'+\
+            str(obs)+str(single_number_original)+str(eps)+str(arc),best_result)
+    
     
     if analysis_type=='defocus':    
-        array_of_multi_background_factors=np.concatenate((np.arange(80,3,-(80-3)/(nsteps-1)),np.array([3])) )
+        array_of_multi_background_factors=np.ones((nsteps))*3
+        #array_of_multi_background_factors=np.concatenate((np.arange(3.1,3,-(3.1-3)/(nsteps-1)),np.array([3])) )
     else:
         array_of_multi_background_factors=np.ones((nsteps))*3
 
@@ -1286,7 +1342,8 @@ if twentytwo_or_extra>=22:
         if analysis_type=='defocus':           
             out1=pool.map(partial(Tokovinin_multi_instance_without_pool, return_Images=True,\
                                   previous_best_result=best_result,use_only_chi=True,\
-                                  multi_background_factor=array_of_multi_background_factors[step]), array_of_particle_position_proposal)  
+                                  multi_background_factor=array_of_multi_background_factors[step]),\
+                          array_of_particle_position_proposal)  
             out2=np.array(list(out1))
                 
             time_end_evo_step=time.time()
@@ -1307,7 +1364,7 @@ if twentytwo_or_extra>=22:
 
             time_end_evo_step=time.time()
 
-            print('time for the evaluation of initial partial evulation over model in step '+str(step)+\
+            print('time for the evaluation of initial partial evaluation over model in step '+str(step)+\
             ' is '+str(time_end_evo_step-time_start_evo_step))   
 
         #print('out2.shape '+str(out2.shape))
@@ -1437,7 +1494,7 @@ if twentytwo_or_extra>=22:
             particle_velocity=np.array(swarm[i][2]) 
 
             #w = 0.5 + np.random.uniform(0,1,size=paramCount)/2
-            w=0.51
+            w=0.81
             part_vel = w * particle_velocity
             # cog_vel set at 0 at the moment
             #cog_vel = c1 * numpy.random.uniform(0,1,size=paramCount) * (particle.pbest.position - particle.position)   
@@ -1482,6 +1539,9 @@ if twentytwo_or_extra>=22:
             swarm[i][2]=particle_velocity
             # create list/array of new proposed positions
             list_of_particle_position_proposal.append(new_particle_position)
+            
+            
+            # update that z-parameters are the same as in the best particle???
     
  
         list_of_swarm.append(swarm)

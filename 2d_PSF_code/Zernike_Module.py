@@ -103,6 +103,17 @@ Apr 29, 2021: 0.45 -> 0.45a many changes in order to run create_simplified_H eff
 May 07, 2021: 0.45a -> 0.45b if Premodel analysis failed, return 15 values
 May 08, 2021: 0.45b -> 0.45c changed that images of same size do not crash out_images creation
 May 14, 2021: 0.45c -> 0.45d create_parInit, changed from <> to <= and >=
+May 18, 2021: 0.45d -> 0.45e testing focus constrain in Tokovinin
+May 19, 2021: 0.45e -> 0.45f expanded verbosity messages in Tokovinin algorithm
+May 19, 2021: 0.45f -> 0.45g testing [8., 8., 8., 8., 1., 8., 8., 8., 8.] renormalization
+May 20, 2021: 0.45g -> 0.45h do not use multi_background for image in or near focus
+May 27, 2021: 0.45h -> 0.45i reordered variables in LN_PFS_single, in preparation for wv analysis
+May 27, 2021: 0.45i -> 0.46 changed oversampling to be always 10
+Jun 08, 2021: 0.46 -> 0.46a changed to Psf_position to be able to take only_chi and center of flux
+Jun 08, 2021: 0.46a -> 0.46b changed normalization so that in focus it is indentical as in pipeline
+Jun 15, 2021: 0.46b -> 0.46c change limit on the initial cut of the oversampled image, in order to handle bluer data
+Jun 19, 2021: 0.46c -> 0.46d changed skimage.transform.resize to resize, to avoid skimage.transform not avaliable in LSST
+Jun 20, 2021: 0.46d -> 0.46e changed scipy.signal to signal, and require that optPsf_cut_downsampled_scattered size is int / no change to unit test
 
 @author: Neven Caplar
 @contact: ncaplar@princeton.edu
@@ -127,6 +138,8 @@ from multiprocessing import current_process
 from functools import lru_cache
 import threading
 import platform
+import traceback
+
 
 #import pyfftw
 #import pandas as pd
@@ -151,9 +164,10 @@ from astropy.convolution import Gaussian2DKernel
 # scipy and skimage
 import scipy.misc
 import scipy.fftpack
-import skimage.transform
+#import skimage.transform
 #import scipy.optimize as optimize
 from scipy.ndimage.filters import gaussian_filter
+from scipy import signal
 
 #lmfit
 import lmfit
@@ -179,7 +193,7 @@ __all__ = ['PupilFactory', 'Pupil','ZernikeFitter_PFS','LN_PFS_multi_same_spot',
            'sky_scale','sky_size','remove_pupil_parameters_from_all_parameters',\
            'resize','_interval_overlap','svd_invert','Tokovinin_multi','find_centroid_of_flux','create_custom_var']
 
-__version__ = "0.45d"
+__version__ = "0.46e"
 
 
 
@@ -493,7 +507,7 @@ class PupilFactory(object):
         f_multiplier_factor=(-camX_value_for_f_multiplier*100/3)*(np.abs(camY_value_for_f_multiplier)/camY_Max)+1
         #f_multiplier_factor=1
         if self.verbosity==1:
-            print('f_multiplier_factor is: '+str(f_multiplier_factor))
+            print('f_multiplier_factor for size of detector triangle is: '+str(f_multiplier_factor))
         
 
         pupil_illuminated_only0_in_only1=np.zeros((i_y_max-i_y_min,i_x_max-i_x_min))
@@ -1048,16 +1062,27 @@ class Pupil_misalign(object):
 class ZernikeFitter_PFS(object):
     
     """!
-    
     Class to create  donut images in PFS
     
-    Despite its name, it does not actually ``fit'' the paramters describing the donuts
+    Despite its name, it does not actually ``fits'' the paramters describing the donuts, it ``just'' creates the images
     
-    The final image and consists of the convolution of
-    an OpticalPSF (constructed using FFT), an input fiber image and other convolutions. The OpticalPSF part includes the
-    specification of an arbitrary number of zernike wavefront aberrations. 
+    The final image is made by the convolution of
+    1. an OpticalPSF (constructed using FFT)
+    2. an input fiber image 
+    3. and other convolutions such as CCD charge diffusion
+    
+    The OpticalPSF part includes
+    1.1. description of pupil
+    1.2.specification of an arbitrary number of zernike wavefront aberrations 
     
     This code uses lmfit to initalize the parameters.
+    
+    Calls Psf_position
+    Calls Pupil classes (which ones?)
+    
+    Called by LN_PFS_Single (function constructModelImage_PFS_naturalResolution)
+    
+    
     """
 
     def __init__(self,image=None,image_var=None,image_mask=None,pixelScale=None,wavelength=None,
@@ -1067,13 +1092,35 @@ class ZernikeFitter_PFS(object):
                  pupil_parameters=None,use_pupil_parameters=None,use_optPSF=None,use_wf_grid=None,
                  zmaxInit=None,extraZernike=None,simulation_00=None,verbosity=None,
                  double_sources=None,double_sources_positions_ratios=None,test_run=None,
-                 explicit_psf_position=None,*args):
+                 explicit_psf_position=None,use_only_chi=False,use_center_of_flux=False,
+                 *args):
         
         """
         @param image        image to analyze
         @param image_var    variance image
+        @param image_mask
         @param pixelScale   pixel scale in arcseconds 
-
+        @param wavelength
+        @param diam_sic
+        @param npix
+        @param pupilExplicit
+        @param wf_full_Image
+        @param radiometricEffectArray_Image
+        @param ilum_Image
+        @param dithering
+        @param save
+        @param pupil_parameters
+        @param use_pupil_parameters
+        @param use_optPSF
+        @param use_wf_grid
+        @param zmaxInit
+        @param extraZernike
+        @param simulation_00
+        @param verbosity
+        @param double_sources
+        @param double_sources_positions_ratios
+        @param test_run
+        @param explicit_psf_position
         """
         
         # if you do not pass the image that you wish to compare, the model will default to creating 41x41 image
@@ -1127,7 +1174,7 @@ class ZernikeFitter_PFS(object):
         
         # when creating pupils it will have size of npix pixels
         if npix is None:
-            npix=1024
+            npix=1536
             self.npix=npix
         else:
             self.npix=npix   
@@ -1198,11 +1245,13 @@ class ZernikeFitter_PFS(object):
         self.test_run=test_run
         
         self.explicit_psf_position=explicit_psf_position
+        self.use_only_chi=use_only_chi
+        self.use_center_of_flux=use_center_of_flux
         
         
         if self.verbosity==1:
             print('np.__version__' +str(np.__version__))
-            print('skimage.__version__' +str(skimage.__version__))
+            #print('skimage.__version__' +str(skimage.__version__))
             print('scipy.__version__' +str(scipy.__version__))
             print('Zernike_Module.__version__' +str(__version__))
 
@@ -1508,7 +1557,7 @@ class ZernikeFitter_PFS(object):
             else:
                 optPsf,ilum,wf_grid_rot=self._getOptPsf_naturalResolution(parameter_values,return_intermediate_images=return_intermediate_images)    
         else:
-            #if first iteration still generate image
+            #if first iteration still generated image
             if self.optPsf is None:
                 if return_intermediate_images==False:
                     optPsf=self._getOptPsf_naturalResolution(parameter_values,return_intermediate_images=return_intermediate_images)
@@ -1543,6 +1592,15 @@ class ZernikeFitter_PFS(object):
             
     def _optPsf_postprocessing(self,optPsf,return_intermediate_images=False):
         
+        """
+        @input              optPsf
+        @param              return_intermediate_images
+        
+        Takes optical psf and postprocesses it to generate final image
+        
+        """
+        
+        
         time_start_single=time.time()
         if self.verbosity==1:
             print(' ')
@@ -1568,7 +1626,20 @@ class ZernikeFitter_PFS(object):
         
         # determine the size, so that from the huge generated image we can cut out only the central portion (1.4 times larger than the size of actual image)
         size_of_central_cut=int(oversampling_original*self.image.shape[0]*1.4)
-        assert size_of_central_cut<optPsf.shape[0]
+        
+        if size_of_central_cut > optPsf.shape[0]:
+            # if larger than size of image, cut the image
+            # fail if not enough space
+            size_of_central_cut=optPsf.shape[0]
+            #print('size:'+str(int(oversampling_original*self.image.shape[0]*1.0)))
+            if self.verbosity==1:
+                print('size_of_central_cut modified to '+str(size_of_central_cut))
+
+            
+            assert int(oversampling_original*self.image.shape[0]*1.0)<optPsf.shape[0]
+  
+        
+        assert size_of_central_cut<=optPsf.shape[0]
         if self.verbosity==1:
             print('size_of_central_cut: '+str(size_of_central_cut))
             
@@ -1584,23 +1655,30 @@ class ZernikeFitter_PFS(object):
         if oversampling_original< 20:
             oversampling=np.round(oversampling_original/2)
         else:
-            oversampling=np.round(oversampling_original/4)
+            #oversampling=np.round(oversampling_original/4)
+            oversampling=10
         if self.verbosity==1:
             print('oversampling:' +str(oversampling))
         
         # what will be the size of the image after you resize it to the from ``oversampling_original'' to ``oversampling'' ratio
-        size_of_optPsf_cut_downsampled=np.round(size_of_central_cut/(oversampling_original/oversampling))
+        size_of_optPsf_cut_downsampled=np.int(np.round(size_of_central_cut/(oversampling_original/oversampling)))
         if self.verbosity==1:
             print('optPsf_cut.shape[0]'+str(optPsf_cut.shape[0]))
             print('size_of_optPsf_cut_downsampled: '+str(size_of_optPsf_cut_downsampled))
             #print('type(optPsf_cut) '+str(type(optPsf_cut[0][0])))
                     
         # make sure that optPsf_cut_downsampled is an array which has an odd size - increase size by 1 if needed
+
+        #if (size_of_optPsf_cut_downsampled % 2) == 0:
+        #    optPsf_cut_downsampled=skimage.transform.resize(optPsf_cut,(size_of_optPsf_cut_downsampled+1,size_of_optPsf_cut_downsampled+1),mode='constant',order=3)
+        #else:
+        #    optPsf_cut_downsampled=skimage.transform.resize(optPsf_cut,(size_of_optPsf_cut_downsampled,size_of_optPsf_cut_downsampled),mode='constant',order=3)
+       
         if (size_of_optPsf_cut_downsampled % 2) == 0:
-            optPsf_cut_downsampled=skimage.transform.resize(optPsf_cut,(size_of_optPsf_cut_downsampled+1,size_of_optPsf_cut_downsampled+1),mode='constant')
+            optPsf_cut_downsampled=resize(optPsf_cut,(size_of_optPsf_cut_downsampled+1,size_of_optPsf_cut_downsampled+1))
         else:
-            optPsf_cut_downsampled=skimage.transform.resize(optPsf_cut,(size_of_optPsf_cut_downsampled,size_of_optPsf_cut_downsampled),mode='constant')
-        
+            optPsf_cut_downsampled=resize(optPsf_cut,(size_of_optPsf_cut_downsampled,size_of_optPsf_cut_downsampled))
+
         if self.verbosity==1:        
             print('optPsf_cut_downsampled.shape: '+str(optPsf_cut_downsampled.shape))
             #print('type(optPsf_cut_downsampled) '+str(type(optPsf_cut_downsampled[0][0])))
@@ -1661,8 +1739,8 @@ class ZernikeFitter_PFS(object):
         
         # convolve the psf with the scattered light kernel to create scattered light component
         #scattered_light=custom_fftconvolve(optPsf_cut_downsampled,scattered_light_kernel)
-        scattered_light=scipy.signal.fftconvolve(optPsf_cut_downsampled, scattered_light_kernel, mode='same')
-        
+        #scattered_light=scipy.signal.fftconvolve(optPsf_cut_downsampled, scattered_light_kernel, mode='same')
+        scattered_light=signal.fftconvolve(optPsf_cut_downsampled, scattered_light_kernel, mode='same')        
         
         #print('type(scattered_light[0][0])'+str(type(scattered_light[0][0])))
         # add back the scattering to the image
@@ -1691,7 +1769,8 @@ class ZernikeFitter_PFS(object):
         
         # convolve with fiber 
         #optPsf_cut_fiber_convolved=custom_fftconvolve(optPsf_cut_downsampled_scattered,fiber_padded)
-        optPsf_cut_fiber_convolved=scipy.signal.fftconvolve(optPsf_cut_downsampled_scattered, fiber_padded, mode='same')
+        #optPsf_cut_fiber_convolved=scipy.signal.fftconvolve(optPsf_cut_downsampled_scattered, fiber_padded, mode='same')
+        optPsf_cut_fiber_convolved=signal.fftconvolve(optPsf_cut_downsampled_scattered, fiber_padded, mode='same')
          
         #########        #########        #########        #########        #########         #########        #########        #########        #########        #########
         # 3. CCD difusion
@@ -1705,7 +1784,8 @@ class ZernikeFitter_PFS(object):
         # assert that gauss_padded array did not produce empty array
         assert np.sum(pixel_gauss_padded)>0
  
-        optPsf_cut_pixel_response_convolved=scipy.signal.fftconvolve(optPsf_cut_fiber_convolved, pixel_gauss_padded, mode='same')
+        #optPsf_cut_pixel_response_convolved=scipy.signal.fftconvolve(optPsf_cut_fiber_convolved, pixel_gauss_padded, mode='same')
+        optPsf_cut_pixel_response_convolved=signal.fftconvolve(optPsf_cut_fiber_convolved, pixel_gauss_padded, mode='same')
 
 
 
@@ -1723,8 +1803,8 @@ class ZernikeFitter_PFS(object):
         
         # I should implement custom_fft function (custom_fftconvolve), as above
         # This is 1D convolution so it would need a bit of work, and I see that behavior is fine
-        optPsf_cut_grating_convolved=scipy.signal.fftconvolve(optPsf_cut_pixel_response_convolved, grating_kernel, mode='same')
- 
+        #optPsf_cut_grating_convolved=scipy.signal.fftconvolve(optPsf_cut_pixel_response_convolved, grating_kernel, mode='same')
+        optPsf_cut_grating_convolved=signal.fftconvolve(optPsf_cut_pixel_response_convolved, grating_kernel, mode='same') 
 
        
         #########        #########        #########        #########        #########         #########        #########        #########        #########        #########   
@@ -1769,13 +1849,13 @@ class ZernikeFitter_PFS(object):
         time_start_single=time.time()
         # set simulation_00='None', the simulated at 00 image has been created above
         
-        #print('self.explicit_psf_position in main body'+str(self.explicit_psf_position))
-
+        # changes to Psf_position introduced in 0.46a
         optPsf_cut_fiber_convolved_downsampled,psf_position=single_Psf_position.find_single_realization_min_cut(optPsf_cut_grating_convolved,
                                                                                int(round(oversampling)),shape[0],self.image,self.image_var,self.image_mask,
                                                                                v_flux=v['flux'],simulation_00='None',
                                                                                double_sources=self.double_sources,double_sources_positions_ratios=self.double_sources_positions_ratios,
-                                                                               verbosity=self.verbosity,explicit_psf_position=self.explicit_psf_position)
+                                                                               verbosity=self.verbosity,explicit_psf_position=self.explicit_psf_position,
+                                                                               use_only_chi=self.use_only_chi,use_center_of_flux=self.use_center_of_flux)
 
         time_end_single=time.time()
         if self.verbosity==1:
@@ -2001,11 +2081,12 @@ class ZernikeFitter_PFS(object):
                 print('skiping ``radiometric effect\'\' ')
             ilum_radiometric=ilum
             
+            
+        else:
             if self.verbosity==1: 
                 print('radiometric parameters are: ')     
                 print('x_ilum,y_ilum,radiometricEffect,radiometricExponent'+str([params['x_ilum'],params['y_ilum'],params['radiometricEffect'],params['radiometricExponent']]))    
 
-        else:
             # add the change of flux between the entrance and exit pupil
             # end product is radiometricEffectArray
             points = np.linspace(-size_of_ilum_in_units_of_radius, size_of_ilum_in_units_of_radius,num=ilum.shape[0])
@@ -2108,7 +2189,7 @@ class ZernikeFitter_PFS(object):
 
         
         if self.verbosity==1:   
-            print('diam_sic: '+str(diam_sic))
+            print('diam_sic [m]: '+str(diam_sic))
             print('aberrations: '+str(aberrations))
             print('aberrations moved to z4=0: '+str(aberrations_0))
             print('aberrations extra: '+str(self.extraZernike))
@@ -2173,7 +2254,7 @@ class ZernikeFitter_PFS(object):
         
         if self.verbosity==1:
             print('Time for wavefront and wavefront/pupil combining is '+str(time_end_single-time_start_single)) 
-            print('type(expwf_grid)'+str(type(expwf_grid[0][0])))
+            #print('type(expwf_grid)'+str(type(expwf_grid[0][0])))
         ################################################################################
         # FFT
         ################################################################################    
@@ -2206,7 +2287,7 @@ class ZernikeFitter_PFS(object):
             #print('type(np.fft.fftshift(expwf_grid)'+str(type(np.fft.fftshift(expwf_grid)[0][0])))
             #print('type(np.fft.fft2(np.fft.fftshift(expwf_grid)))'+str(type(scipy.fftpack.fft2(np.fft.fftshift(expwf_grid))[0][0])))
             #print('type(ftexpwf)'+str(type(ftexpwf[0][0])))
-            print('type(img_apod)'+str(type(img_apod[0][0])))            
+            #print('type(img_apod)'+str(type(img_apod[0][0])))            
  
 
         # code if we decide to use pyfftw - does not work with fftshift
@@ -2323,22 +2404,26 @@ class LN_PFS_multi_same_spot(object):
  
     """!
     
-    Class to compute likelihood of the multiple donut images, of th same spot taken at different defocuses
+    Class to compute likelihood of the multiple donut images, of the same spot taken at different defocuses
     
     model = LN_PFS_single(sci_image,var_image,pupil_parameters=pupil_parameters,use_pupil_parameters=None,zmax=zmax,save=1)    
     def model_return(allparameters_proposal):
         return model(allparameters_proposal,return_Image=True)
     
+    calls LN_PFS_single
+    
+    Called by Tokovinin_multi
     
     
     """
     
     
-    def __init__(self,list_of_sci_images,list_of_var_images,list_of_mask_images=None,dithering=None,save=None,verbosity=None,
+    def __init__(self,list_of_sci_images,list_of_var_images,list_of_mask_images=None,wavelength=None,dithering=None,save=None,verbosity=None,
              pupil_parameters=None,use_pupil_parameters=None,use_optPSF=None,list_of_wf_grid=None,
              zmax=None,extraZernike=None,pupilExplicit=None,simulation_00=None,
              double_sources=None,double_sources_positions_ratios=None,npix=None,
-             list_of_defocuses=None,fit_for_flux=True,test_run=False,list_of_psf_positions=None): 
+             list_of_defocuses=None,fit_for_flux=True,test_run=False,list_of_psf_positions=None,
+             use_center_of_flux=False): 
 
      
         """
@@ -2437,6 +2522,7 @@ class LN_PFS_multi_same_spot(object):
         #self.mask_image=mask_image
         #self.sci_image=sci_image
         #self.var_image=var_image
+        self.wavelength=wavelength
         self.dithering=dithering
         self.save=save
         self.pupil_parameters=pupil_parameters
@@ -2459,6 +2545,10 @@ class LN_PFS_multi_same_spot(object):
         if list_of_wf_grid is None:
             list_of_wf_grid=[None]*len(list_of_sci_images)
         self.list_of_wf_grid=list_of_wf_grid
+        
+        #self.use_only_chi=use_only_chi
+        self.use_center_of_flux=use_center_of_flux
+      
         
     def move_parametrizations_from_1d_to_2d(self,allparameters_parametrizations_1d,zmax=None):
         
@@ -2678,6 +2768,7 @@ class LN_PFS_multi_same_spot(object):
     def lnlike_Neven_multi_same_spot(self,list_of_allparameters_input,return_Images=False,\
                                      use_only_chi=False,multi_background_factor=3):
         
+        self.use_only_chi=use_only_chi
         
         list_of_single_res=[]
         if return_Images==True:
@@ -2707,59 +2798,72 @@ class LN_PFS_multi_same_spot(object):
         
    
         # use same weights, experiment
-        if use_only_chi==True:
-            renormalization_of_var_sum=np.ones((len(self.list_of_sci_images)))
-        else:
+        #if use_only_chi==True:
+        #    renormalization_of_var_sum=np.ones((len(self.list_of_sci_images)))*len(self.list_of_sci_images)
+        #    central_index=int(len(self.list_of_sci_images)/2)
+        #    renormalization_of_var_sum[central_index]=1
             
-      
-            # find image with lowest variance - pressumably the one in focus
-            array_of_var_sum=np.array(list(map(np.sum,self.list_of_var_images)))
-            index_of_max_var_sum=np.where(array_of_var_sum==np.min(array_of_var_sum))[0][0]
-            # find what variance selectes top 20% of pixels
-            # this is done to weight more the images in focus and less the image out of focus in the 
-            # final likelihood result
-            quantile_08_focus=np.quantile(self.list_of_sci_images[index_of_max_var_sum],0.8)
+        #else:
+            
+  
+        # find image with lowest variance - pressumably the one in focus
+        array_of_var_sum=np.array(list(map(np.sum,self.list_of_var_images)))
+        index_of_max_var_sum=np.where(array_of_var_sum==np.min(array_of_var_sum))[0][0]
+        # find what variance selectes top 20% of pixels
+        # this is done to weight more the images in focus and less the image out of focus in the 
+        # final likelihood result
+        #quantile_08_focus=np.quantile(self.list_of_sci_images[index_of_max_var_sum],0.8)
+        
+        
+        list_of_var_sums=[]
+        for i in range(len(list_of_allparameters)):
+            # taking from create_chi_2_almost function in LN_PFS_single
             
             
-            list_of_var_sums=[]
-            for i in range(len(list_of_allparameters)):
-                # taking from create_chi_2_almost function in LN_PFS_single
-                
-                
-                mask_image=self.list_of_mask_images[i]
-                var_image=self.list_of_var_images[i]
-                sci_image=self.list_of_sci_images[i]
-                # array that has True for values which are good and False for bad values
-                inverted_mask=~mask_image.astype(bool)
-                
-                try:
-                    mean_value_of_background=np.mean([np.median(var_image[0]),np.median(var_image[-1]),\
-                                                  np.median(var_image[:,0]),np.median(var_image[:,-1])])*multi_background_factor
-                except:
-                    pass
-    
-                # select only images with above 80% percentile of the image with max variance?         
-                var_image_masked=var_image*inverted_mask
-                var_image_masked_without_nan = var_image_masked.ravel()[var_image_masked.ravel()>quantile_08_focus]
-                
-                
-                
-                if use_only_chi==False:
-                    # if you level is too high
-                    if len(var_image_masked_without_nan)==0:
-                        var_sum=-1/2
-                    else:
-                        var_sum=-(1/2)*(np.sum(np.log(2*np.pi*var_image_masked_without_nan)))
-    
+            mask_image=self.list_of_mask_images[i]
+            var_image=self.list_of_var_images[i]
+            sci_image=self.list_of_sci_images[i]
+            # array that has True for values which are good and False for bad values
+            inverted_mask=~mask_image.astype(bool)
+            
+            try:
+                if sci_image.shape[0]==20:
+                    multi_background_factor=3
+                    
+        
+                mean_value_of_background_via_var=np.mean([np.median(var_image[0]),np.median(var_image[-1]),\
+                                                      np.median(var_image[:,0]),np.median(var_image[:,-1])])*multi_background_factor
+             
+                mean_value_of_background_via_sci=np.mean([np.median(sci_image[0]),np.median(sci_image[-1]),\
+                                                      np.median(sci_image[:,0]),np.median(sci_image[:,-1])])*multi_background_factor
+                    
+                mean_value_of_background=np.max([mean_value_of_background_via_var,mean_value_of_background_via_sci])
+            except:
+                pass
+
+            # select only images with above 80% percentile of the image with max variance?         
+            var_image_masked=var_image*inverted_mask
+            var_image_masked_without_nan = var_image_masked.ravel()[var_image_masked.ravel()>mean_value_of_background]
+            
+            
+            
+            if use_only_chi==True:
+                # if you level is too high
+                if len(var_image_masked_without_nan)==0:
+                    var_sum=-1
                 else:
-    
-    
-                    # if you level is too high
-                    if len(var_image_masked_without_nan)==0:
-                        var_sum=-(1)
-                    else:
-                        var_sum=-(1)*(np.mean(np.abs(var_image_masked_without_nan)))
-                list_of_var_sums.append(var_sum)
+                    #var_sum=-(1)*(np.sum(np.sqrt(np.abs(var_image_masked_without_nan))))
+                    var_sum=-1
+
+            else:
+
+
+                # if you level is too high
+                if len(var_image_masked_without_nan)==0:
+                    var_sum=-(1)
+                else:
+                    var_sum=-(1)*(np.mean(np.abs(var_image_masked_without_nan)))
+            list_of_var_sums.append(var_sum)
     
     
             # renormalization needs to be reconsidered?
@@ -2768,12 +2872,25 @@ class LN_PFS_multi_same_spot(object):
             
     
             renormalization_of_var_sum=array_of_var_sum/max_of_array_of_var_sum
-
+            #print('renormalization_of_var_sum'+str(renormalization_of_var_sum))
         list_of_psf_positions_output=[]
 
 
 
         for i in range(len(list_of_allparameters)):
+            
+            # if image is in focus which at this point is the size of image with 20
+            
+            if (self.list_of_sci_images[i].shape)[0]==20:
+                if self.use_center_of_flux==True:
+                    use_center_of_flux=True
+                else:
+                    use_center_of_flux=False
+            else:
+                use_center_of_flux=False
+                
+            
+            
 
             if self.verbosity==1:
                 print('################################')
@@ -2782,12 +2899,14 @@ class LN_PFS_multi_same_spot(object):
 
             # if this is the first image, do the full analysis, generate new pupil and illumination
             if i==0:
-                model_single=LN_PFS_single(self.list_of_sci_images[i],self.list_of_var_images[i],self.list_of_mask_images[i],dithering=self.dithering,save=self.save,verbosity=self.verbosity,
+                model_single=LN_PFS_single(self.list_of_sci_images[i],self.list_of_var_images[i],self.list_of_mask_images[i],
+                                           wavelength=self.wavelength,dithering=self.dithering,save=self.save,verbosity=self.verbosity,
                 pupil_parameters=self.pupil_parameters,use_pupil_parameters=self.use_pupil_parameters,use_optPSF=self.use_optPSF,
                 use_wf_grid=self.list_of_wf_grid[i],
                 zmax=self.zmax,extraZernike=self.extraZernike,pupilExplicit=self.pupilExplicit,simulation_00=self.simulation_00,
                 double_sources=self.double_sources,double_sources_positions_ratios=self.double_sources_positions_ratios,npix=self.npix,
-                fit_for_flux=self.fit_for_flux,test_run=self.test_run,explicit_psf_position=self.list_of_psf_positions[i])
+                fit_for_flux=self.fit_for_flux,test_run=self.test_run,explicit_psf_position=self.list_of_psf_positions[i],
+                use_only_chi=self.use_only_chi,use_center_of_flux=use_center_of_flux)
 
                 res_single_with_intermediate_images=model_single(list_of_allparameters[i],\
                                                                  return_Image=True,return_intermediate_images=True,
@@ -2820,12 +2939,13 @@ class LN_PFS_multi_same_spot(object):
             else:               
                 
                 model_single=LN_PFS_single(self.list_of_sci_images[i],self.list_of_var_images[i],self.list_of_mask_images[i],\
-                                           dithering=self.dithering,save=self.save,verbosity=self.verbosity,
+                                           wavelength=self.wavelength,dithering=self.dithering,save=self.save,verbosity=self.verbosity,
                 pupil_parameters=self.pupil_parameters,use_pupil_parameters=self.use_pupil_parameters,use_optPSF=self.use_optPSF,
                 use_wf_grid=self.list_of_wf_grid[i],
                 zmax=self.zmax,extraZernike=self.extraZernike,pupilExplicit=pupil_explicit_0,simulation_00=self.simulation_00,
                 double_sources=self.double_sources,double_sources_positions_ratios=self.double_sources_positions_ratios,npix=self.npix,
-                fit_for_flux=self.fit_for_flux,test_run=self.test_run,explicit_psf_position=self.list_of_psf_positions[i])
+                fit_for_flux=self.fit_for_flux,test_run=self.test_run,explicit_psf_position=self.list_of_psf_positions[i],
+                use_only_chi=self.use_only_chi,use_center_of_flux=use_center_of_flux)
                 if return_Images==False:
 
                     res_single_without_intermediate_images=model_single(list_of_allparameters[i],\
@@ -2892,8 +3012,8 @@ class LN_PFS_multi_same_spot(object):
         if return_Images==False:
             return mean_res_of_multi_same_spot
         if return_Images==True:
-            # 0. mean_res_of_multi_same_spot - mean likelihood per images
-            # 1. list_of_single_res - likelihood per image
+            # 0. mean_res_of_multi_same_spot - mean likelihood per images, renormalized
+            # 1. list_of_single_res - likelihood per image, not renormalized
             # 2. list_of_single_model_image - list of created model images
             # 3. list_of_single_allparameters - list of parameters per image?
             # 4. list_of_single_chi_results - list of arrays describing quality of fitting
@@ -2974,7 +3094,8 @@ class Tokovinin_multi(object):
     
     
     
-    def __init__(self,list_of_sci_images,list_of_var_images,list_of_mask_images=None,dithering=None,save=None,verbosity=None,
+    def __init__(self,list_of_sci_images,list_of_var_images,list_of_mask_images=None,
+                 wavelength=None,dithering=None,save=None,verbosity=None,
              pupil_parameters=None,use_pupil_parameters=None,use_optPSF=None,list_of_wf_grid=None,
              zmax=None,extraZernike=None,pupilExplicit=None,simulation_00=None,
              double_sources=None,double_sources_positions_ratios=None,npix=None,
@@ -2986,6 +3107,7 @@ class Tokovinin_multi(object):
         @param list_of_sci_images                      list of science images, list of 2d array
         @param list_of_var_images                      list of variance images, 2d arrays, which are the same size as sci_image
         @param list_of_mask_images                     list of mask images, 2d arrays, which are the same size as sci_image
+        @param wavelength
         @param dithering                               dithering, 1=normal, 2=two times higher resolution, 3=not supported
         @param save                                    save intermediate result in the process (set value at 1 for saving)
         @param verbosity                               verbosity of the process (set value at 2 for full output, 1 only in Tokovinin, 0==nothing)
@@ -3087,6 +3209,7 @@ class Tokovinin_multi(object):
         #self.mask_image=mask_image
         #self.sci_image=sci_image
         #self.var_image=var_image
+        self.wavelength=wavelength
         self.dithering=dithering
         self.save=save
         self.pupil_parameters=pupil_parameters
@@ -3119,7 +3242,9 @@ class Tokovinin_multi(object):
         else:
             self.verbosity_model=self.verbosity
             
-
+        # parameter that control if the intermediate outputs are saved to the hard disk
+        save=False
+        self.save=save
         
     def Tokovinin_algorithm_chi_multi(self,allparameters_parametrization_proposal,\
                                       return_Images=False,num_iter=None,previous_best_result=None,
@@ -3137,6 +3262,9 @@ class Tokovinin_multi(object):
         
         
         if self.verbosity>=1:
+            print('##########################################################################################')
+            print('##########################################################################################')
+            print('Starting Tokovinin_algorithm_chi_multi with num_iter: '+str(num_iter))
             print('Tokovinin, return_Images: '+str(return_Images))
             print('Tokovinin, num_iter: '+str(num_iter))
             print('Tokovinin, use_only_chi: '+str(use_only_chi))
@@ -3145,8 +3273,7 @@ class Tokovinin_multi(object):
             print('allparameters_parametrization_proposal'+str(allparameters_parametrization_proposal))
             print('allparameters_parametrization_proposal.shape'+str(allparameters_parametrization_proposal.shape))
         
-        
-        
+
         
         list_of_sci_images=self.list_of_sci_images
         list_of_var_images=self.list_of_var_images
@@ -3189,7 +3316,7 @@ class Tokovinin_multi(object):
         #print('self.list_of_psf_positions in Tokovinin: '+str(self.list_of_psf_positions))
             
         model_multi=LN_PFS_multi_same_spot(list_of_sci_images,list_of_var_images,list_of_mask_images=list_of_mask_images,\
-                                           dithering=self.dithering,save=self.save,zmax=self.zmax,verbosity=self.verbosity_model,\
+                                           wavelength=self.wavelength,dithering=self.dithering,save=self.save,zmax=self.zmax,verbosity=self.verbosity_model,\
                                            double_sources=self.double_sources, double_sources_positions_ratios=self.double_sources_positions_ratios,\
                                            npix=self.npix,\
                                            list_of_defocuses=list_of_defocuses_input_long,\
@@ -3198,7 +3325,7 @@ class Tokovinin_multi(object):
         
         if self.verbosity>=1:    
             print('****************************')        
-            print('Starting Tokovinin procedure')
+            print('Starting Tokovinin procedure with num_iter: '+str(num_iter))
             print('Initial testing proposal is: '+str(allparameters_parametrization_proposal))
         time_start_single=time.time()
         
@@ -3214,11 +3341,11 @@ class Tokovinin_multi(object):
  
 
         if self.verbosity>=1:
-            print('Starting premodel analysis ') 
+            print('Starting premodel analysis with num_iter: '+str(num_iter)) 
             
         # results from initial run, before running fitting algorithm
-        # pre_model_result - mean likelihood across all images
-        # model_results - likelihood per image
+        # pre_model_result - mean likelihood across all images, renormalized
+        # model_results - likelihood per image, not renormalized
         # pre_images - list of created model images
         # pre_input_parameters - list of parameters per image?
         # chi_2_before_iteration_array - list of lists describing quality of fitting      
@@ -3247,7 +3374,9 @@ class Tokovinin_multi(object):
             self.list_of_var_images=list_of_var_images
                 
         except Exception as e: 
-            print(e)
+            print('Exception is: '+str(e))
+            print('Exception type is: '+str(repr(e)))
+            print(traceback.print_exc())
             if self.verbosity>=1:
                 print('Premodel analysis failed')
             # if the modelling failed
@@ -3265,7 +3394,7 @@ class Tokovinin_multi(object):
             print('list_of_psf_positions at the input stage: '+str(np.array(list_of_psf_positions)))
             
 
-        if num_iter!=None:
+        if self.save==True:
             np.save('/tigress/ncaplar/Results/allparameters_parametrization_proposal_'+str(num_iter),\
                     allparameters_parametrization_proposal)   
             np.save('/tigress/ncaplar/Results/pre_images_'+str(num_iter),\
@@ -3290,7 +3419,7 @@ class Tokovinin_multi(object):
         nonwavefront_par=list_of_minchain[0][19:42]
         time_end_single=time.time()
         if self.verbosity>=1:
-            print('Total time taken was  '+str(time_end_single-time_start_single)+' seconds')
+            print('Total time taken for premodel analysis with num_iter '+str(num_iter)+' was  '+str(time_end_single-time_start_single)+' seconds')
             print('chi_2_before_iteration is: '+str(chi_2_before_iteration_array))  
 
             print('Ended premodel analysis ')    
@@ -3304,6 +3433,13 @@ class Tokovinin_multi(object):
         for i in range(len(list_of_sci_images)):
             sci_image=list_of_sci_images[i]
             var_image=list_of_var_images[i]
+            
+            # do not use this for images in focus or near focus
+            # probably needs to be done better than via shape measurment
+            #
+            if sci_image.shape[0]==20:
+                multi_background_factor=3
+                
     
             mean_value_of_background_via_var=np.mean([np.median(var_image[0]),np.median(var_image[-1]),\
                                                   np.median(var_image[:,0]),np.median(var_image[:,-1])])*multi_background_factor
@@ -3315,16 +3451,27 @@ class Tokovinin_multi(object):
             if self.verbosity>1:
                 print(str(multi_background_factor)+'x mean_value_of_background in image with index'+str(i)+' is estimated to be: '+str(mean_value_of_background))
                 
-    
+
             list_of_mean_value_of_background.append(mean_value_of_background)
-            flux_mask=sci_image>(mean_value_of_background)
+ 
        
-            
-            # normalized science image
+        list_of_flux_mask=[]
+        for i in range(len(list_of_sci_images)):
+            sci_image=list_of_sci_images[i]
             var_image=list_of_var_images[i]
+            flux_mask=sci_image>(list_of_mean_value_of_background[i])
+            # normalized science image
+
             sci_image_std=sci_image/np.sqrt(var_image)
             list_of_sci_image_std.append(sci_image_std)
             list_of_flux_mask.append(flux_mask)
+            
+        # find postions for focus image in the raveled images
+        if len(list_of_flux_mask)>1:    
+            len_of_flux_masks=np.array(list(map(np.sum,list_of_flux_mask)))
+            position_of_most_focus_image=np.where(len_of_flux_masks==np.min(len_of_flux_masks))[0][0]
+            position_focus_1=np.sum(len_of_flux_masks[:position_of_most_focus_image])
+            position_focus_2=np.sum(len_of_flux_masks[:position_of_most_focus_image+1])
 
         self.list_of_flux_mask=list_of_flux_mask
         self.list_of_sci_image_std=list_of_sci_image_std
@@ -3348,16 +3495,34 @@ class Tokovinin_multi(object):
             list_of_I.append(I)
             list_of_std_image.append(std_image)
             list_of_I_std.append(I_std)
+            
+        ### addition May22
+        array_of_sci_image_std=np.array(list_of_sci_image_std)
+        list_of_std_sum=[]
+        for i in range(len(list_of_sci_image_std)):
+            list_of_std_sum.append(np.sum(list_of_std_image[i]))
+            
+        array_of_std_sum=np.array(list_of_std_sum)
+        array_of_std_sum=array_of_std_sum/np.min(array_of_std_sum)
+        
+        list_of_std_image_renormalized=[]
+        for i in range(len(list_of_std_image)):
+            list_of_std_image_renormalized.append(list_of_std_image[i]*array_of_std_sum[i]) 
+        # 
+        uber_std=[item for sublist in list_of_std_image_renormalized for item in sublist]
     
         # join all I,I_std from all individual images into one uber I,I_std  
         uber_I=[item for sublist in list_of_I for item in sublist]
-        uber_std=[item for sublist in list_of_std_image for item in sublist]
-        uber_I_std=[item for sublist in list_of_I_std for item in sublist]    
+        #uber_std=[item for sublist in list_of_std_image for item in sublist]
+        #uber_I_std=[item for sublist in list_of_I_std for item in sublist]    
+
         
         uber_I=np.array(uber_I)
         uber_std=np.array(uber_std)
+        
+        uber_I_std=uber_I/uber_std  
 
-        if num_iter!=None:
+        if self.save==True:
             np.save('/tigress/ncaplar/Results/list_of_sci_images_'+str(num_iter),\
                     list_of_sci_images)   
             np.save('/tigress/ncaplar/Results/list_of_mean_value_of_background_'+str(num_iter),\
@@ -3391,7 +3556,7 @@ class Tokovinin_multi(object):
         
         number_of_non_decreses=[0]
         
-        for iteration_number in range(5): 
+        for iteration_number in range(1): 
     
     
             if iteration_number==0:
@@ -3461,7 +3626,7 @@ class Tokovinin_multi(object):
                 array_of_delta_all_parametrizations=np.concatenate((array_of_delta_z_parametrizations[0:19*2],\
                                                                     array_of_delta_global_parametrizations, array_of_delta_z_parametrizations[19*2:]))
     
-            if num_iter!=None:
+            if self.save==True:
                 np.save('/tigress/ncaplar/Results/array_of_delta_z_parametrizations_'+str(num_iter)+'_'+str(iteration_number),\
                         array_of_delta_z_parametrizations)        
                 np.save('/tigress/ncaplar/Results/array_of_delta_global_parametrizations_'+str(num_iter)+'_'+str(iteration_number),\
@@ -3542,7 +3707,7 @@ class Tokovinin_multi(object):
                 print('moving global input parameters in iteration '+str(iteration_number)+' by: '+str(array_of_delta_global_parametrizations))
                 
             
-            if num_iter!=None:
+            if self.save==True:
                 np.save('/tigress/ncaplar/Results/initial_input_parameterization_'+str(num_iter)+'_'+str(iteration_number),\
                         initial_input_parameterization)                        
     
@@ -3581,7 +3746,7 @@ class Tokovinin_multi(object):
                 self.list_of_var_images=list_of_var_images
             
             #initial_model_result,image_0,initial_input_parameters,pre_chi2=model(initial_input_parameters,return_Image=True,return_intermediate_images=False)
-            if num_iter!=None:
+            if self.save==True:
                 np.save('/tigress/ncaplar/Results/list_of_initial_model_result_'+str(num_iter)+'_'+str(iteration_number),\
                         list_of_initial_model_result)                        
                 np.save('/tigress/ncaplar/Results/list_of_image_0_'+str(num_iter)+'_'+str(iteration_number),\
@@ -3599,7 +3764,8 @@ class Tokovinin_multi(object):
             list_of_image_0_std=[]
             for i in range(len(list_of_image_0)):
                 # normalizing by standard deviation image
-                STD=np.sqrt(list_of_var_images[i])    
+                # May 22 modification
+                STD=np.sqrt(list_of_var_images[i]) *array_of_std_sum[i]   
                 image_0=list_of_image_0[i]
                 list_of_image_0_std.append(image_0/STD)
 
@@ -3641,7 +3807,7 @@ class Tokovinin_multi(object):
             self.uber_M0=uber_M0
             self.uber_M0_std=uber_M0_std
         
-            if num_iter!=None:
+            if self.save==True:
                 np.save('/tigress/ncaplar/Results/uber_M0_'+str(num_iter)+'_'+str(iteration_number),\
                         uber_M0)             
                 np.save('/tigress/ncaplar/Results/uber_M0_std_'+str(num_iter)+'_'+str(iteration_number),\
@@ -3657,6 +3823,10 @@ class Tokovinin_multi(object):
             IM_start=np.sum(np.abs(np.array(uber_I)-np.array(uber_M0)))        
             # std version 
             IM_start_std=np.sum(np.abs(np.array(uber_I_std)-np.array(uber_M0_std)))    
+            
+            if len(list_of_flux_mask)>1:
+                IM_start_focus=np.sum(np.abs(np.array(uber_I)-np.array(uber_M0))[position_focus_1:position_focus_2]) 
+                IM_start_std_focus=np.sum(np.abs(np.array(uber_I_std)-np.array(uber_M0_std))[position_focus_1:position_focus_2]) 
             
             # mean of differences of our images - should we use mean?; probably not... needs to be normalized?
             unitary_IM_start=np.mean(IM_start)  
@@ -3746,7 +3916,7 @@ class Tokovinin_multi(object):
             out_pfs_positions=[]
         
             if self.verbosity>=1:
-                print('We are inside of the pool loop number '+str(iteration_number)+' now')
+                print('We are now inside of the pool loop number '+str(iteration_number)+' with num_iter: '+str(num_iter))
 
             # actually it is parametrization
             # list of (56-3)*2 sublists, each one with (56-3)*2 + 23 values
@@ -3767,7 +3937,7 @@ class Tokovinin_multi(object):
                uber_list_of_input_parameters.append(list_of_input_parameters)
                
             #save the uber_list_of_input_parameters
-            if num_iter!=None:
+            if self.save==True:
                 np.save('/tigress/ncaplar/Results/uber_list_of_input_parameters_'+str(num_iter)+'_'+str(iteration_number),\
                         uber_list_of_input_parameters)    
                     
@@ -3775,7 +3945,7 @@ class Tokovinin_multi(object):
             # pass new model_multi that has fixed pos (October 6, 2020)   
             # should have same paramter as staring model_multi, apart from list_of_psf_positions (maybe variance?, but prob not)
             model_multi_out=LN_PFS_multi_same_spot(list_of_sci_images,list_of_var_images,list_of_mask_images=list_of_mask_images,\
-                                 dithering=self.dithering,save=self.save,zmax=self.zmax,verbosity=self.verbosity_model,double_sources=self.double_sources,\
+                                 wavelength=self.wavelength,dithering=self.dithering,save=self.save,zmax=self.zmax,verbosity=self.verbosity_model,double_sources=self.double_sources,\
                                  double_sources_positions_ratios=double_sources_positions_ratios,npix=self.npix,
                                  fit_for_flux=self.fit_for_flux,test_run=self.test_run,list_of_psf_positions=list_of_psf_positions)   
 
@@ -3852,7 +4022,7 @@ class Tokovinin_multi(object):
                     out_ln_ind.append(out1[i][1])
                     #print('out_images_pre_renormalization.shape: '+str(out_images_pre_renormalization.shape))
                     #print('out_renormalization_parameters.shape: '+str(out_renormalization_parameters.shape))
-                    np.save('/tigress/ncaplar/Results/out_images_pre_renormalization',out_images_pre_renormalization)
+                    #np.save('/tigress/ncaplar/Results/out_images_pre_renormalization',out_images_pre_renormalization)
                     
                     out_images_step=[]
                     for l in range(len(out_renormalization_parameters)):
@@ -3875,7 +4045,7 @@ class Tokovinin_multi(object):
                 if self.verbosity>=1:
                     print('time_end-time_start for whole model_multi_out '+str(time_end-time_start))
             
-                if num_iter!=None:
+                if self.save==True:
                     np.save('/tigress/ncaplar/Results/out_images_'+str(num_iter)+'_'+str(iteration_number),\
                             out_images)    
                     np.save('/tigress/ncaplar/Results/out_parameters_'+str(num_iter)+'_'+str(iteration_number),\
@@ -3924,16 +4094,17 @@ class Tokovinin_multi(object):
                     list_of_images_normalized_uber.append(images_normalized_flat)
                     
                     # same but divided by STD
-                    images_normalized_std=[]
-                    for i in range(len(optpsf_list)):   
+                    #images_normalized_std=[]
+                    #for i in range(len(optpsf_list)):   
                         # seems that I am a bit more verbose here with my definitions
-                        optpsf_list_i=optpsf_list[i]
+                        #optpsf_list_i=optpsf_list[i]
                         
                         
                         # do I want to generate new STD images, from each image?
-                        STD=list_of_sci_image_std[i]
-                        optpsf_list_i_STD=optpsf_list_i/STD    
-                        flux_mask=list_of_flux_mask[i]
+                        # May 22 modification
+                        #STD=list_of_sci_image_std[i]*array_of_std_sum[i]
+                        #optpsf_list_i_STD=optpsf_list_i/STD    
+                        #flux_mask=list_of_flux_mask[i]
                         #images_normalized_std.append((optpsf_list_i_STD[flux_mask]/np.sum(optpsf_list_i_STD[flux_mask])).ravel())
                     
                     # join all images together
@@ -3948,7 +4119,7 @@ class Tokovinin_multi(object):
                 uber_images_normalized=np.array(list_of_images_normalized_uber)    
                 #uber_images_normalized_std=np.array(list_of_images_normalized_std_uber)          
         
-                if num_iter!=None:
+                if self.save==True:
                     np.save('/tigress/ncaplar/Results/uber_images_normalized_'+str(num_iter)+'_'+str(iteration_number),\
                             uber_images_normalized)  
                 
@@ -3998,16 +4169,16 @@ class Tokovinin_multi(object):
             
             
             
-            if num_iter!=None and previous_best_result==None:
+            if self.save==True and previous_best_result==None:
                 np.save('/tigress/ncaplar/Results/array_of_delta_z_parametrizations_None_'+str(num_iter)+'_'+str(iteration_number),\
                         array_of_delta_z_parametrizations_None)              
             
             
             
-            if num_iter!=None:
+            if self.save==True:
                 np.save('/tigress/ncaplar/Results/H_'+str(num_iter)+'_'+str(iteration_number),\
                         H)  
-            if num_iter!=None:
+            if self.save==True:
                 np.save('/tigress/ncaplar/Results/H_std_'+str(num_iter)+'_'+str(iteration_number),\
                         H_std)                  
             
@@ -4129,7 +4300,7 @@ class Tokovinin_multi(object):
                 from_z22_end=all_wavefront_z_parametrization_new[19*2:]
                 allparameters_parametrization_proposal_after_iteration=np.concatenate((up_to_z22_end,nonwavefront_par,from_z22_end))
         
-            if num_iter!=None:
+            if self.save==True:
                 np.save('/tigress/ncaplar/Results/first_proposal_Tokovnin'+str(num_iter)+'_'+str(iteration_number),\
                         first_proposal_Tokovnin) 
                 np.save('/tigress/ncaplar/Results/first_proposal_Tokovnin_std'+str(num_iter)+'_'+str(iteration_number),\
@@ -4173,9 +4344,9 @@ class Tokovinin_multi(object):
     
             time_end_final=time.time()
             if self.verbosity>=1:
-                print('Total time taken for final iteration was '+str(time_end_final-time_start_final)+' seconds')
+                print('Total time taken for final iteration was '+str(time_end_final-time_start_final)+' seconds with num_iter: '+str(num_iter))
     
-            if num_iter!=None:
+            if self.save==True:
                 np.save('/tigress/ncaplar/Results/list_of_final_model_result_'+str(num_iter)+'_'+str(iteration_number),\
                         list_of_final_model_result)                        
                 np.save('/tigress/ncaplar/Results/list_of_image_final_'+str(num_iter)+'_'+str(iteration_number),\
@@ -4197,7 +4368,8 @@ class Tokovinin_multi(object):
             list_of_image_final_std=[]
             for i in range(len(list_of_image_0)):
                 # normalizing by standard deviation image
-                STD=np.sqrt(list_of_var_images[i])    
+                # May 22 modification
+                STD=np.sqrt(list_of_var_images[i]) *array_of_std_sum[i]   
                 image_final=list_of_image_final[i]
                 list_of_image_final_std.append(image_final/STD)
             
@@ -4229,12 +4401,20 @@ class Tokovinin_multi(object):
            
             uber_M_final=np.array(uber_M_final)
             uber_M_final_std=np.array(uber_M_final_std)
+            
+            uber_M_final_linear_prediction=uber_M0+ self.create_linear_aproximation_prediction(H,first_proposal_Tokovnin)
+            uber_M_final_std_linear_prediction=uber_M0_std+ self.create_linear_aproximation_prediction(H_std,first_proposal_Tokovnin_std)            
                 
-            if num_iter!=None:
+            if self.save==True:
                 np.save('/tigress/ncaplar/Results/uber_M_final_'+str(num_iter)+'_'+str(iteration_number),\
                         uber_M_final)                        
                 np.save('/tigress/ncaplar/Results/uber_M_final_std_'+str(num_iter)+'_'+str(iteration_number),\
                         uber_M_final_std)    
+            if self.save==True:
+                np.save('/tigress/ncaplar/Results/uber_M_final_linear_prediction_'+str(num_iter)+'_'+str(iteration_number),\
+                        uber_M_final_linear_prediction)                        
+                np.save('/tigress/ncaplar/Results/uber_M_final_std_linear_prediction_'+str(num_iter)+'_'+str(iteration_number),\
+                        uber_M_final_std_linear_prediction)  
     
             
             ####
@@ -4246,33 +4426,84 @@ class Tokovinin_multi(object):
             # not used, that is ok, we are at the moment using std version
             IM_final=np.sum(np.abs(np.array(uber_I)-np.array(uber_M_final)))        
             # std version 
-            IM_final_std=np.sum(np.abs(np.array(uber_I_std)-np.array(uber_M_final_std)))     
-            if self.verbosity>=1:
-                print('I-M_start before iteration '+str(iteration_number)+': '+str(IM_start))    
-                print('I-M_final after iteration '+str(iteration_number)+': '+str(IM_final))
+            IM_final_std=np.sum(np.abs(np.array(uber_I_std)-np.array(uber_M_final_std))) 
+            
+            # linear prediction versions
+            IM_final_linear_prediction=np.sum(np.abs(np.array(uber_I)-np.array(uber_M_final_linear_prediction)))        
+            # std version 
+            IM_final_std_linear_prediction=np.sum(np.abs(np.array(uber_I_std)-np.array(uber_M_final_std_linear_prediction))) 
+            
+            # do a separate check on the improvment measure for the image in focus, when applicable
+            if len(list_of_flux_mask)>1:
+                IM_final_focus=np.sum(np.abs(np.array(uber_I)-np.array(uber_M_final))[position_focus_1:position_focus_2]) 
+                IM_final_std_focus=np.sum(np.abs(np.array(uber_I_std)-np.array(uber_M_final_std))[position_focus_1:position_focus_2]) 
                 
-                print('I_std-M_start_std after iteration '+str(iteration_number)+': '+str(IM_start_std))        
-                print('I_std-M_final_std after iteration '+str(iteration_number)+': '+str(IM_final_std))
-                
-                print('Likelihood before iteration '+str(iteration_number)+': '+str(initial_model_result))
-                print('Likelihood after iteration '+str(iteration_number)+': '+str(final_model_result))
+            
+            
 
-                print('Likelihood before iteration per image: '+str(iteration_number)+': '+str(list_of_initial_model_result))
-                print('Likelihood after iteration per image '+str(iteration_number)+': '+str(list_of_final_model_result))                
+            
+            if self.verbosity>=1:
+                print('I-M_start before iteration '+str(iteration_number)+' with num_iter '+str(num_iter)+': '+str(IM_start))    
+                print('I-M_final after iteration '+str(iteration_number)+' with num_iter '+str(num_iter)+': '+str(IM_final))
+                print('IM_final_linear_prediction after iteration '+str(iteration_number)+' with num_iter '+str(num_iter)+': '\
+                      +str(IM_final_linear_prediction))
+                if len(list_of_flux_mask)>1:
+                    print('I-M_start_focus before iteration '+str(iteration_number)+' with num_iter '+str(num_iter)+': '+str(IM_start_focus))    
+                    print('I-M_final_focus after iteration '+str(iteration_number)+' with num_iter '+str(num_iter)+': '+str(IM_final_focus))
+                
+                
+                print('I_std-M_start_std after iteration '+str(iteration_number)+' with num_iter '+str(num_iter)+': '+str(IM_start_std))        
+                print('I_std-M_final_std after iteration '+str(iteration_number)+' with num_iter '+str(num_iter)+': '+str(IM_final_std))
+                print('IM_final_std_linear_prediction after iteration '+str(iteration_number)+' with num_iter '+str(num_iter)+': '\
+                      +str(IM_final_std_linear_prediction))
+                if len(list_of_flux_mask)>1:
+                    print('I-M_start_focus_std before iteration '+str(iteration_number)+' with num_iter '+str(num_iter)+': '+str(IM_start_std_focus))    
+                    print('I-M_final_focus_std after iteration '+str(iteration_number)+' with num_iter '+str(num_iter)+': '+str(IM_final_std_focus))
+                
+
+                
+                print('Likelihood before iteration '+str(iteration_number)+' with num_iter '+str(num_iter)+': '+str(initial_model_result))
+                print('Likelihood after iteration '+str(iteration_number)+' with num_iter '+str(num_iter)+': '+str(final_model_result))
+
+                print('Likelihood before iteration  '+str(iteration_number)+' with num_iter '+str(num_iter)+', per image: '+str(list_of_initial_model_result))
+                print('Likelihood after iteration '+str(iteration_number)+' with num_iter '+str(num_iter)+', per image: '+str(list_of_final_model_result))                
 
                 #print('chi_2_after_iteration/chi_2_before_iteration '+str(chi_2_after_iteration/chi_2_before_iteration ))
-                print('IM_final/IM_start '+str(IM_final/IM_start))
-                print('IM_final_std/IM_start_std '+str(IM_final_std/IM_start_std))
+                print('IM_final/IM_start with num_iter '+str(num_iter)+': '+str(IM_final/IM_start))
+                print('IM_final_std/IM_start_std with num_iter '+str(num_iter)+': '+str(IM_final_std/IM_start_std))
+                if len(list_of_flux_mask)>1:
+                    print('IM_final_focus/IM_start_focus with num_iter '+str(num_iter)+': '+str(IM_final_focus/IM_start_focus))
+                    print('IM_final_std_focus/IM_start_std_focus with num_iter '+str(num_iter)+': '+str(IM_final_std_focus/IM_start_std_focus))
+                    
                 print('#########################################################')
 
         
             ##################
             # If improved take new parameters, if not dont
             
-            if IM_final_std/IM_start_std <1.0 :        
+            # TEST, May18 2021
+            # if more images, test that everything AND focus image has improved
+            if len(list_of_flux_mask)>1:
+                if IM_final_std/IM_start_std <1.0 and IM_final_std_focus/IM_start_std_focus <1.25 :  
+                    condition_for_improvment=True
+                else:
+                    condition_for_improvment=False
+            else:
+                # if you are having only one image
+                if IM_final_std/IM_start_std <1.0:
+                    condition_for_improvment=True
+            
+            if self.verbosity>=1:
+                print('condition_for_improvment in iteration '+str(iteration_number)+' with num_iter '+str(num_iter)+': '+str(condition_for_improvment))
+            if condition_for_improvment==True :        
                 #when the quality measure did improve
                 did_chi_2_improve=1
                 number_of_non_decreses.append(0)
+                if self.verbosity>=1:
+                    print('number_of_non_decreses:' + str(number_of_non_decreses))
+                    print('current value of number_of_non_decreses is: '+str(np.sum(number_of_non_decreses)))
+                    print('##########################################################################################')
+                    print('##########################################################################################')
             else:
                 #when the quality measure did not improve
                 did_chi_2_improve=0
@@ -4294,9 +4525,16 @@ class Tokovinin_multi(object):
                     print('current value of number_of_non_decreses is: '+str(np.sum(number_of_non_decreses)))
                     print('##########################################################################################')
                     print('##########################################################################################')
+                    
+                final_model_result=initial_model_result
+                list_of_final_model_result=list_of_initial_model_result
+                list_of_image_final=pre_images
+                allparameters_parametrization_proposal_after_iteration=allparameters_parametrization_proposal
+                list_of_finalinput_parameters=list_of_initial_input_parameters
+                list_of_after_chi2=list_of_pre_chi2
+                list_of_final_psf_positions=list_of_psf_positions
         
-            #if np.sum(number_of_non_decreses)==1:
-            if np.sum(number_of_non_decreses)==5:
+            if np.sum(number_of_non_decreses)==1:
                 if return_Images==False:
                     return final_model_result
                 else:
@@ -4674,6 +4912,9 @@ class Tokovinin_multi(object):
     
             return first_proposal_Tokovnin,first_proposal_Tokovnin_std
         
+    def create_linear_aproximation_prediction(self,H,first_proposal_Tokovnin): 
+        return np.dot(H,first_proposal_Tokovnin)
+        
 
 
     def __call__(self, allparameters_parametrization_proposal,return_Images=True,num_iter=None,\
@@ -4695,15 +4936,20 @@ class LN_PFS_single(object):
     def model_return(allparameters_proposal):
         return model(allparameters_proposal,return_Image=True)
     
+    Calls ZernikeFitter_PFS class (constructModelImage_PFS_naturalResolution function )in order to create images
     
+    Called by LN_PFS_multi_same_spot
     
     """
         
-    def __init__(self,sci_image,var_image,mask_image=None,dithering=None,save=None,verbosity=None,
+    def __init__(self,sci_image,var_image,
+                 mask_image=None,
+                 wavelength=None,dithering=None,save=None,verbosity=None,
                  pupil_parameters=None,use_pupil_parameters=None,use_optPSF=None,use_wf_grid=None,
                  zmax=None,extraZernike=None,pupilExplicit=None,simulation_00=None,
                  double_sources=None,double_sources_positions_ratios=None,npix=None,
-                 fit_for_flux=None,test_run=None,explicit_psf_position=None):    
+                 fit_for_flux=None,test_run=None,explicit_psf_position=None,
+                 use_only_chi=False,use_center_of_flux=False):    
         """
         @param sci_image                               science image, 2d array
         @param var_image                               variance image, 2d array,same size as sci_image
@@ -4741,6 +4987,7 @@ class LN_PFS_single(object):
 
         if zmax is None:
             zmax=11
+            
         """              
         if zmax==11:
             self.columns=['z4','z5','z6','z7','z8','z9','z10','z11',
@@ -4827,13 +5074,33 @@ class LN_PFS_single(object):
             
             print('supplied extra Zernike parameters (beyond zmax): '+str(extraZernike))
         
+        """
+        parameters that go into ZernikeFitter_PFS
+        def __init__(self,image=None,image_var=None,image_mask=None,pixelScale=None,wavelength=None,
+             diam_sic=None,npix=None,pupilExplicit=None,
+             wf_full_Image=None,radiometricEffectArray_Image=None,
+             ilum_Image=None,dithering=None,save=None,
+             pupil_parameters=None,use_pupil_parameters=None,
+             use_optPSF=None,use_wf_grid=None,
+             zmaxInit=None,extraZernike=None,simulation_00=None,verbosity=None,
+             double_sources=None,double_sources_positions_ratios=None,
+             test_run=None,explicit_psf_position=None,*args):
+        """
+        
+        
+        
+        # how are these two approaches different?
         if pupil_parameters is None:
-            single_image_analysis=ZernikeFitter_PFS(sci_image,var_image,image_mask=mask_image,npix=npix,dithering=dithering,save=save,\
+            single_image_analysis=ZernikeFitter_PFS(sci_image,var_image,image_mask=mask_image,pixelScale=None,wavelength=wavelength,
+                                                    diam_sic=None,npix=npix,pupilExplicit=pupilExplicit,\
+                                                    wf_full_Image=None,radiometricEffectArray_Image=None,
+                                                    ilum_Image=None,dithering=dithering,save=save,\
                                                     pupil_parameters=pupil_parameters,use_pupil_parameters=use_pupil_parameters,
-                                                    use_optPSF=use_optPSF,use_wf_grid=use_wf_grid,zmaxInit=zmax,extraZernike=extraZernike,
-                                                    pupilExplicit=pupilExplicit,simulation_00=simulation_00,verbosity=verbosity,\
+                                                    use_optPSF=use_optPSF,use_wf_grid=use_wf_grid,
+                                                    zmaxInit=zmax,extraZernike=extraZernike,simulation_00=simulation_00,verbosity=verbosity,\
                                                     double_sources=double_sources,double_sources_positions_ratios=double_sources_positions_ratios,\
-                                                    test_run=test_run,explicit_psf_position=explicit_psf_position)  
+                                                    test_run=test_run,explicit_psf_position=explicit_psf_position,
+                                                    use_only_chi=use_only_chi,use_center_of_flux=use_center_of_flux)  
             single_image_analysis.initParams(zmax)
             self.single_image_analysis=single_image_analysis
         else:
@@ -4842,7 +5109,8 @@ class LN_PFS_single(object):
                                                     pupil_parameters=pupil_parameters,use_pupil_parameters=use_pupil_parameters,
                                                     extraZernike=extraZernike,simulation_00=simulation_00,verbosity=verbosity,\
                                                     double_sources=double_sources,double_sources_positions_ratios=double_sources_positions_ratios,\
-                                                    test_run=test_run,explicit_psf_position=explicit_psf_position)  
+                                                    test_run=test_run,explicit_psf_position=explicit_psf_position,
+                                                    use_only_chi=use_only_chi,use_center_of_flux=use_center_of_flux)  
            
             single_image_analysis.initParams(zmax,hscFracInit=pupil_parameters[0],strutFracInit=pupil_parameters[1],
                    focalPlanePositionInit=(pupil_parameters[2],pupil_parameters[3]),slitFracInit=pupil_parameters[4],
@@ -4907,6 +5175,11 @@ class LN_PFS_single(object):
         """ 
 
         try:
+            
+            if sci_image.shape[0]==20:
+                multi_background_factor=3
+                
+            
             mean_value_of_background_via_var=np.mean([np.median(var_image[0]),np.median(var_image[-1]),\
                                                   np.median(var_image[:,0]),np.median(var_image[:,-1])])*multi_background_factor
          
@@ -5131,7 +5404,7 @@ class LN_PFS_single(object):
             print('globalparameters[12] outside limits') if test_print == 1 else False 
             return -np.inf
         if globalparameters[12]>1.0:
-            print('globalparameters[12] outside limits') if test_print == 1 else False 
+            print('globalparameters[12] outside limits with value '+str(globalparameters[12])) if test_print == 1 else False 
             return -np.inf  
  
         # frd_sigma
@@ -5273,38 +5546,59 @@ class LN_PFS_single(object):
                     print('Careful - the model image is created in a test_run')
                     print('test run with return_intermediate_images==True!')
 
-
+        # if image is in focus, which at the moment is size of post stamp image of 20 by 20
+        #print('self.sci_image.shape[0]'+str(self.sci_image.shape[0]))
+        if self.sci_image.shape[0]==20:
+            # apply the procedure from https://github.com/Subaru-PFS/drp_stella/blob/master/python/pfs/drp/stella/subtractSky2d.py
+            # `image` from the pipeline is `sci_image` here
+            # `psfImage` from the pipelin is `modelImg` here
+            # `image.mask` from the pipeline is `mask_image` here
+            # `image.variance` from the pipeline is `var_image` here    
             
-        
-        if self.fit_for_flux==True:
-            if self.verbosity==1:
-                print('Internally fitting for flux; disregarding passed value for flux')
-                
-            def find_flux_fit(flux_fit):
-                return self.create_chi_2_almost(flux_fit*modelImg,self.sci_image,self.var_image,self.mask_image,use_only_chi=use_only_chi)[0]     
+            inverted_mask=~self.mask_image.astype(bool)
             
-            flux_fitting_result = scipy.optimize.shgo(find_flux_fit,bounds=[(0.98,1.02)],iters=6)
-            flux=flux_fitting_result.x[0]
-            if len(allparameters)==42:
-                allparameters[-1]=flux
-            if len(allparameters)==41:
-                allparameters=np.concatenate((allparameters,np.array([flux])))
-            else:
-                #print('here')
-                #print(allparameters[41])
-                if (allparameters[41]<1.1) and (allparameters[41]>0.9):
-                    allparameters[41]=flux
-                else:
-                    pass
-            #print('flux: '+str(flux))
-            #print(len(allparameters))
-            #print(allparameters)
+            modelDotModel = np.sum(modelImg[inverted_mask]**2)
+            modelDotData = np.sum(modelImg[inverted_mask]*self.sci_image[inverted_mask])
+            modelDotModelVariance = np.sum(modelImg[inverted_mask]**2*self.var_image[inverted_mask])
+            flux = modelDotData/modelDotModel
+            fluxErr = np.sqrt(modelDotModelVariance)/modelDotModel
             
             modelImg=modelImg*flux
             if self.verbosity==1:
-                print('Internally fitting for flux; multiplying all values in the model by '+str(flux))
+                print('Image in focus, using pipeline normalization; multiplying all values in the model by '+str(flux)) 
+            
         else:
-            pass
+            
+        
+            if self.fit_for_flux==True:
+                if self.verbosity==1:
+                    print('Internally fitting for flux; disregarding passed value for flux')
+                    
+                def find_flux_fit(flux_fit):
+                    return self.create_chi_2_almost(flux_fit*modelImg,self.sci_image,self.var_image,self.mask_image,use_only_chi=use_only_chi)[0]     
+                
+                flux_fitting_result = scipy.optimize.shgo(find_flux_fit,bounds=[(0.98,1.02)],iters=6)
+                flux=flux_fitting_result.x[0]
+                if len(allparameters)==42:
+                    allparameters[-1]=flux
+                if len(allparameters)==41:
+                    allparameters=np.concatenate((allparameters,np.array([flux])))
+                else:
+                    #print('here')
+                    #print(allparameters[41])
+                    if (allparameters[41]<1.1) and (allparameters[41]>0.9):
+                        allparameters[41]=flux
+                    else:
+                        pass
+                #print('flux: '+str(flux))
+                #print(len(allparameters))
+                #print(allparameters)
+                
+                modelImg=modelImg*flux
+                if self.verbosity==1:
+                    print('Internally fitting for flux; multiplying all values in the model by '+str(flux))
+            else:
+                pass
 
 
            
@@ -6108,10 +6402,11 @@ class Psf_position(object):
         return res
 
     def find_single_realization_min_cut(self, input_image,oversampling,size_natural_resolution,sci_image,var_image,mask_image,v_flux, simulation_00=False,
-                                        double_sources=None,double_sources_positions_ratios=[0,0],verbosity=0,explicit_psf_position=None):
+                                        double_sources=None,double_sources_positions_ratios=[0,0],verbosity=0,explicit_psf_position=None,
+                                        use_only_chi=False,use_center_of_flux=False):
     
         """
-        function called by create_optPSF_natural
+        function called by create_optPSF_natural in ZernikeFitter_PFS
         find what is the best starting point to downsample the oversampled image
         
         @param image                                                      image to be analyzed (in our case this will be image of the optical psf convolved with fiber)
@@ -6125,6 +6420,11 @@ class Psf_position(object):
         @param double_sources_positions_ratios                            tuple describing init guess for the relation between secondary and primary souces (offset, ratio)
         @param verbosity                                                  verbosity of the algorithm
         @param explicit_psf_position                                      x and y offset
+        @param use_only_chi          
+        @param use_center_of_flux
+        
+        calls function create_complete_realization (many times in order to fit the best solution)
+        
         
         returns model image in the size of the science image and centered to the science image (unless simulation_00=True or explicit_psf_position has been passed)
         """
@@ -6150,7 +6450,10 @@ class Psf_position(object):
         
         self.shape_of_input_img=shape_of_input_img
         self.shape_of_sci_image=shape_of_sci_image
-        
+
+        if verbosity==1:
+            print('parameter use_only_chi in Psf_postion is set to: '+str(use_only_chi))
+            print('parameter use_center_of_flux in Psf_postion is set to: '+str(use_center_of_flux))
 
         # depending on if there is a second source in the image split here
         # double_sources is always None when using simulated images
@@ -6163,7 +6466,7 @@ class Psf_position(object):
 
                 # return the solution with x and y is zero
                 mean_res,single_realization_primary_renormalized,single_realization_secondary_renormalized,complete_realization_renormalized \
-                =self.create_complete_realization([0,0], return_full_result=True)          
+                =self.create_complete_realization([0,0], return_full_result=True,use_only_chi=use_only_chi,use_center_of_light=use_center_of_flux)          
             
             # if you are fitting an actual image go through the full process
             else:
@@ -6180,7 +6483,8 @@ class Psf_position(object):
                     
                     initial_complete_realization=self.create_complete_realization([0,0,\
                                                                                    -double_sources_positions_ratios[0]*self.oversampling,\
-                                                                                   double_sources_positions_ratios[1]],return_full_result=True)[-1]
+                                                                                   double_sources_positions_ratios[1]],return_full_result=True,\
+                                                                                   use_only_chi=use_only_chi,use_center_of_light=use_center_of_flux)[-1]
 
 
                     centroid_of_initial_complete_realization=find_centroid_of_flux(initial_complete_realization)
@@ -6203,13 +6507,14 @@ class Psf_position(object):
                     # search for best positioning
                     # implement try for secondary too
                     try:
-                        primary_position_and_ratio_shgo=scipy.optimize.shgo(self.create_complete_realization,bounds=\
+                        #print('(False,use_only_chi,use_center_of_flux)'+str((False,use_only_chi,use_center_of_flux)))
+                        primary_position_and_ratio_shgo=scipy.optimize.shgo(self.create_complete_realization,args=(False,use_only_chi,use_center_of_flux),bounds=\
                                                                                  [(x_2sources_limits[0],x_2sources_limits[1]),(y_2sources_limits[0],y_2sources_limits[1])],n=10,sampling_method='sobol',\
                                                                                  options={'ftol':1e-3,'maxev':10})
                             
                         
                         #primary_position_and_ratio=primary_position_and_ratio_shgo
-                        primary_position_and_ratio=scipy.optimize.minimize(self.create_complete_realization,x0=primary_position_and_ratio_shgo.x,\
+                        primary_position_and_ratio=scipy.optimize.minimize(self.create_complete_realization,args=(False,use_only_chi,use_center_of_flux),x0=primary_position_and_ratio_shgo.x,\
                                                                            method='Nelder-Mead',options={'xatol': 0.00001, 'fatol': 0.00001})    
                         
                         primary_position_and_ratio_x=primary_position_and_ratio.x
@@ -6221,7 +6526,7 @@ class Psf_position(object):
     
                     # return the best result, based on the result of the conducted search
                     mean_res,single_realization_primary_renormalized,single_realization_secondary_renormalized,complete_realization_renormalized \
-                    =self.create_complete_realization(primary_position_and_ratio_x, return_full_result=True)
+                    =self.create_complete_realization(primary_position_and_ratio_x, return_full_result=True,use_only_chi=use_only_chi,use_center_of_light=use_center_of_flux)
                     
                     if self.save==1:
                         np.save(TESTING_FINAL_IMAGES_FOLDER+'single_realization_primary_renormalized',single_realization_primary_renormalized) 
@@ -6239,7 +6544,7 @@ class Psf_position(object):
                 else:
 
                     mean_res,single_realization_primary_renormalized,single_realization_secondary_renormalized,complete_realization_renormalized \
-                    =self.create_complete_realization(explicit_psf_position, return_full_result=True)
+                    =self.create_complete_realization(explicit_psf_position, return_full_result=True,use_only_chi=use_only_chi,use_center_of_light=use_center_of_flux)
   
                         
                     if self.save==1:
@@ -6258,16 +6563,17 @@ class Psf_position(object):
                 
                 
         else: 
-            # need to create that you can pass values for double source!!!!
+            # need to make possible that you can pass your own values for double source!!!!
             # !!!!!
             # !!!!!
             #!!!!!
             
-            # create one complete realization with default parameters - estimate centorids and use that knowledge to put fitting limits in the next step
+            # create one complete realization with default parameters - estimate centroids and use that knowledge to put fitting limits in the next step
             centroid_of_sci_image=find_centroid_of_flux(sci_image)
             #print('initial double_sources_positions_ratios is: '+str(double_sources_positions_ratios))
             initial_complete_realization=self.create_complete_realization([0,0,\
-                                                                           -double_sources_positions_ratios[0]*self.oversampling,double_sources_positions_ratios[1]],return_full_result=True)[-1]
+                                                                           -double_sources_positions_ratios[0]*self.oversampling,double_sources_positions_ratios[1]],
+                                                                           return_full_result=True,use_only_chi=use_only_chi,use_center_of_light=use_center_of_flux)[-1]
             centroid_of_initial_complete_realization=find_centroid_of_flux(initial_complete_realization)
             
             #determine offset between the initial guess and the data
@@ -6287,7 +6593,7 @@ class Psf_position(object):
             
             # search for best result
             # x position, y_position_1st, y_position_2nd, ratio
-            primary_secondary_position_and_ratio=scipy.optimize.shgo(self.create_complete_realization,bounds=\
+            primary_secondary_position_and_ratio=scipy.optimize.shgo(self.create_complete_realization,(False,use_only_chi,use_center_of_flux),bounds=\
                                                                      [(x_2sources_limits[0],x_2sources_limits[1]),(y_2sources_limits[0],y_2sources_limits[1]),\
                                                                       (y_2sources_limits_second_source[0],y_2sources_limits_second_source[1]),\
                                                                       (self.double_sources_positions_ratios[1]/2,2*self.double_sources_positions_ratios[1])],n=10,sampling_method='sobol',\
@@ -6295,7 +6601,8 @@ class Psf_position(object):
             
             #return best result
             mean_res,single_realization_primary_renormalized,single_realization_secondary_renormalized,complete_realization_renormalized \
-            =self.create_complete_realization(primary_secondary_position_and_ratio.x, return_full_result=True)
+            =self.create_complete_realization(primary_secondary_position_and_ratio.x,
+                                              return_full_result=True,use_only_chi=use_only_chi,use_center_of_light=use_center_of_flux)
     
             if self.save==1:
                 np.save(TESTING_FINAL_IMAGES_FOLDER+'single_realization_primary_renormalized',single_realization_primary_renormalized) 
@@ -6306,12 +6613,12 @@ class Psf_position(object):
                 print('We are fitting for two sources')
                 print('Two source fitting result is '+str(primary_secondary_position_and_ratio.x))   
                 print('type(complete_realization_renormalized)'+str(type(complete_realization_renormalized[0][0])))
-            
-            
-            return complete_realization_renormalized,primary_secondary_position_and_ratio.x
+        
+        
+        return complete_realization_renormalized,primary_secondary_position_and_ratio.x
     
     
-    def create_complete_realization(self, x, return_full_result=False):
+    def create_complete_realization(self, x, return_full_result=False,use_only_chi=False,use_center_of_light=False):
         # need to include masking
         # fits for best chi2, even if algorithm is asking for chi
         """
@@ -6319,11 +6626,19 @@ class Psf_position(object):
         
         @param     x                                                          array contaning x_primary, y_primary, offset in y to secondary source, ratio in flux from secondary to primary
         @bol       return_full_result                                         if True, returns the images iteself (not just chi**2)
+        @bol       use_only_chi
+        @bol       use_center_of_light
+        
+        called by find_single_realization_min_cut
+        
+        calls create_chi_2_almost_Psf_position
         """
         
         #print('len(x): '+str(len(x)))
         #print('x passed to create_complete_realization is: '+str(x))
-        #print('return_full_result '+str(return_full_result))     
+        #print('return_full_result in create_complete_realization: '+str(return_full_result))     
+        #print('use_only_chi in create_complete_realization:  '+str(use_only_chi))
+        #print('use_center_of_light in create_complete_realization:  '+str(use_center_of_light))
         #print('image.shape: '+str(self.image.shape))
         
         image=self.image
@@ -6475,11 +6790,11 @@ class Psf_position(object):
             complete_realization=single_primary_realization
             complete_realization_renormalized=complete_realization*(np.sum(sci_image[inverted_mask])*v_flux/np.sum(complete_realization[inverted_mask]))
             
-        #print('return_full_result: '+str(return_full_result))
+        #print('checkpoint in create_complete_realization')
         if return_full_result==False:
-            chi_2_almost_multi_values=self.create_chi_2_almost_Psf_position(complete_realization_renormalized,sci_image,var_image,mask_image)
+            chi_2_almost_multi_values=self.create_chi_2_almost_Psf_position(complete_realization_renormalized,sci_image,var_image,mask_image,use_only_chi=use_only_chi,use_center_of_light=use_center_of_light)
             if self.verbosity==1:
-                print('chi2 within shgo optimization routine (chi_2_almost_multi_values): '+str(x)+' / '+str(chi_2_almost_multi_values))
+                print('chi2 within shgo with use_only_chi '+str(use_only_chi)+' and use_center_of_light '+str(use_center_of_light)+' '+str(x)+' / '+str(chi_2_almost_multi_values))
                 #print('chi2 within shgo optimization routine (not chi_2_almost_multi_values): '+str(np.mean((sci_image-complete_realization_renormalized)**2/var_image)))
             return chi_2_almost_multi_values
         else:
@@ -6515,8 +6830,9 @@ class Psf_position(object):
                 np.save(TESTING_FINAL_IMAGES_FOLDER+'single_secondary_realization_renormalized_within_create_complete_realization',single_secondary_realization_renormalized)     
                 np.save(TESTING_FINAL_IMAGES_FOLDER+'complete_realization_renormalized_within_create_complete_realization',complete_realization_renormalized)     
             
-            #print('mask_image:'+str(np.sum(mask_image)))
-            chi_2_almost_multi_values=self.create_chi_2_almost_Psf_position(complete_realization_renormalized,sci_image,var_image,mask_image)
+            # should I modify this function to remove distance from physcial center of mass when using that option
+            chi_2_almost_multi_values=self.create_chi_2_almost_Psf_position(complete_realization_renormalized,sci_image,var_image,mask_image,\
+                                                                            use_only_chi=use_only_chi,use_center_of_light=use_center_of_light)
 
             return chi_2_almost_multi_values,\
             single_primary_realization_renormalized,single_secondary_realization_renormalized,complete_realization_renormalized  
@@ -6525,26 +6841,45 @@ class Psf_position(object):
             #return np.mean((sci_image-complete_realization_renormalized)**2/var_image),\
             #single_primary_realization_renormalized,single_secondary_realization_renormalized,complete_realization_renormalized   
 
-    def create_chi_2_almost_Psf_position(self,modelImg,sci_image,var_image,mask_image):
+    def create_chi_2_almost_Psf_position(self,modelImg,sci_image,var_image,mask_image,use_only_chi=False,use_center_of_light=False):
         """
-        return array with 3 values
-        1. normal chi**2
-        2. what is 'instrinsic' chi**2, i.e., just sum((scientific image)**2/variance)
-        3. 'Q' value = sum(abs(model - scientific image))/sum(scientific image)
+        called by create_complete_realization
         
-        @param sci_image    model 
+        takes the model image and the data
+        
+        @param modelImg     model 
         @param sci_image    scientific image 
         @param var_image    variance image
+        @param mask_image   mask image
+        
+        return the measure of quality (chi**2, chi or distance of center of light)
+        
         """ 
+        
+        #print('use_only_chi in create_chi_2_almost_Psf_position '+str(use_only_chi) )
+        
+        
         inverted_mask=~mask_image.astype(bool)
         
         var_image_masked=var_image*inverted_mask
         sci_image_masked=sci_image*inverted_mask
         modelImg_masked=modelImg*inverted_mask
         
-        chi2=(sci_image_masked - modelImg_masked)**2/var_image_masked
-        chi2nontnan=chi2[~np.isnan(chi2)]
-        return np.mean(chi2nontnan)
+        if use_center_of_light==False:
+            if use_only_chi==False:
+                chi2=(sci_image_masked - modelImg_masked)**2/var_image_masked
+                chi2nontnan=chi2[~np.isnan(chi2)]
+            if use_only_chi==True:
+                chi2=np.abs((sci_image_masked - modelImg_masked))**1/np.sqrt(var_image_masked)
+                chi2nontnan=chi2[~np.isnan(chi2)]
+             
+            #print('np.mean(chi2nontnan): '+str(np.mean(chi2nontnan)))    
+            return np.mean(chi2nontnan)
+        else:
+            distance_of_flux_center=np.sqrt(np.sum((np.array(find_centroid_of_flux(modelImg_masked))-np.array(find_centroid_of_flux(sci_image_masked)))**2))
+            #print('distance_of_flux_center: '+str(distance_of_flux_center))
+            return distance_of_flux_center  
+
 
 
     def fill_crop(self, img, pos, crop):
@@ -6741,6 +7076,7 @@ def svd_invert(matrix,threshold):
 def find_centroid_of_flux(image,mask=None):
     """
     function giving the tuple of the position of weighted average of the flux in a square image
+    indentical result as calculateCentroid from drp_stella.images
     
     @input image    poststamp image for which to find center
     @input mask     mask, same size as the image
