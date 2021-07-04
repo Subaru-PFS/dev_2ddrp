@@ -123,7 +123,7 @@ Jun 25, 2021: 0.47  -> 0.47a introduced galsim resizing in the first downsamplin
 """
 ########################################
 #standard library imports
-from __future__ import absolute_import, division, print_function
+#from __future__ import absolute_import, division, print_function
 import os
 import time
 #import sys
@@ -143,10 +143,6 @@ import platform
 import traceback
 
 
-#import pyfftw
-#import pandas as pd
-import scipy
-from scipy.special import erf
 
 ########################################
 # Related third party imports
@@ -159,17 +155,22 @@ import galsim
 galsim.GSParams.maximum_fft_size=12000
 
 # astropy
-import astropy
-import astropy.convolution
+#import astropy
+#import astropy.convolution
+from astropy.convolution import Tophat2DKernel
 from astropy.convolution import Gaussian2DKernel
 
-# scipy and skimage
+# scipy 
+#import scipy
+from scipy.special import erf
 import scipy.misc
 import scipy.fftpack
 #import skimage.transform
 #import scipy.optimize as optimize
 from scipy.ndimage.filters import gaussian_filter
 from scipy import signal
+# for svd_invert function
+from scipy.linalg import svd
 
 #lmfit
 import lmfit
@@ -181,9 +182,6 @@ from matplotlib.colors import LogNorm
 
 # needed for resizing routines
 from typing import Tuple, Iterable
-
-# for svd_invert function
-from scipy.linalg import svd
 
 # for distributing image creation in Tokovinin algorithm
 from functools import partial
@@ -1774,7 +1772,10 @@ class ZernikeFitter_PFS(object):
 
         # create tophat2d
         # physical quantities do not change with dithering, so multiply with self.dithering (applies also to steps 3 and 4)
-        fiber = astropy.convolution.Tophat2DKernel(oversampling*v['fiber_r']*self.dithering,mode='oversample').array
+        #fiber = astropy.convolution.Tophat2DKernel(oversampling*v['fiber_r']*self.dithering,mode='oversample').array
+        fiber = Tophat2DKernel(oversampling*v['fiber_r']*self.dithering,mode='oversample').array        
+
+        
         # create array with zeros with size of the current image, which we will fill with fiber array in the middle
         fiber_padded=np.zeros_like(optPsf_cut_downsampled_scattered,dtype=np.float32)
         mid_point_of_optPsf_cut_downsampled=int(optPsf_cut_downsampled.shape[0]/2)
@@ -6500,9 +6501,9 @@ class Psf_position(object):
   
                     
   
-                    
+                    # changed in 0.47a from -double_sources_positions_ratios[0]*self.oversampling to double_sources_positions_ratios[0]*self.oversampling,
                     initial_complete_realization=self.create_complete_realization([0,0,\
-                                                                                   -double_sources_positions_ratios[0]*self.oversampling,\
+                                                                                   double_sources_positions_ratios[0]*self.oversampling,\
                                                                                    double_sources_positions_ratios[1]],return_full_result=True,\
                                                                                    use_only_chi=use_only_chi,use_center_of_light=use_center_of_flux)[-1]
 
@@ -6668,7 +6669,7 @@ class Psf_position(object):
         #print('use_only_chi in create_complete_realization:  '+str(use_only_chi))
         #print('use_center_of_light in create_complete_realization:  '+str(use_center_of_light))
         #print('image.shape: '+str(self.image.shape))
-        
+        #print('x: '+str(x))
         # oversampled image
         image=self.image
         # I think I use sci_image only for its shape
@@ -6697,7 +6698,7 @@ class Psf_position(object):
         else:    
             secondary_offset_axis_1=primary_offset_axis_1
             secondary_offset_axis_0=x[2]+primary_offset_axis_0
-            
+        #print('secondary_offset_axis_0: '+str(secondary_offset_axis_0))    
         """                  
         # offset from x positions
         primary_offset_axis_1_floor=int(np.floor(primary_offset_axis_1)+center_position-shape_of_sci_image/2*oversampling)
