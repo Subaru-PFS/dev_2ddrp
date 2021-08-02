@@ -116,6 +116,12 @@ Jun 19, 2021: 0.46c -> 0.46d changed skimage.transform.resize to resize, to avoi
 Jun 20, 2021: 0.46d -> 0.46e changed scipy.signal to signal, and require that optPsf_cut_downsampled_scattered size is int / no change to unit test
 Jun 24, 2021: 0.46e -> 0.47 removed resize and introduced galsim resizing in Psf_position, to be consistent with LSST pipeline
 Jun 25, 2021: 0.47  -> 0.47a introduced galsim resizing in the first downsampling from natural resolution to default=10 oversampling also
+Jul 11, 2021: 0.47a -> 0.47b changed a minus factor in secondary position estimation
+Jul 12, 2021: 0.47b -> 0.47c inital offset in positioning had a wrong +- sign in front
+Jul 23, 2021: 0.47c -> 0.47d (only) added comments and explanations
+Jul 26, 2021: 0.47d -> 0.47e changed default oversampling to 11
+Jul 27, 2021: 0.47e -> 0.47f offset done in galsim, but downsampling via resize function
+
 
 @author: Neven Caplar
 @contact: ncaplar@princeton.edu
@@ -193,7 +199,7 @@ __all__ = ['PupilFactory', 'Pupil','ZernikeFitter_PFS','LN_PFS_multi_same_spot',
            'sky_scale','sky_size','remove_pupil_parameters_from_all_parameters',\
            'resize','_interval_overlap','svd_invert','Tokovinin_multi','find_centroid_of_flux','create_custom_var']
 
-__version__ = "0.47a"
+__version__ = "0.47f"
 
 
 
@@ -202,7 +208,7 @@ __version__ = "0.47a"
 
 # name your directory where you want to have files!
 if socket.gethostname()=='IapetusUSA':
-    PSF_DIRECTORY='/Users/nevencaplar/Documents/PFS/'
+    PSF_DIRECTORY='/Volumes/Saturn_USA/PFS/'
 else:
     PSF_DIRECTORY='/tigress/ncaplar/PFS/'
 
@@ -1651,12 +1657,12 @@ class ZernikeFitter_PFS(object):
 
         # we want to reduce oversampling to be roughly around 10 to make things computationaly easier
         # if oversamplign_original is smaller than 20 (in case of dithered images), make res coarser by factor of 2
-        # otherwise do it by 4
+        # otherwise set it to 11 (changed in 0.48)
         if oversampling_original< 20:
             oversampling=np.round(oversampling_original/2)
         else:
             #oversampling=np.round(oversampling_original/4)
-            oversampling=10
+            oversampling=11
         if self.verbosity==1:
             print('oversampling:' +str(oversampling))
         
@@ -1729,7 +1735,9 @@ class ZernikeFitter_PFS(object):
         #########        #########        #########        #########        #########         #########        #########        #########        #########        #########
         # 1. scattered light
         
+        # I believe this is surface brighntess 
         # create grid to apply scattered light
+        
         pointsx = np.linspace(-(size_of_optPsf_cut_in_Microns-size_of_pixels_in_optPsf_cut_downsampled)/2,\
                               (size_of_optPsf_cut_in_Microns-size_of_pixels_in_optPsf_cut_downsampled)/2,num=optPsf_cut_downsampled.shape[0], dtype=np.float32)
         pointsy =np.linspace(-(size_of_optPsf_cut_in_Microns-size_of_pixels_in_optPsf_cut_downsampled)/2,\
@@ -1773,6 +1781,7 @@ class ZernikeFitter_PFS(object):
         # create tophat2d
         # physical quantities do not change with dithering, so multiply with self.dithering (applies also to steps 3 and 4)
         #fiber = astropy.convolution.Tophat2DKernel(oversampling*v['fiber_r']*self.dithering,mode='oversample').array
+        # this creates a pixelized image (mode='oversample')
         fiber = Tophat2DKernel(oversampling*v['fiber_r']*self.dithering,mode='oversample').array        
 
         
@@ -1799,6 +1808,7 @@ class ZernikeFitter_PFS(object):
         #pixels are not perfect detectors
         # charge diffusion in our optical CCDs, can be well described with a Gaussian 
         # sigma is around 7 microns (Jim Gunn - private communication). This is controled in our code by @param 'pixel_effect'
+        # by default, this creates surface brightness profile
         pixel_gauss=Gaussian2DKernel(oversampling*v['pixel_effect']*self.dithering).array.astype(np.float32)
         pixel_gauss_padded=np.pad(pixel_gauss,int((len(optPsf_cut_fiber_convolved)-len(pixel_gauss))/2),'constant',constant_values=0)
         
@@ -1817,12 +1827,13 @@ class ZernikeFitter_PFS(object):
         # following grating calculation is done
         # assuming that 15 microns covers wavelength range of 0.07907 nm
         #(assuming that 4300 pixels in real detector uniformly covers 340 nm)
+        # I belive that this is also covolution by a surface brightness profile
         grating_kernel=np.ones((optPsf_cut_pixel_response_convolved.shape[0],1),dtype=np.float32)
         for i in range(len(grating_kernel)):
             grating_kernel[i]=Ifun16Ne((i-int(optPsf_cut_pixel_response_convolved.shape[0]/2))*0.07907*10**-9/(self.dithering*oversampling)+self.wavelength*10**-9,self.wavelength*10**-9,v['grating_lines'])
         grating_kernel=grating_kernel/np.sum(grating_kernel)
         
-        # I should implement custom_fft function (custom_fftconvolve), as above
+        # I should implement custom_fft function (custom_fftconvolve), as above (old comment, everything moved to signa.fftconvolve)
         # This is 1D convolution so it would need a bit of work, and I see that behavior is fine
         #optPsf_cut_grating_convolved=scipy.signal.fftconvolve(optPsf_cut_pixel_response_convolved, grating_kernel, mode='same')
         optPsf_cut_grating_convolved=signal.fftconvolve(optPsf_cut_pixel_response_convolved, grating_kernel, mode='same') 
@@ -1831,7 +1842,6 @@ class ZernikeFitter_PFS(object):
         #########        #########        #########        #########        #########         #########        #########        #########        #########        #########   
         # 5. centering
         # This is the part which creates the final image
-        
         # if you have requsted a simulated image without movement, `simulation_00' will not be `None' and the code goes into the small ``if statment'' below
         # otherwise, if `simulation_00' is `None' the statment is skipped and the code does not create image with optical center at (0,0)
         if self.verbosity==1:
@@ -1873,7 +1883,7 @@ class ZernikeFitter_PFS(object):
         # changes to Psf_position introduced in 0.46a
         optPsf_cut_fiber_convolved_downsampled,psf_position=single_Psf_position.find_single_realization_min_cut(optPsf_cut_grating_convolved,
                                                                                int(round(oversampling)),shape[0],self.image,self.image_var,self.image_mask,
-                                                                               v_flux=v['flux'],simulation_00='None',
+                                                                               v_flux=v['flux'],simulation_00=self.simulation_00,
                                                                                double_sources=self.double_sources,double_sources_positions_ratios=self.double_sources_positions_ratios,
                                                                                verbosity=self.verbosity,explicit_psf_position=self.explicit_psf_position,
                                                                                use_only_chi=self.use_only_chi,use_center_of_flux=self.use_center_of_flux)
@@ -4986,6 +4996,7 @@ class LN_PFS_single(object):
         @param pupilExplicit
         @param simulation_00                           resulting image will be centered with optical center in the center of the image 
                                                        and not fitted acorrding to the sci_image
+                                                       if use_center_of_flux==True, gives with center of the flux in the center of the image
         @param double_sources                          1 if there are other secondary sources in the image
         @param double_sources_positions_ratios /       arrray with parameters describing relative position\
                                                        and relative flux of the secondary source(s)
@@ -5108,7 +5119,7 @@ class LN_PFS_single(object):
              test_run=None,explicit_psf_position=None,*args):
         """
         
-        
+     
         
         # how are these two approaches different?
         if pupil_parameters is None:
@@ -5118,7 +5129,7 @@ class LN_PFS_single(object):
                                                     ilum_Image=None,dithering=dithering,save=save,\
                                                     pupil_parameters=pupil_parameters,use_pupil_parameters=use_pupil_parameters,
                                                     use_optPSF=use_optPSF,use_wf_grid=use_wf_grid,
-                                                    zmaxInit=zmax,extraZernike=extraZernike,simulation_00=simulation_00,verbosity=verbosity,\
+                                                    zmaxInit=zmax,extraZernike=extraZernike,simulation_00=self.simulation_00,verbosity=verbosity,\
                                                     double_sources=double_sources,double_sources_positions_ratios=double_sources_positions_ratios,\
                                                     test_run=test_run,explicit_psf_position=explicit_psf_position,
                                                     use_only_chi=use_only_chi,use_center_of_flux=use_center_of_flux)  
@@ -5128,7 +5139,7 @@ class LN_PFS_single(object):
 
             single_image_analysis=ZernikeFitter_PFS(sci_image,var_image,image_mask=mask_image,npix=npix,dithering=dithering,save=save,\
                                                     pupil_parameters=pupil_parameters,use_pupil_parameters=use_pupil_parameters,
-                                                    extraZernike=extraZernike,simulation_00=simulation_00,verbosity=verbosity,\
+                                                    extraZernike=extraZernike,simulation_00=self.simulation_00,verbosity=verbosity,\
                                                     double_sources=double_sources,double_sources_positions_ratios=double_sources_positions_ratios,\
                                                     test_run=test_run,explicit_psf_position=explicit_psf_position,
                                                     use_only_chi=use_only_chi,use_center_of_flux=use_center_of_flux)  
@@ -6437,12 +6448,13 @@ class Psf_position(object):
         @param var_image_0                                                variance image
         @param v_flux                                                     flux normalization
         @param simulation_00                                              do not move the center, for making fair comparisons between models - optical center in the center of the image
+                                                                          if use_center_of_flux==True the behaviour changes and the result is the image with center of flux in the center of the image
         @param double_sources                                             are there double sources in the image
         @param double_sources_positions_ratios                            tuple describing init guess for the relation between secondary and primary souces (offset, ratio)
         @param verbosity                                                  verbosity of the algorithm
         @param explicit_psf_position                                      x and y offset
-        @param use_only_chi          
-        @param use_center_of_flux
+        @param use_only_chi                                               quality of the centering is measured using chi, not chi**2
+        @param use_center_of_flux                                         fit so that the center of flux of the model and cience image is as similar as possible
         
         calls function create_complete_realization (many times in order to fit the best solution)
         
@@ -6475,19 +6487,24 @@ class Psf_position(object):
         if verbosity==1:
             print('parameter use_only_chi in Psf_postion is set to: '+str(use_only_chi))
             print('parameter use_center_of_flux in Psf_postion is set to: '+str(use_center_of_flux))
+            print('parameter simulation_00 in Psf_postion is set to: '+str(simulation_00))
 
         # depending on if there is a second source in the image split here
-        # double_sources is always None when using simulated images
+        # double_sources should always be None when when creating centered images (simulation_00 = True)
         if double_sources==None or double_sources is False:
-            # if simulation_00 is on just run the realization set at 0
-            if simulation_00==1:
+            #print('simulation_00: ' +str(simulation_00))
+            #print('use_center_of_flux: '+str(use_center_of_flux))
+            
+            # if simulation_00 and using optical center is on just run the realization set at 0
+            if simulation_00==1 and use_center_of_flux==False:
                 if verbosity==1:
-                    print('simulation_00 is set to 1 - I am just returing the image at (0,0) coordinates ')                
+                    print('simulation_00 is set to 1 and use_center_of_flux==False - I am just returning the image at (0,0) coordinates ')                
       
 
-                # return the solution with x and y is zero
+                # return the solution with x and y is zero, i.e., with optical center in the center of the image 
                 mean_res,single_realization_primary_renormalized,single_realization_secondary_renormalized,complete_realization_renormalized \
-                =self.create_complete_realization([0,0], return_full_result=True,use_only_chi=use_only_chi,use_center_of_light=use_center_of_flux)          
+                =self.create_complete_realization([0,0], return_full_result=True,use_only_chi=use_only_chi,use_center_of_light=use_center_of_flux,
+                                                  simulation_00=simulation_00)          
             
             # if you are fitting an actual image go through the full process
             else:
@@ -6495,9 +6512,16 @@ class Psf_position(object):
                 # if you did not pass explict position search for the best position
                 if explicit_psf_position is None:
                     
+                    # if simulating so that center of light is centered, manually change values here
+                    if simulation_00==1 and use_center_of_flux==True:
+                        if self.verbosity==1:
+                            print('creating simulated image, center of light in center of the image')
+                        shape_of_sci_image=21
+                        centroid_of_sci_image=[10.5,10.5]
+                    else:
 
-                    # create one complete realization with default parameters - estimate centorids and use that knowledge to put fitting limits in the next step
-                    centroid_of_sci_image=find_centroid_of_flux(sci_image)
+                        # create one complete realization with default parameters - estimate centorids and use that knowledge to put fitting limits in the next step
+                        centroid_of_sci_image=find_centroid_of_flux(sci_image)
   
                     
   
@@ -6505,7 +6529,8 @@ class Psf_position(object):
                     initial_complete_realization=self.create_complete_realization([0,0,\
                                                                                    double_sources_positions_ratios[0]*self.oversampling,\
                                                                                    double_sources_positions_ratios[1]],return_full_result=True,\
-                                                                                   use_only_chi=use_only_chi,use_center_of_light=use_center_of_flux)[-1]
+                                                                                   use_only_chi=use_only_chi,use_center_of_light=use_center_of_flux,
+                                                                                   simulation_00=simulation_00)[-1]
 
 
                     centroid_of_initial_complete_realization=find_centroid_of_flux(initial_complete_realization)
@@ -6513,11 +6538,11 @@ class Psf_position(object):
 
 
                     #determine offset between the initial guess and the data
-                    offset_initial_and_sci=np.array(find_centroid_of_flux(initial_complete_realization))-np.array(find_centroid_of_flux(sci_image))
+                    offset_initial_and_sci=-((np.array(find_centroid_of_flux(initial_complete_realization))-np.array(find_centroid_of_flux(sci_image))))
 
                     if verbosity==1:
                         print('offset_initial_and_sci: '+str(offset_initial_and_sci))
-                    
+                        print('[x_primary, y_primary, y_secondary,ratio_secondary] / chi2 output')
                     if self.save==1:
                         np.save(TESTING_FINAL_IMAGES_FOLDER+'initial_complete_realization',initial_complete_realization) 
             
@@ -6528,14 +6553,15 @@ class Psf_position(object):
                     # search for best positioning
                     # implement try for secondary too
                     try:
+                        #print('simulation_00 here is: '+str(simulation_00))
                         #print('(False,use_only_chi,use_center_of_flux)'+str((False,use_only_chi,use_center_of_flux)))
-                        primary_position_and_ratio_shgo=scipy.optimize.shgo(self.create_complete_realization,args=(False,use_only_chi,use_center_of_flux),bounds=\
+                        primary_position_and_ratio_shgo=scipy.optimize.shgo(self.create_complete_realization,args=(False,use_only_chi,use_center_of_flux,simulation_00),bounds=\
                                                                                  [(x_2sources_limits[0],x_2sources_limits[1]),(y_2sources_limits[0],y_2sources_limits[1])],n=10,sampling_method='sobol',\
                                                                                  options={'ftol':1e-3,'maxev':10})
                             
                         
                         #primary_position_and_ratio=primary_position_and_ratio_shgo
-                        primary_position_and_ratio=scipy.optimize.minimize(self.create_complete_realization,args=(False,use_only_chi,use_center_of_flux),x0=primary_position_and_ratio_shgo.x,\
+                        primary_position_and_ratio=scipy.optimize.minimize(self.create_complete_realization,args=(False,use_only_chi,use_center_of_flux,simulation_00),x0=primary_position_and_ratio_shgo.x,\
                                                                            method='Nelder-Mead',options={'xatol': 0.00001, 'fatol': 0.00001})    
                         
                         primary_position_and_ratio_x=primary_position_and_ratio.x
@@ -6547,7 +6573,8 @@ class Psf_position(object):
     
                     # return the best result, based on the result of the conducted search
                     mean_res,single_realization_primary_renormalized,single_realization_secondary_renormalized,complete_realization_renormalized \
-                    =self.create_complete_realization(primary_position_and_ratio_x, return_full_result=True,use_only_chi=use_only_chi,use_center_of_light=use_center_of_flux)
+                    =self.create_complete_realization(primary_position_and_ratio_x, return_full_result=True,use_only_chi=use_only_chi,use_center_of_light=use_center_of_flux,
+                                                      simulation_00=simulation_00)
                     
                     if self.save==1:
                         np.save(TESTING_FINAL_IMAGES_FOLDER+'single_realization_primary_renormalized',single_realization_primary_renormalized) 
@@ -6593,34 +6620,78 @@ class Psf_position(object):
             centroid_of_sci_image=find_centroid_of_flux(sci_image)
             #print('initial double_sources_positions_ratios is: '+str(double_sources_positions_ratios))
             initial_complete_realization=self.create_complete_realization([0,0,\
-                                                                           -double_sources_positions_ratios[0]*self.oversampling,double_sources_positions_ratios[1]],
-                                                                           return_full_result=True,use_only_chi=use_only_chi,use_center_of_light=use_center_of_flux)[-1]
+                                                                           double_sources_positions_ratios[0]*self.oversampling,double_sources_positions_ratios[1]],
+                                                                           return_full_result=True,use_only_chi=use_only_chi,use_center_of_light=use_center_of_flux,
+                                                                           simulation_00=simulation_00)[-1]
             centroid_of_initial_complete_realization=find_centroid_of_flux(initial_complete_realization)
             
             #determine offset between the initial guess and the data
-            offset_initial_and_sci=np.array(centroid_of_initial_complete_realization)-np.array(centroid_of_sci_image)
+            offset_initial_and_sci=-(np.array(centroid_of_initial_complete_realization)-np.array(centroid_of_sci_image))
             
             if verbosity==1:
+                print('Evaulating double source psf positioning loop')
                 print('offset_initial_and_sci: '+str(offset_initial_and_sci))
+                print('[x_primary, y_primary, y_secondary,ratio_secondary] / chi2 output')
             
             if self.save==1:
                 np.save(TESTING_FINAL_IMAGES_FOLDER+'sci_image',sci_image) 
                 np.save(TESTING_FINAL_IMAGES_FOLDER+'initial_complete_realization',initial_complete_realization) 
 
-            # set the limits for the fitting procedure
-            y_2sources_limits=[(offset_initial_and_sci[1]-2)*self.oversampling,(offset_initial_and_sci[1]+2)*self.oversampling]
-            x_2sources_limits=[(offset_initial_and_sci[0]-1)*self.oversampling,(offset_initial_and_sci[0]+1)*self.oversampling]
-            y_2sources_limits_second_source=[(-self.double_sources_positions_ratios[0]-2)*oversampling,(-self.double_sources_positions_ratios[0]+2)*oversampling]
+            # implement that it does not search if second object far away while in focus
+            # focus size is 20
+            if shape_of_sci_image==20 and np.abs(self.double_sources_positions_ratios[0])>15:
+                if verbosity==1:
+                    print('fitting second source, but assuming that second source is too far')
+
+                # if the second spot is more than 15 pixels away
+                #copying code from the non-double source part
+                # search for the best center using scipy ``shgo'' algorithm
+                # set the limits for the fitting procedure
+                y_2sources_limits=[(offset_initial_and_sci[1]-2)*self.oversampling,(offset_initial_and_sci[1]+2)*self.oversampling]
+                x_2sources_limits=[(offset_initial_and_sci[0]-1)*self.oversampling,(offset_initial_and_sci[0]+1)*self.oversampling]
+                # search for best positioning
+                # implement try for secondary too
+                try:
+                    #print('(False,use_only_chi,use_center_of_flux)'+str((False,use_only_chi,use_center_of_flux)))
+                    primary_position_and_ratio_shgo=scipy.optimize.shgo(self.create_complete_realization,args=(False,use_only_chi,use_center_of_flux,simulation_00),bounds=\
+                                                                             [(x_2sources_limits[0],x_2sources_limits[1]),(y_2sources_limits[0],y_2sources_limits[1])],n=10,sampling_method='sobol',\
+                                                                             options={'ftol':1e-3,'maxev':10})
+                        
+                    if verbosity==1:
+                        print('starting finer positioning')
+                    
+                    #primary_position_and_ratio=primary_position_and_ratio_shgo
+                    primary_position_and_ratio=scipy.optimize.minimize(self.create_complete_realization,args=(False,use_only_chi,use_center_of_flux,simulation_00),x0=primary_position_and_ratio_shgo.x,\
+                                                                       method='Nelder-Mead',options={'xatol': 0.00001, 'fatol': 0.00001})    
+                    
+                    primary_position_and_ratio_x=primary_position_and_ratio.x
+                except:
+                    print('search for primary position failed')
+                    primary_position_and_ratio_x=[0,0]
+                    
+                primary_secondary_position_and_ratio_x=np.array([0.,0.,0.,0.])
+                primary_secondary_position_and_ratio_x[0]=primary_position_and_ratio_x[0]
+                primary_secondary_position_and_ratio_x[1]=primary_position_and_ratio_x[1]
             
-            
-            # search for best result
-            # x position, y_position_1st, y_position_2nd, ratio
-            
-            primary_secondary_position_and_ratio=scipy.optimize.shgo(self.create_complete_realization,args=(False,use_only_chi,use_center_of_flux),bounds=\
-                                                                     [(x_2sources_limits[0],x_2sources_limits[1]),(y_2sources_limits[0],y_2sources_limits[1]),\
-                                                                      (y_2sources_limits_second_source[0],y_2sources_limits_second_source[1]),\
-                                                                      (self.double_sources_positions_ratios[1]/2,2*self.double_sources_positions_ratios[1])],n=10,sampling_method='sobol',\
-                                                                     options={'ftol':1e-3,'maxev':10})
+            else:
+
+                        
+                # set the limits for the fitting procedure
+                y_2sources_limits=[(offset_initial_and_sci[1]-2)*self.oversampling,(offset_initial_and_sci[1]+2)*self.oversampling]
+                x_2sources_limits=[(offset_initial_and_sci[0]-1)*self.oversampling,(offset_initial_and_sci[0]+1)*self.oversampling]
+                y_2sources_limits_second_source=[(self.double_sources_positions_ratios[0]-2)*oversampling,(self.double_sources_positions_ratios[0]+2)*oversampling]
+                
+                
+                # search for best result
+                # x position, y_position_1st, y_position_2nd, ratio
+                
+                primary_secondary_position_and_ratio=scipy.optimize.shgo(self.create_complete_realization,args=(False,use_only_chi,use_center_of_flux,simulation_00),bounds=\
+                                                                         [(x_2sources_limits[0],x_2sources_limits[1]),(y_2sources_limits[0],y_2sources_limits[1]),\
+                                                                          (y_2sources_limits_second_source[0],y_2sources_limits_second_source[1]),\
+                                                                          (self.double_sources_positions_ratios[1]/2,2*self.double_sources_positions_ratios[1])],n=10,sampling_method='sobol',\
+                                                                         options={'ftol':1e-3,'maxev':10})
+                    
+                primary_secondary_position_and_ratio_x=primary_secondary_position_and_ratio.x
             
             #primary_secondary_position_and_ratio=scipy.optimize.shgo(self.create_complete_realization,(False,use_only_chi,use_center_of_flux),bounds=\
             #                                                         [(x_2sources_limits[0],x_2sources_limits[1]),(y_2sources_limits[0],y_2sources_limits[1]),\
@@ -6629,9 +6700,11 @@ class Psf_position(object):
             #                                                          options={'maxev':10,'ftol':1e-3})
             
             #return best result
+            # introduce best_result=True
             mean_res,single_realization_primary_renormalized,single_realization_secondary_renormalized,complete_realization_renormalized \
-            =self.create_complete_realization(primary_secondary_position_and_ratio.x,
-                                              return_full_result=True,use_only_chi=use_only_chi,use_center_of_light=use_center_of_flux)
+            =self.create_complete_realization(primary_secondary_position_and_ratio_x,
+                                              return_full_result=True,use_only_chi=use_only_chi,use_center_of_light=use_center_of_flux,\
+                                              simulation_00=simulation_00)
     
             if self.save==1:
                 np.save(TESTING_FINAL_IMAGES_FOLDER+'single_realization_primary_renormalized',single_realization_primary_renormalized) 
@@ -6640,14 +6713,14 @@ class Psf_position(object):
     
             if self.verbosity==1:
                 print('We are fitting for two sources')
-                print('Two source fitting result is '+str(primary_secondary_position_and_ratio.x))   
+                print('Two source fitting result is '+str(primary_secondary_position_and_ratio_x))   
                 print('type(complete_realization_renormalized)'+str(type(complete_realization_renormalized[0][0])))
         
         
-        return complete_realization_renormalized,primary_secondary_position_and_ratio.x
+        return complete_realization_renormalized,primary_secondary_position_and_ratio_x
     
     
-    def create_complete_realization(self, x, return_full_result=False,use_only_chi=False,use_center_of_light=False):
+    def create_complete_realization(self, x, return_full_result=False,use_only_chi=False,use_center_of_light=False,simulation_00=False):
         # need to include masking
 
         """
@@ -6670,6 +6743,7 @@ class Psf_position(object):
         #print('use_center_of_light in create_complete_realization:  '+str(use_center_of_light))
         #print('image.shape: '+str(self.image.shape))
         #print('x: '+str(x))
+        #print('simulation_00: '+str(simulation_00))
         # oversampled image
         image=self.image
         # I think I use sci_image only for its shape
@@ -6677,6 +6751,8 @@ class Psf_position(object):
         var_image=self.var_image
         mask_image=self.mask_image
         shape_of_sci_image=self.size_natural_resolution
+        #print('shape_of_sci_image in create_complete_realization: '+str(shape_of_sci_image))
+        
         oversampling=self.oversampling
         v_flux=self.v_flux
                
@@ -6684,7 +6760,10 @@ class Psf_position(object):
         center_position=int(np.floor(image.shape[0]/2))
         primary_offset_axis_1=x[0]
         primary_offset_axis_0=x[1]    
+        if simulation_00==1:
+            simulation_00=True
         
+        #print('simulation_00 in create_complete_realization:' +str(simulation_00))
         # if you are only fitting for primary image
         # add zero values for secondary image
         if len(x)==2:
@@ -6698,140 +6777,39 @@ class Psf_position(object):
         else:    
             secondary_offset_axis_1=primary_offset_axis_1
             secondary_offset_axis_0=x[2]+primary_offset_axis_0
-        #print('secondary_offset_axis_0: '+str(secondary_offset_axis_0))    
-        """                  
-        # offset from x positions
-        primary_offset_axis_1_floor=int(np.floor(primary_offset_axis_1)+center_position-shape_of_sci_image/2*oversampling)
-        primary_offset_axis_1_ceiling=int(np.ceil(primary_offset_axis_1)+center_position-shape_of_sci_image/2*oversampling)
-        primary_offset_axis_1_mod_from_floor=primary_offset_axis_1-int(np.floor(primary_offset_axis_1))
-        
-        # offset from y positions
-        primary_offset_axis_0_floor=int(np.floor(primary_offset_axis_0)+center_position-shape_of_sci_image/2*oversampling)
-        primary_offset_axis_0_ceiling=int(np.ceil(primary_offset_axis_0)+center_position-shape_of_sci_image/2*oversampling)
-        primary_offset_axis_0_mod_from_floor=primary_offset_axis_0-int(np.floor(primary_offset_axis_0))
-    
-        # secondary offset from x position (probably superflous, as it should be the same as primary )
-        secondary_offset_axis_1_floor=int(np.floor(secondary_offset_axis_1)+center_position-shape_of_sci_image/2*oversampling)
-        secondary_offset_axis_1_ceiling=int(np.ceil(secondary_offset_axis_1)+center_position-shape_of_sci_image/2*oversampling)
-        secondary_offset_axis_1_mod_from_floor=secondary_offset_axis_1-int(np.floor(secondary_offset_axis_1))
-    
-        # secondary offset from y position (probably superflous, as it should be the same as primary )
-        secondary_offset_axis_0_floor=int(np.floor(secondary_offset_axis_0)+center_position-shape_of_sci_image/2*oversampling)
-        secondary_offset_axis_0_ceiling=int(np.ceil(secondary_offset_axis_0)+center_position-shape_of_sci_image/2*oversampling)
-        secondary_offset_axis_0_mod_from_floor=secondary_offset_axis_0-int(np.floor(secondary_offset_axis_0))
 
-
-        # if you have to pad the image with zeros on either side go into this part of if statment
-        if primary_offset_axis_0_floor<0 or (primary_offset_axis_0_ceiling+oversampling*shape_of_sci_image)>len(image)\
-        or primary_offset_axis_1_floor<0 or (primary_offset_axis_1_ceiling+oversampling*shape_of_sci_image)>len(image):
-            #print('going into crop loop')
-    
-            pos_floor_floor = np.array([primary_offset_axis_0_floor, primary_offset_axis_1_floor])
-            pos_floor_ceiling = np.array([primary_offset_axis_0_floor, primary_offset_axis_1_ceiling])
-            pos_ceiling_floor = np.array([primary_offset_axis_0_ceiling, primary_offset_axis_1_floor])
-            pos_ceiling_ceiling = np.array([primary_offset_axis_0_ceiling, primary_offset_axis_1_ceiling])    
-
-            # image in the top right corner, x=1, y=1
-            input_img_single_realization_before_downsampling_primary_floor_floor = np.zeros((oversampling*shape_of_sci_image, oversampling*shape_of_sci_image),dtype=np.float32)
-            # image in the top left corner, x=0, y=1
-            input_img_single_realization_before_downsampling_primary_floor_ceiling = np.zeros((oversampling*shape_of_sci_image, oversampling*shape_of_sci_image),dtype=np.float32)
-            # image in the bottom right corner, x=1, y=0
-            input_img_single_realization_before_downsampling_primary_ceiling_floor = np.zeros((oversampling*shape_of_sci_image, oversampling*shape_of_sci_image),dtype=np.float32)
-            # image in the bottom left corner, x=0, y=0
-            input_img_single_realization_before_downsampling_primary_ceiling_ceiling = np.zeros((oversampling*shape_of_sci_image, oversampling*shape_of_sci_image),dtype=np.float32)
-
-            self.fill_crop(image, pos_floor_floor, input_img_single_realization_before_downsampling_primary_floor_floor)
-            self.fill_crop(image, pos_floor_ceiling, input_img_single_realization_before_downsampling_primary_floor_ceiling)
-            self.fill_crop(image, pos_ceiling_floor, input_img_single_realization_before_downsampling_primary_ceiling_floor)
-            self.fill_crop(image, pos_ceiling_ceiling, input_img_single_realization_before_downsampling_primary_ceiling_ceiling)
-    
-        else:
-            # if you do not have to pad, just simply take the part of the original oversampled image
-            input_img_single_realization_before_downsampling_primary_floor_floor=image[primary_offset_axis_0_floor:primary_offset_axis_0_floor+oversampling*shape_of_sci_image,\
-                                                                       primary_offset_axis_1_floor:primary_offset_axis_1_floor+oversampling*shape_of_sci_image]
-            input_img_single_realization_before_downsampling_primary_floor_ceiling=image[primary_offset_axis_0_floor:primary_offset_axis_0_floor+oversampling*shape_of_sci_image,\
-                                                                       primary_offset_axis_1_ceiling:primary_offset_axis_1_ceiling+oversampling*shape_of_sci_image]
-            input_img_single_realization_before_downsampling_primary_ceiling_floor=image[primary_offset_axis_0_ceiling:primary_offset_axis_0_ceiling+oversampling*shape_of_sci_image,\
-                                                                       primary_offset_axis_1_floor:primary_offset_axis_1_floor+oversampling*shape_of_sci_image]
-            input_img_single_realization_before_downsampling_primary_ceiling_ceiling=image[primary_offset_axis_0_ceiling:primary_offset_axis_0_ceiling+oversampling*shape_of_sci_image,\
-                                                                       primary_offset_axis_1_ceiling:primary_offset_axis_1_ceiling+oversampling*shape_of_sci_image]
         
+        ###################
         
-        # construct bilinear interpolation from these 4 images
-
-        input_img_single_realization_before_downsampling_primary=self.bilinear_interpolation(primary_offset_axis_0_mod_from_floor,primary_offset_axis_1_mod_from_floor,\
-                                                                                        input_img_single_realization_before_downsampling_primary_floor_floor,input_img_single_realization_before_downsampling_primary_floor_ceiling,\
-                                                                                        input_img_single_realization_before_downsampling_primary_ceiling_floor,input_img_single_realization_before_downsampling_primary_ceiling_ceiling)
-        
-        #print('input_img_single_realization_before_downsampling_primary:'+str(input_img_single_realization_before_downsampling_primary))
-        # downsample the primary image
-        
-        single_primary_realization=resize(input_img_single_realization_before_downsampling_primary,(shape_of_sci_image,shape_of_sci_image))
-        """
-        #print('via galsim')
         im1=  galsim.Image(image, copy=True,scale=1)
-        #interpolated_image = galsim._InterpolatedImage(im1,scale=1, x_interpolant='Lanczos5', calculate_stepk=False, calculate_maxk=False)
+
         interpolated_image = galsim._InterpolatedImage(im1,\
                              x_interpolant=galsim.Lanczos(5, True))
 
-        single_primary_realization = interpolated_image.shift(primary_offset_axis_1,primary_offset_axis_0 ).\
-            drawImage(nx=shape_of_sci_image, ny=shape_of_sci_image, scale=oversampling,  method='no_pixel').array
-
-        
+        single_primary_realization_oversampled = interpolated_image.shift(primary_offset_axis_1,primary_offset_axis_0 ).\
+            drawImage(nx=shape_of_sci_image*oversampling, ny=shape_of_sci_image*oversampling, scale=1, method='no_pixel').array        
+        single_primary_realization = resize(single_primary_realization_oversampled,(shape_of_sci_image,shape_of_sci_image),())   
+            
         
         ###################
-        # implement - if secondary too far outside the image, do not go through secondary
+        # skip this part if only doing primary
         # go through secondary loop if the flux ratio is not zero
+        # (needs to be implemented - if secondary too far outside the image, do not go through secondary)
         if ratio_secondary !=0:
-            """
-            # if the secondary would be outside
-            if secondary_offset_axis_0_floor<0 or (secondary_offset_axis_0_ceiling+oversampling*shape_of_sci_image)>len(image)\
-            or secondary_offset_axis_1_floor<0 or (secondary_offset_axis_1_ceiling+oversampling*shape_of_sci_image)>len(image):
-                #print('checkpoint here')
-                pos_floor_floor = np.array([secondary_offset_axis_0_floor, secondary_offset_axis_1_floor])
-                pos_floor_ceiling = np.array([secondary_offset_axis_0_floor, secondary_offset_axis_1_ceiling])
-                pos_ceiling_floor = np.array([secondary_offset_axis_0_ceiling, secondary_offset_axis_1_floor])
-                pos_ceiling_ceiling = np.array([secondary_offset_axis_0_ceiling, secondary_offset_axis_1_ceiling])    
-                #print('pos_floor_floor: '+str(pos_floor_floor))     
-                input_img_single_realization_before_downsampling_secondary_floor_floor = np.full([oversampling*shape_of_sci_image, oversampling*shape_of_sci_image], 0,dtype=np.float32)
-                input_img_single_realization_before_downsampling_secondary_floor_ceiling = np.full([oversampling*shape_of_sci_image, oversampling*shape_of_sci_image], 0,dtype=np.float32)
-                input_img_single_realization_before_downsampling_secondary_ceiling_floor = np.full([oversampling*shape_of_sci_image, oversampling*shape_of_sci_image], 0,dtype=np.float32)
-                input_img_single_realization_before_downsampling_secondary_ceiling_ceiling= np.full([oversampling*shape_of_sci_image, oversampling*shape_of_sci_image], 0,dtype=np.float32)
-        
-                self.fill_crop(image, pos_floor_floor, input_img_single_realization_before_downsampling_secondary_floor_floor)
-                self.fill_crop(image, pos_floor_ceiling, input_img_single_realization_before_downsampling_secondary_floor_ceiling)
-                self.fill_crop(image, pos_ceiling_floor, input_img_single_realization_before_downsampling_secondary_ceiling_floor)
-                self.fill_crop(image, pos_ceiling_ceiling, input_img_single_realization_before_downsampling_secondary_ceiling_ceiling)
-                
-            else:
-                
-                
-                input_img_single_realization_before_downsampling_secondary_floor_floor=image[secondary_offset_axis_0_floor:secondary_offset_axis_0_floor+oversampling*shape_of_sci_image,\
-                                                                           secondary_offset_axis_1_floor:secondary_offset_axis_1_floor+oversampling*shape_of_sci_image]
-                input_img_single_realization_before_downsampling_secondary_floor_ceiling=image[secondary_offset_axis_0_floor:secondary_offset_axis_0_floor+oversampling*shape_of_sci_image,\
-                                                                           secondary_offset_axis_1_ceiling:secondary_offset_axis_1_ceiling+oversampling*shape_of_sci_image]
-                input_img_single_realization_before_downsampling_secondary_ceiling_floor=image[secondary_offset_axis_0_ceiling:secondary_offset_axis_0_ceiling+oversampling*shape_of_sci_image,\
-                                                                           secondary_offset_axis_1_floor:secondary_offset_axis_1_floor+oversampling*shape_of_sci_image]  
-                input_img_single_realization_before_downsampling_secondary_ceiling_ceiling=image[secondary_offset_axis_0_ceiling:secondary_offset_axis_0_ceiling+oversampling*shape_of_sci_image,\
-                                                                           secondary_offset_axis_1_ceiling:secondary_offset_axis_1_ceiling+oversampling*shape_of_sci_image]
-        
-            # first two argument input is y,x offset
-            # so first axis_1 then axis 0
-            # change here from 0.39b to 0.4        
-            input_img_single_realization_before_downsampling_secondary=self.bilinear_interpolation(secondary_offset_axis_0_mod_from_floor,secondary_offset_axis_1_mod_from_floor,\
-                                                                                        input_img_single_realization_before_downsampling_secondary_floor_floor,input_img_single_realization_before_downsampling_secondary_floor_ceiling,\
-                                                                                        input_img_single_realization_before_downsampling_secondary_ceiling_floor,input_img_single_realization_before_downsampling_secondary_ceiling_ceiling)
+
+            #single_secondary_realization = interpolated_image.shift(secondary_offset_axis_1,secondary_offset_axis_0 ).\
+            #drawImage(nx=shape_of_sci_image, ny=shape_of_sci_image, scale=oversampling,  method='no_pixel').array
             
-            single_secondary_realization=resize(input_img_single_realization_before_downsampling_secondary,(shape_of_sci_image,shape_of_sci_image))   
-            """
-            single_secondary_realization = interpolated_image.shift(secondary_offset_axis_1,secondary_offset_axis_0 ).\
-            drawImage(nx=shape_of_sci_image, ny=shape_of_sci_image, scale=oversampling,  method='no_pixel').array
+            single_secondary_realization_oversampled = interpolated_image.shift(secondary_offset_axis_1,secondary_offset_axis_0 ).\
+            drawImage(nx=shape_of_sci_image*oversampling, ny=shape_of_sci_image*oversampling, scale=1, method='no_pixel').array        
+            single_secondary_realization = resize(single_secondary_realization_oversampled,(shape_of_sci_image,shape_of_sci_image),())   
             
             
-    
         inverted_mask=~mask_image.astype(bool)
-    
-        #print('ratio_secondary: '+str(ratio_secondary))
+
+        ###################
+        # create complete_realization which is just pimary if no secondary source
+        # if there is secondary source, add two images together
         if ratio_secondary !=0:
             complete_realization=single_primary_realization+ratio_secondary*single_secondary_realization
             complete_realization_renormalized=complete_realization*(np.sum(sci_image[inverted_mask])*v_flux/np.sum(complete_realization[inverted_mask]))
@@ -6839,13 +6817,16 @@ class Psf_position(object):
             
             complete_realization=single_primary_realization
             complete_realization_renormalized=complete_realization*(np.sum(sci_image[inverted_mask])*v_flux/np.sum(complete_realization[inverted_mask]))
-            
+     
+        ###################      
+        # find chi values and save the results
         #print('checkpoint in create_complete_realization')
         if return_full_result==False:
-            chi_2_almost_multi_values=self.create_chi_2_almost_Psf_position(complete_realization_renormalized,sci_image,var_image,mask_image,use_only_chi=use_only_chi,use_center_of_light=use_center_of_light)
+            chi_2_almost_multi_values=self.create_chi_2_almost_Psf_position(complete_realization_renormalized,sci_image,var_image,mask_image,\
+                                                                            use_only_chi=use_only_chi,use_center_of_light=use_center_of_light,\
+                                                                            simulation_00=simulation_00)
             if self.verbosity==1:
                 print('chi2 within shgo with use_only_chi '+str(use_only_chi)+' and use_center_of_light '+str(use_center_of_light)+' '+str(x)+' / '+str(chi_2_almost_multi_values))
-                #print('chi2 within shgo optimization routine (not chi_2_almost_multi_values): '+str(np.mean((sci_image-complete_realization_renormalized)**2/var_image)))
             return chi_2_almost_multi_values
         else:
             if ratio_secondary !=0:
@@ -6860,20 +6841,8 @@ class Psf_position(object):
             
             if self.save==1:
                 np.save(TESTING_FINAL_IMAGES_FOLDER+'image',image)            
-                
-                #np.save(TESTING_FINAL_IMAGES_FOLDER+'input_img_single_realization_before_downsampling_primary_floor_floor',input_img_single_realization_before_downsampling_primary_floor_floor)            
-                #np.save(TESTING_FINAL_IMAGES_FOLDER+'input_img_single_realization_before_downsampling_primary_floor_ceiling',input_img_single_realization_before_downsampling_primary_floor_ceiling)             
-                #np.save(TESTING_FINAL_IMAGES_FOLDER+'input_img_single_realization_before_downsampling_primary_ceiling_floor',input_img_single_realization_before_downsampling_primary_ceiling_floor) 
-                #np.save(TESTING_FINAL_IMAGES_FOLDER+'input_img_single_realization_before_downsampling_primary_ceiling_ceiling',input_img_single_realization_before_downsampling_primary_ceiling_ceiling) 
-    
-                #np.save(TESTING_FINAL_IMAGES_FOLDER+'input_img_single_realization_before_downsampling_primary',input_img_single_realization_before_downsampling_primary) 
                 if ratio_secondary !=0:
                     np.save(TESTING_FINAL_IMAGES_FOLDER+'image_full_for_secondary',image) 
-         
-                    #np.save(TESTING_FINAL_IMAGES_FOLDER+'input_img_single_realization_before_downsampling_secondary_floor_floor',input_img_single_realization_before_downsampling_secondary_floor_floor) 
-                    
-
-                    #np.save(TESTING_FINAL_IMAGES_FOLDER+'input_img_single_realization_before_downsampling_secondary',input_img_single_realization_before_downsampling_secondary) 
                     np.save(TESTING_FINAL_IMAGES_FOLDER+'single_secondary_realization',single_secondary_realization) 
                 np.save(TESTING_FINAL_IMAGES_FOLDER+'single_primary_realization',single_primary_realization) 
                 np.save(TESTING_FINAL_IMAGES_FOLDER+'single_primary_realization_renormalized_within_create_complete_realization',single_primary_realization_renormalized) 
@@ -6882,7 +6851,18 @@ class Psf_position(object):
             
             # should I modify this function to remove distance from physcial center of mass when using that option
             chi_2_almost_multi_values=self.create_chi_2_almost_Psf_position(complete_realization_renormalized,sci_image,var_image,mask_image,\
-                                                                            use_only_chi=use_only_chi,use_center_of_light=use_center_of_light)
+                                                                            use_only_chi=use_only_chi,use_center_of_light=use_center_of_light,simulation_00=simulation_00)
+
+            # if best, save oversampled image
+            if simulation_00==True:
+                if self.verbosity==1:
+                    print('saving oversampled simulation_00 image')
+                single_primary_realization_oversampled_to_save = interpolated_image.shift(primary_offset_axis_1,primary_offset_axis_0 ).\
+                    drawImage(nx=21*oversampling, ny=21*oversampling, scale=1, method='no_pixel').array 
+                complete_realization_renormalized_to_save = resize(single_primary_realization_oversampled_to_save,(21,21),()) 
+                np.save(TESTING_FINAL_IMAGES_FOLDER+'single_primary_realization_oversampled_to_save',single_primary_realization_oversampled_to_save) 
+                np.save(TESTING_FINAL_IMAGES_FOLDER+'complete_realization_renormalized_to_save',complete_realization_renormalized_to_save)
+
 
             return chi_2_almost_multi_values,\
             single_primary_realization_renormalized,single_secondary_realization_renormalized,complete_realization_renormalized  
@@ -6891,7 +6871,8 @@ class Psf_position(object):
             #return np.mean((sci_image-complete_realization_renormalized)**2/var_image),\
             #single_primary_realization_renormalized,single_secondary_realization_renormalized,complete_realization_renormalized   
 
-    def create_chi_2_almost_Psf_position(self,modelImg,sci_image,var_image,mask_image,use_only_chi=False,use_center_of_light=False):
+    def create_chi_2_almost_Psf_position(self,modelImg,sci_image,var_image,mask_image,\
+                                         use_only_chi=False,use_center_of_light=False,simulation_00=False):
         """
         called by create_complete_realization
         
@@ -6902,12 +6883,15 @@ class Psf_position(object):
         @param var_image    variance image
         @param mask_image   mask image
         
-        return the measure of quality (chi**2, chi or distance of center of light)
+        return the measure of quality (chi**2, chi or distance of center of light between science and model image)
+        distance of center of light between science and model image is given in units of pixels
         
         """ 
         
         #print('use_only_chi in create_chi_2_almost_Psf_position '+str(use_only_chi) )
         
+
+            
         
         inverted_mask=~mask_image.astype(bool)
         
@@ -6915,7 +6899,13 @@ class Psf_position(object):
         sci_image_masked=sci_image*inverted_mask
         modelImg_masked=modelImg*inverted_mask
         
+        #print('modelImg_masked.shape in create_chi_2_almost_Psf_position: '+str(modelImg_masked.shape ))
+        
+        
         if use_center_of_light==False:
+            
+            #print('scenter of light=false')
+            
             if use_only_chi==False:
                 chi2=(sci_image_masked - modelImg_masked)**2/var_image_masked
                 chi2nontnan=chi2[~np.isnan(chi2)]
@@ -6926,7 +6916,22 @@ class Psf_position(object):
             #print('np.mean(chi2nontnan): '+str(np.mean(chi2nontnan)))    
             return np.mean(chi2nontnan)
         else:
-            distance_of_flux_center=np.sqrt(np.sum((np.array(find_centroid_of_flux(modelImg_masked))-np.array(find_centroid_of_flux(sci_image_masked)))**2))
+            
+            
+            if simulation_00==False or simulation_00==None:
+                
+                print('sim00=False and center of light =true')
+                
+                distance_of_flux_center=np.sqrt(np.sum((np.array(find_centroid_of_flux(modelImg_masked))-\
+                                                        np.array(find_centroid_of_flux(sci_image_masked)))**2))
+            else:
+                # if you pass both simulation_00 paramter and use_center_of_light=True, center of light will be centered
+                # in the downsampled image
+                
+                print('sim00=True and center of light =true')
+                
+                distance_of_flux_center=np.sqrt(np.sum((np.array(find_centroid_of_flux(modelImg_masked))-\
+                                                        np.array(np.array(np.ones((21,21)).shape)/2-0.5))**2))
             #print('distance_of_flux_center: '+str(distance_of_flux_center))
             return distance_of_flux_center  
 
@@ -6993,7 +6998,7 @@ class Psf_position(object):
         
       
      
-    
+    """
     def create_trace(self, best_img,norm_of_trace,norm_of_serial_trace):
         if norm_of_trace==0:
             return best_img
@@ -7045,7 +7050,7 @@ class Psf_position(object):
             proposed_serial=proposed_serial/5
             
         return [proposed_trace,proposed_serial]
-    
+        """
 
     
         

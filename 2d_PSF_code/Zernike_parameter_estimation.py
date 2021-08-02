@@ -52,6 +52,12 @@ May 13, 2021: 0.40f -> 0.41 updated to again to be able to get focus analysis
 May 20, 2021: 0.41 -> 0.41b updated eps=8 parameter and set w=0.81
 May 27, 2021: 0.41b -> 0.42 introduced wavelength in the estimation algorithm
 Jun 15, 2021: 0.42 -> 0.42b dataset 7, only Neon included
+Jun 28, 2021: 0.42b -> 0.42c wavelength reintroduced
+Jul 01, 2021: 0.42c -> 0.43 fake image index increased to accomodate extra 21 fibers
+Jul 01, 2021: 0.43 -> 0.43a introduced final(arc) for 10+21 fibers
+Jul 02, 2021: 0.43a -> 0.43b small changes to multiprocessing
+Jul 11, 2021: 0.43b -> 0.43c str to int, in index when catching nearby points for initial solution
+Jul 28, 2021: 0.43c -> 0.43d added support for numpy.str_ in index
 
 
 @author: Neven Caplar
@@ -83,12 +89,14 @@ np.seterr(divide='ignore', invalid='ignore')
 import pickle 
 
 #Related third party imports
-#from multiprocessing import Pool
+import multiprocessing
+from multiprocessing import Pool
+print('multiprocessing.cpu_count()'+ str(multiprocessing.cpu_count()))
 #from multiprocessing import current_process
 
 # MPI imports, depending on configuration
-from schwimmbad import MPIPool
-from schwimmbad import MultiPool
+#from schwimmbad import MPIPool
+#from schwimmbad import MultiPool
 #import mpi4py
 from functools import partial
 
@@ -98,18 +106,18 @@ from functools import partial
 #import pandas
 
 #cosmohammer
-import cosmoHammer
+#import cosmoHammer
 
 #galsim
 #import galsim
 
 #emcee
-import emcee
+#import emcee
 
 #Zernike_Module
 from Zernike_Module import LN_PFS_single,LN_PFS_multi_same_spot,create_parInit,PFSLikelihoodModule,svd_invert,Tokovinin_multi,check_global_parameters
 
-__version__ = "0.42b"
+__version__ = "0.43d"
 
 parser = argparse.ArgumentParser(description="Starting args import",
                                  formatter_class=argparse.RawTextHelpFormatter,
@@ -141,7 +149,7 @@ parser.add_argument("-nsteps", help="number of steps each walker will take ",typ
 parser.add_argument("-eps", help="input argument that controls the paramters of the cosmo_hammer process; if in doubt, eps=5 is probably a solid option ",type=int)
 ################################################    
 # which dataset is being analyzed [numerical value of 0,1,2,3,4 or 5]   
-parser.add_argument("-dataset", help="which dataset is being analyzed [numerical value of 0,1,2,3,4 or 5] ",type=int, choices=[0, 1, 2,3,4,5,6,7])
+parser.add_argument("-dataset", help="which dataset is being analyzed [numerical value of 0,1,2,3,4 or 5] ",type=int, choices=[0, 1, 2,3,4,5,6,7,8])
 ################################################    
 parser.add_argument("-arc", help="which arc lamp is being analyzed (HgAr for Mercury-Argon, Ne for Neon, Kr for Krypton)  ", choices=["HgAr","Ar", "Ne", "Kr"])
 ################################################ 
@@ -248,7 +256,7 @@ if dataset==3:
 if dataset==4 or dataset==5:
     DATA_FOLDER='/tigress/ncaplar/ReducedData/Data_Aug_14/'      
     
-    if single_number==120:
+    if single_number==999:
         DATA_FOLDER='/tigress/ncaplar/ReducedData/Data_Aug_14/'   
 
 # folder contaning the data taken with F/2.8 stop in November 2020 on Subaru
@@ -259,7 +267,9 @@ if dataset==6:
 if dataset==7:
     DATA_FOLDER='/tigress/ncaplar/ReducedData/Data_May_21_2021/'    
     
-
+# folder contaning the data taken with F/2.8 stop in June 2021, at Subaru (21 fibers)
+if dataset==8:
+    DATA_FOLDER='/tigress/ncaplar/ReducedData/Data_May_25_2021/'  
           
     
 
@@ -352,6 +362,18 @@ if dataset==7:
         print('Arc line specified is '+str(arc))
         print("Not recognized arc-line")  
         
+# defocused data from June 2021, at LAM, at SM2, corrected    
+if dataset==8:   
+    if str(arc)=="Ar":
+        single_number_focus=51581
+    if str(arc)=="Ne":
+        single_number_focus=59751
+    elif str(arc)=="Kr":
+        single_number_focus=52181
+    else:
+        print('Arc line specified is '+str(arc))
+        print("Not recognized arc-line")  
+        
 ################################################  
 print('args.double_sources: '+str(args.double_sources))        
 
@@ -401,14 +423,14 @@ analysis_type=args.analysis_type
 print('analysis_type: '+str(analysis_type))   
 ################################################  
 
-# if you passing a fake stamps and dataframe (placed as index=120 and ``HgAr'' lamp)
-if single_number>=120 and arc=='HgAr':
+# if you passing a fake stamps and dataframe (placed as index=999 and ``HgAr'' lamp)
+if single_number>=999 and arc=='HgAr':
     STAMPS_FOLDER=DATA_FOLDER+'Stamps_cleaned_fake/'
     DATAFRAMES_FAKE_FOLDER=DATA_FOLDER+'Dataframes_fake/'   
     
     single_number_original=np.copy(single_number)    
-    single_number=120
-    print('Single number changed to 120')
+    single_number=999
+    print('Single number changed to 999')
 else:
     single_number_original=np.copy(single_number)    
 
@@ -442,9 +464,9 @@ list_of_obs_cleaned=[]
 
 list_of_times=[]
 
-
+# loading images for the analysis
 for obs in list_of_obs:
-    if single_number<120:
+    if single_number<999:
         try:
             sci_image =np.load(STAMPS_FOLDER+'sci'+str(obs)+str(single_number)+str(arc)+'_Stacked.npy')
             mask_image =np.load(STAMPS_FOLDER+'mask'+str(obs)+str(single_number)+str(arc)+'_Stacked.npy')    
@@ -473,7 +495,7 @@ for obs in list_of_obs:
         mask_image =np.load(STAMPS_FOLDER+'mask'+str(obs)+str(single_number)+str(arc)+'_Stacked.npy')    
         var_image =np.load(STAMPS_FOLDER+'var'+str(obs)+str(single_number)+str(arc)+'_Stacked.npy') 
         print('sci_image loaded from: '+STAMPS_FOLDER+'sci'+str(obs)+str(single_number)+str(arc)+'_Stacked.npy')
-        # for fake images below 120 I did not create _large images
+        # for fake images below 999 I did not create _large images
 
     # If there is no science image, do not add images
     if int(np.sum(sci_image))==0:
@@ -490,7 +512,7 @@ for obs in list_of_obs:
             list_of_mask_images.append(mask_image)
             list_of_var_images.append(var_image)
             try:
-                if single_number<120:
+                if single_number<999:
                     list_of_sci_images_focus.append(sci_image_focus_large)
                     list_of_var_images_focus.append(var_image_focus_large)
             except:
@@ -522,8 +544,8 @@ for obs in list_of_obs_cleaned:
     NAME_OF_CHAIN='chain'+str(date_of_output)+'_Single_P_'+str(obs)+str(single_number)+str(eps)+str(arc)
     NAME_OF_LIKELIHOOD_CHAIN='likechain'+str(date_of_output)+'_Single_P_'+str(obs)+str(single_number)+str(eps)+str(arc)
     
-    # if you are passing higher than 120
-    if single_number_original>=120:
+    # if you are passing higher than 999
+    if single_number_original>=999:
         NAME_OF_CHAIN='chain'+str(date_of_output)+'_Single_P_'+str(obs)+str(single_number_original)+str(eps)+str(arc)
         NAME_OF_LIKELIHOOD_CHAIN='likechain'+str(date_of_output)+'_Single_P_'+str(obs)+str(single_number_original)+str(eps)+str(arc)        
     
@@ -539,25 +561,38 @@ if str(arc)=='Ar' or arc=='HgAr':
         results_of_fit_input_HgAr=pickle.load(f)
         #print(results_of_fit_input_HgAr)
         print('results_of_fit_input_Ar is taken from: '+str(f))
-    with open(DATAFRAMES_FOLDER+'finalAr_Feb2020', 'rb') as f:
-        finalAr_Feb2020_dataset=pickle.load(f) 
+    # if before considering all fibers
+    if dataset < 8:
+        with open(DATAFRAMES_FOLDER+'finalAr_Feb2020', 'rb') as f:
+            finalAr_Feb2020_dataset=pickle.load(f) 
+    else:
+        with open(DATAFRAMES_FOLDER+'finalAr_Jul2021', 'rb') as f:
+            finalAr_Feb2020_dataset=pickle.load(f)    
+        
 
 # Ne (Neon)
 if str(arc)=='Ne':
     with open(DATAFRAMES_FOLDER + 'results_of_fit_many_'+str(direct_or_interpolation)+'_Ne_from_'+str(date_of_input)+'.pkl', 'rb') as f:
         results_of_fit_input_Ne=pickle.load(f)
     print('results_of_fit_input_Ne is taken from: '+str(f))
-    
-    with open(DATAFRAMES_FOLDER + 'finalNe_Feb2020', 'rb') as f:
-        finalNe_Feb2020_dataset=pickle.load(f) 
+    if dataset < 8:    
+        with open(DATAFRAMES_FOLDER + 'finalNe_Feb2020', 'rb') as f:
+            finalNe_Feb2020_dataset=pickle.load(f) 
+    else:
+        with open(DATAFRAMES_FOLDER+'finalNe_Jul2021', 'rb') as f:
+            finalNe_Feb2020_dataset=pickle.load(f)    
 
 # Kr (Krypton)
 if str(arc)=='Kr':
     with open(DATAFRAMES_FOLDER + 'results_of_fit_many_'+str(direct_or_interpolation)+'_Kr_from_'+str(date_of_input)+'.pkl', 'rb') as f:
         results_of_fit_input_Kr=pickle.load(f)
     print('results_of_fit_input_Kr is taken from: '+str(f))
-    with open(DATAFRAMES_FOLDER + 'finalKr_Feb2020', 'rb') as f:
-        finalKr_Feb2020_dataset=pickle.load(f)    
+    if dataset < 8:
+        with open(DATAFRAMES_FOLDER + 'finalKr_Feb2020', 'rb') as f:
+            finalKr_Feb2020_dataset=pickle.load(f)    
+    else:
+        with open(DATAFRAMES_FOLDER+'finalKr_Jul2021', 'rb') as f:
+            finalKr_Feb2020_dataset=pickle.load(f)  
     
 
 ##############################################    
@@ -603,7 +638,8 @@ if dataset==4:
         obs_possibilites=np.array([21550+6,21550+12,21550+18,21550+24,21550+30,21550+36,21550+42,21550+48,21550+54,21550+60,21550+66,21550+72,21550+78,21550+84,21550+90,21550+96,21550+102,21550+54])
     if arc=='Kr':
          obs_possibilites=np.array([21754+6,21754+12,21754+18,21754+24,21754+30,21754+36,21754+42,21754+48,21754+54,21754+60,21754+66,21754+72,21754+78,21754+84,21754+90,21754+96,21754+102,21754+54])
-     
+
+# F/2.8 data, Subaru
 if dataset==6:
     if arc=='Ar':
         obs_possibilites=np.array([34341,34341+6,34341+12,34341+18,34341+24,34341+30,34341+36,34341+42,34341+48,\
@@ -615,11 +651,11 @@ if dataset==6:
          obs_possibilites=np.array([34561,34561+6,34561+12,34561+18,34561+24,34561+30,34561+36,34561+42,34561+48,\
                                     34561+54,34561+60,34561+66,34561+72,34561+78,34561+84,34561+90,34561+96,34561+48])
         
-    
+# SM2 test data    
 if dataset==7:
-    #if arc=='Ar':
-    #    obs_possibilites=np.array([34341,34341+6,34341+12,34341+18,34341+24,34341+30,34341+36,34341+42,34341+48,\
-    #                               34341+54,34341+60,34341+66,34341+72,34341+78,34341+84,34341+90,34341+96,21346+48])
+    if arc=='Ar':
+        obs_possibilites=np.array([27779,-999,27683,-999,-999,-999,-999,-999,27767,\
+                                   -999,-999,-999,-999,-999,27698,-999,27773,-999])
     if arc=='Ne':
         obs_possibilites=np.array([27713,-999,27683,-999,-999,-999,-999,-999,27677,\
                                    -999,-999,-999,-999,-999,27698,-999,27719,-999])
@@ -627,6 +663,20 @@ if dataset==7:
     #     obs_possibilites=np.array([34561,34561+6,34561+12,34561+18,34561+24,34561+30,34561+36,34561+42,34561+48,\
     #                                34561+54,34561+60,34561+66,34561+72,34561+78,34561+84,34561+90,34561+96,34561+48])        
         
+# 21 fibers data from May/Jun 2021, Subaru
+if dataset==8:
+    if arc=='Ar':
+        obs_possibilites=np.array([51485,51485+12,51485+2*12,51485+3*12,51485+4*12,51485+5*12,51485+6*12,51485+7*12,51485+8*12,\
+                                   51485+9*12,51485+10*12,51485+11*12,51485+12*12,51485+13*12,51485+14*12,51485+15*12,51485+16*12,51485+8*12])    
+    if arc=='Ne':
+        obs_possibilites=np.array([59655,59655+12,59655+2*12,59655+3*12,59655+4*12,59655+5*12,59655+6*12,59655+7*12,59655+8*12,\
+                                   59655+9*12,59655+10*12,59655+11*12,59655+12*12,59655+13*12,59655+14*12,59655+15*12,59655+16*12,59655+8*12])              
+    if arc=='Kr':
+        obs_possibilites=np.array([52085,52085+12,52085+2*12,52085+3*12,52085+4*12,52085+5*12,52085+6*12,52085+7*12,52085+8*12,\
+                                   52085+9*12,52085+10*12,52085+11*12,52085+12*12,52085+13*12,52085+14*12,52085+15*12,52085+16*12,52085+8*12])                
+            
+    
+    
  ##############################################    
 
 # associates each observation with the label in the supplied dataframe
@@ -714,6 +764,7 @@ columns22=['z4','z5','z6','z7','z8','z9','z10','z11',
           'pixel_effect','fiber_r','flux']  
 
 # depening on the arc, select the appropriate dataframe
+# change here to account for 21 fiber data
 if arc=="HgAr":
     results_of_fit_input=results_of_fit_input_HgAr
     #finalArc=finalHgAr_Feb2020_dataset
@@ -731,15 +782,16 @@ else:
     print("what has happened here? Only Argon, HgAr, Neon and Krypton implemented")
 
 wavelength=float(finalArc.iloc[int(single_number)]['wavelength'])
-wavelength=None
+#wavelength=None
 print("wavelength used [nm] is: "+str(wavelength))
 #pool = MPIPool()
 #if not pool.is_master():
 #    pool.wait()
 #    sys.exit(0)   
-from multiprocessing import Pool
-pool=Pool()
 
+print('check 1')
+pool=Pool()
+print('check 2')
 # if you are passing only image    
 if len(list_of_obs)==1:
         
@@ -768,7 +820,8 @@ else:
                                         num_iter=None,pool=None)    
 
 
-
+ ############################################## 
+ # determining initial parameters
 
 
 # if you are passing only one image
@@ -822,39 +875,49 @@ else:
         
         print('adding label '+str(label)+' with single_number '+str(int(single_number) )+' for creation of array_of_allparameters')
         try:
-            if int(single_number)>=120:
+            # if you are doing fake image analysis
+            if int(single_number)>=999:
                 list_of_allparameters.append(results_of_fit_input[label].loc[int(37)].values)
                 list_of_defocuses.append(label)
-            if int(single_number) < 120:
+            if int(single_number) < 999:
                 print(results_of_fit_input[label].index.astype(int))
                 # if your single_number is avaliable go ahead
                 if int(single_number) in results_of_fit_input[label].index.astype(int):
-                    # print('checkpoint')
-                    if type(results_of_fit_input[label].index[0])==str:
+                    print('Solution for this spot is avaliable')
+                    if type(results_of_fit_input[label].index[0])==str or str(type(results_of_fit_input[label].index[0]))=="<class 'numpy.str_'>":
                         list_of_allparameters.append(results_of_fit_input[label].loc[str(single_number)].values)
                         print('results_of_fit_input['+str(label)+'].loc['+str(int(single_number))+'].values' + str(results_of_fit_input[label].loc[str(single_number)].values))
                     else:
                         #print('results_of_fit_input[label]'+str(results_of_fit_input[label]))
                         list_of_allparameters.append(results_of_fit_input[label].loc[int(single_number)].values)
-                        print('results_of_fit_input[label].loc[int(single_number)].values' + str(results_of_fit_input[label].loc[int(single_number)].values))
+                        print('results_of_fit_input['+str(label)+'].loc['+str(int(single_number))+'].values' + str(results_of_fit_input[label].loc[int(single_number)].values))
                     list_of_defocuses.append(label)
                         
                 else:
+                    # if the previous solution is not avaliable,
                     # find the closest avaliable, right?
-                    x_positions=finalArc.loc[results_of_fit_input[labelInput].index]['xc_effective']
-                    y_positions=finalArc.loc[results_of_fit_input[labelInput].index]['yc']
-                    
+                    print('Solution for this spot is not avaliable, reconstructing from nearby spot')
+
+                    # positions of all avaliable spots
+                    x_positions=finalArc.loc[results_of_fit_input[label].index.astype(int)]['xc_effective']
+                    y_positions=finalArc.loc[results_of_fit_input[label].index.astype(int)]['yc']
+                    print('checkpoint 1')
+                    print(label)
+                    print(results_of_fit_input[labelInput].index)
+                    # position of the input spot
                     position_x_single_number=finalArc['xc_effective'].loc[int(single_number)]
                     position_y_single_number=finalArc['yc'].loc[int(single_number)]
-                    
+                    print('checkpoint 2')
+                    print(position_x_single_number)
                     distance_of_avaliable_spots=np.abs((x_positions-position_x_single_number)**2+(y_positions-position_y_single_number)**2)
                     single_number_input=distance_of_avaliable_spots[distance_of_avaliable_spots==np.min(distance_of_avaliable_spots)].index[0]
-                    if type(results_of_fit_input[label].index[0])==str:
+                    print('Nearest spot avaliable is: '+str(single_number_input))
+                    if type(results_of_fit_input[label].index[0])==str or str(type(results_of_fit_input[label].index[0]))=="<class 'numpy.str_'>":
                         list_of_allparameters.append(results_of_fit_input[label].loc[str(single_number_input)].values)
                     else:
                         list_of_allparameters.append(results_of_fit_input[label].loc[int(single_number_input)].values)
                     list_of_defocuses.append(label)
-                    print('results_of_fit_input[label].loc[int(single_number)].values' + str(results_of_fit_input[label].loc[int(single_number_input)].values))
+                    print('results_of_fit_input['+str(label)+'].loc['+str(int(single_number_input))+'].values' + str(results_of_fit_input[label].loc[int(single_number_input)].values))
                     
                     pass
 
@@ -899,11 +962,13 @@ else:
     
     
     # if you 
-    if single_number>=120:
-        proposal_number=single_number_original-120
+    if single_number>=999:
+        proposal_number=single_number_original-999
         
         array_of_polyfit_1_parameterizations_proposal_shape_2d=\
             np.load('/tigress/ncaplar/ReducedData/Data_Aug_14/Dataframes_fake/array_of_polyfit_1_parameterizations_proposal_shape_2d_proposal_'+str(proposal_number)+'.npy')
+
+ ############################################## 
     
     """    
     print('Overriding array_of_polyfit_1_parameterizations_proposal_shape_2d for testing purposes') 
