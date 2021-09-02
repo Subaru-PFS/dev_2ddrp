@@ -121,6 +121,9 @@ Jul 12, 2021: 0.47b -> 0.47c inital offset in positioning had a wrong +- sign in
 Jul 23, 2021: 0.47c -> 0.47d (only) added comments and explanations
 Jul 26, 2021: 0.47d -> 0.47e changed default oversampling to 11
 Jul 27, 2021: 0.47e -> 0.47f offset done in galsim, but downsampling via resize function
+Aug 26, 2021: 0.47f -> 0.47g direct minimization when use_center_of_flux=True
+Aug 30, 2021: 0.47g -> 0.48 offset done in LSST code now
+Sep 02, 2021: 0.48 -> 0.48a done cleaning offset code (PIPE2D-880)
 
 
 @author: Neven Caplar
@@ -159,6 +162,12 @@ import traceback
 # galsim
 import galsim
 galsim.GSParams.maximum_fft_size=12000
+
+# lsst
+import lsst
+import lsst.afw
+import lsst.afw.image
+import lsst.afw.math
 
 # astropy
 #import astropy
@@ -199,7 +208,7 @@ __all__ = ['PupilFactory', 'Pupil','ZernikeFitter_PFS','LN_PFS_multi_same_spot',
            'sky_scale','sky_size','remove_pupil_parameters_from_all_parameters',\
            'resize','_interval_overlap','svd_invert','Tokovinin_multi','find_centroid_of_flux','create_custom_var']
 
-__version__ = "0.47f"
+__version__ = "0.48"
 
 
 
@@ -1254,6 +1263,11 @@ class ZernikeFitter_PFS(object):
         self.use_only_chi=use_only_chi
         self.use_center_of_flux=use_center_of_flux
         
+        if explicit_psf_position==False:
+            self.explicit_psf_position=None
+        
+        
+        
         
         if self.verbosity==1:
             print('np.__version__' +str(np.__version__))
@@ -1875,6 +1889,8 @@ class ZernikeFitter_PFS(object):
                                                                                verbosity=self.verbosity,save=self.save)
         time_end_single=time.time()
         if self.verbosity==1:
+            print(self.save)
+            print('socket.gethostname()'+str(socket.gethostname()))
             print('Time for postprocessing up to single_Psf_position protocol is '+str(time_end_single-time_start_single))        
         #  run the code for centering
         time_start_single=time.time()
@@ -6385,7 +6401,7 @@ class Psf_position(object):
     
     inputs are:
         
-        image                                       oversampled model image
+        image                                       oversampled model image (numpy array)
         oversampling                                by how much is the the oversampled image oversampled
         size_natural_resolution                     size of the final image
         simulation_00                               True if simulate at optical center at 0,0
@@ -6495,7 +6511,7 @@ class Psf_position(object):
             #print('simulation_00: ' +str(simulation_00))
             #print('use_center_of_flux: '+str(use_center_of_flux))
             
-            # if simulation_00 and using optical center is on just run the realization set at 0
+            # if simulation_00 AND using optical center just run the realization that is set at 0,0
             if simulation_00==1 and use_center_of_flux==False:
                 if verbosity==1:
                     print('simulation_00 is set to 1 and use_center_of_flux==False - I am just returning the image at (0,0) coordinates ')                
@@ -6512,30 +6528,33 @@ class Psf_position(object):
                 # if you did not pass explict position search for the best position
                 if explicit_psf_position is None:
                     
-                    # if simulating so that center of light is centered, manually change values here
+                    # if creating the model so that the model is centered so
+                    # that center of light of the model matches the center of the light
+                    # of the scientific image, manually change values for centroid_of_sci_image here
                     if simulation_00==1 and use_center_of_flux==True:
                         if self.verbosity==1:
                             print('creating simulated image, center of light in center of the image')
                         shape_of_sci_image=21
                         centroid_of_sci_image=[10.5,10.5]
                     else:
-
                         # create one complete realization with default parameters - estimate centorids and use that knowledge to put fitting limits in the next step
                         centroid_of_sci_image=find_centroid_of_flux(sci_image)
   
                     
   
                     # changed in 0.47a from -double_sources_positions_ratios[0]*self.oversampling to double_sources_positions_ratios[0]*self.oversampling,
+                    time_1=time.time()
                     initial_complete_realization=self.create_complete_realization([0,0,\
                                                                                    double_sources_positions_ratios[0]*self.oversampling,\
                                                                                    double_sources_positions_ratios[1]],return_full_result=True,\
                                                                                    use_only_chi=use_only_chi,use_center_of_light=use_center_of_flux,
                                                                                    simulation_00=simulation_00)[-1]
+                    time_2=time.time()
+                    if self.verbosity==1:
+                        print('time_2-time_1 for initial_complete_realization: '+str(time_2-time_1))
 
-
+                    # center of the light for the first realization, set at optical center
                     centroid_of_initial_complete_realization=find_centroid_of_flux(initial_complete_realization)
-
-
 
                     #determine offset between the initial guess and the data
                     offset_initial_and_sci=-((np.array(find_centroid_of_flux(initial_complete_realization))-np.array(find_centroid_of_flux(sci_image))))
@@ -6551,26 +6570,56 @@ class Psf_position(object):
                     y_2sources_limits=[(offset_initial_and_sci[1]-2)*self.oversampling,(offset_initial_and_sci[1]+2)*self.oversampling]
                     x_2sources_limits=[(offset_initial_and_sci[0]-1)*self.oversampling,(offset_initial_and_sci[0]+1)*self.oversampling]
                     # search for best positioning
-                    # implement try for secondary too
-                    try:
-                        #print('simulation_00 here is: '+str(simulation_00))
-                        #print('(False,use_only_chi,use_center_of_flux)'+str((False,use_only_chi,use_center_of_flux)))
-                        primary_position_and_ratio_shgo=scipy.optimize.shgo(self.create_complete_realization,args=(False,use_only_chi,use_center_of_flux,simulation_00),bounds=\
-                                                                                 [(x_2sources_limits[0],x_2sources_limits[1]),(y_2sources_limits[0],y_2sources_limits[1])],n=10,sampling_method='sobol',\
-                                                                                 options={'ftol':1e-3,'maxev':10})
+                    
+                    # if use_center_of_flux==True, we use more direct approach to get to the center
+                    
+                    if use_center_of_flux==True:
+                        for i in range(5):
                             
+                            print("####################################")
+                            
+                            if i==0:
+                              
+                                x_i,y_i=offset_initial_and_sci*oversampling
+                                
+                                x_offset,y_offset=0,0
+                                x_offset=x_offset+x_i
+                                y_offset=y_offset+y_i
+                            else:
+                                x_offset=x_offset+x_i        
+                                y_offset=y_offset+y_i     
+                            complete_realization=self.create_complete_realization(x=[x_offset,y_offset,0,0,],\
+                                                                                  return_full_result=True,use_only_chi=True,use_center_of_light=True,simulation_00=False)[-1]
+                            offset_initial_and_sci=-((np.array(find_centroid_of_flux(complete_realization))\
+                                                      -np.array(find_centroid_of_flux(sci_image))))
+                            
+                            print('offset_initial_and_sci in step '+str(i)+' '+str(offset_initial_and_sci))    
+                            print("####################################")  
+                            x_i,y_i=offset_initial_and_sci*oversampling                    
                         
-                        #primary_position_and_ratio=primary_position_and_ratio_shgo
-                        primary_position_and_ratio=scipy.optimize.minimize(self.create_complete_realization,args=(False,use_only_chi,use_center_of_flux,simulation_00),x0=primary_position_and_ratio_shgo.x,\
-                                                                           method='Nelder-Mead',options={'xatol': 0.00001, 'fatol': 0.00001})    
-                        
-                        primary_position_and_ratio_x=primary_position_and_ratio.x
-                    except:
-                        print('search for primary position failed')
-                        primary_position_and_ratio_x=[0,0]
-                        
-
+                        primary_position_and_ratio_x=[x_offset,y_offset]
+                    # if use_center_of_flux=False, we have to optimize to find the best solution 
+                    else:
+                        # implement try syntax for secondary too
+                        try:
+                            #print('simulation_00 here is: '+str(simulation_00))
+                            #print('(False,use_only_chi,use_center_of_flux)'+str((False,use_only_chi,use_center_of_flux)))
+                            primary_position_and_ratio_shgo=scipy.optimize.shgo(self.create_complete_realization,args=(False,use_only_chi,use_center_of_flux,simulation_00),bounds=\
+                                                                                     [(x_2sources_limits[0],x_2sources_limits[1]),(y_2sources_limits[0],y_2sources_limits[1])],n=10,sampling_method='sobol',\
+                                                                                     options={'ftol':1e-3,'maxev':10})
+                                
+                            
+                            #primary_position_and_ratio=primary_position_and_ratio_shgo
+                            primary_position_and_ratio=scipy.optimize.minimize(self.create_complete_realization,args=(False,use_only_chi,use_center_of_flux,simulation_00),x0=primary_position_and_ratio_shgo.x,\
+                                                                               method='Nelder-Mead',options={'xatol': 0.00001, 'fatol': 0.00001})    
+                            
+                            primary_position_and_ratio_x=primary_position_and_ratio.x
+                        except:
+                            print('search for primary position failed')
+                            primary_position_and_ratio_x=[0,0]
+                            
     
+        
                     # return the best result, based on the result of the conducted search
                     mean_res,single_realization_primary_renormalized,single_realization_secondary_renormalized,complete_realization_renormalized \
                     =self.create_complete_realization(primary_position_and_ratio_x, return_full_result=True,use_only_chi=use_only_chi,use_center_of_light=use_center_of_flux,
@@ -6586,8 +6635,19 @@ class Psf_position(object):
                             print('We are fitting for only one source')
                             print('One source fitting result is '+str(primary_position_and_ratio_x))   
                             print('type(complete_realization_renormalized)'+str(type(complete_realization_renormalized[0][0])))
-                                
+                           
+                            
+                            centroid_of_complete_realization_renormalized=find_centroid_of_flux(complete_realization_renormalized)
+                    
+                            #determine offset between the initial guess and the data
+                            offset_final_and_sci=-(np.array(centroid_of_complete_realization_renormalized)-np.array(centroid_of_sci_image))
+                    
+                            print('offset_final_and_sci: '+str(offset_final_and_sci))
+                           
+                            
                     return complete_realization_renormalized,primary_position_and_ratio_x
+                
+
                 # if you did pass explicit_psf_position for the solution
                 else:
 
@@ -6605,6 +6665,9 @@ class Psf_position(object):
                                 print('We are passing value for only one source')
                                 print('One source fitting result is '+str(explicit_psf_position))   
                                 print('type(complete_realization_renormalized)'+str(type(complete_realization_renormalized[0][0])))
+                                
+
+                                    
                                 
                     return complete_realization_renormalized,explicit_psf_position
                         
@@ -6706,6 +6769,10 @@ class Psf_position(object):
                                               return_full_result=True,use_only_chi=use_only_chi,use_center_of_light=use_center_of_flux,\
                                               simulation_00=simulation_00)
     
+
+
+    
+    
             if self.save==1:
                 np.save(TESTING_FINAL_IMAGES_FOLDER+'single_realization_primary_renormalized',single_realization_primary_renormalized) 
                 np.save(TESTING_FINAL_IMAGES_FOLDER+'single_realization_secondary_renormalized',single_realization_secondary_renormalized)     
@@ -6715,7 +6782,8 @@ class Psf_position(object):
                 print('We are fitting for two sources')
                 print('Two source fitting result is '+str(primary_secondary_position_and_ratio_x))   
                 print('type(complete_realization_renormalized)'+str(type(complete_realization_renormalized[0][0])))
-        
+
+
         
         return complete_realization_renormalized,primary_secondary_position_and_ratio_x
     
@@ -6726,10 +6794,11 @@ class Psf_position(object):
         """
         create one complete downsampled realization of the image, from the full oversampled image
         
-        @param     x                                                          array contaning x_primary, y_primary, offset in y to secondary source, ratio in flux from secondary to primary
-        @bol       return_full_result                                         if True, returns the images iteself (not just chi**2)
-        @bol       use_only_chi
-        @bol       use_center_of_light
+        @param     x                                   array contaning x_primary, y_primary, offset in y to secondary source, \
+                                                       ratio in flux from secondary to primary; the units are oversampled pixels(?)
+        @bol       return_full_result                  if True, returns the images iteself (not just chi**2)
+        @bol       use_only_chi                        if True, minimize chi; if False, minimize chi^2
+        @bol       use_center_of_light                 if True, minimize distance to center of light, in focus (if size==20)
         
         called by find_single_realization_min_cut - has to be done via that function, to supply self.sci_image etc...
         
@@ -6744,21 +6813,23 @@ class Psf_position(object):
         #print('image.shape: '+str(self.image.shape))
         #print('x: '+str(x))
         #print('simulation_00: '+str(simulation_00))
-        # oversampled image
+        
+        # oversampled input image
         image=self.image
-        # I think I use sci_image only for its shape
+
         sci_image=self.sci_image
         var_image=self.var_image
         mask_image=self.mask_image
         shape_of_sci_image=self.size_natural_resolution
-        #print('shape_of_sci_image in create_complete_realization: '+str(shape_of_sci_image))
-        
+
         oversampling=self.oversampling
         v_flux=self.v_flux
                
         # central position of the create oversampled image
         center_position=int(np.floor(image.shape[0]/2))
+        # to be applied on x-axis
         primary_offset_axis_1=x[0]
+        # to be applied on y-axis
         primary_offset_axis_0=x[1]    
         if simulation_00==1:
             simulation_00=True
@@ -6780,31 +6851,136 @@ class Psf_position(object):
 
         
         ###################
-        
-        im1=  galsim.Image(image, copy=True,scale=1)
-
-        interpolated_image = galsim._InterpolatedImage(im1,\
-                             x_interpolant=galsim.Lanczos(5, True))
-
-        single_primary_realization_oversampled = interpolated_image.shift(primary_offset_axis_1,primary_offset_axis_0 ).\
-            drawImage(nx=shape_of_sci_image*oversampling, ny=shape_of_sci_image*oversampling, scale=1, method='no_pixel').array        
-        single_primary_realization = resize(single_primary_realization_oversampled,(shape_of_sci_image,shape_of_sci_image),())   
+        #time_1=time.time()
+        #print(image.shape)
+        #im1=  galsim.Image(image, copy=True,scale=1)
+        #time_2=time.time()
+        #interpolated_image = galsim._InterpolatedImage(im1,\
+        #                     x_interpolant=galsim.Lanczos(5, True))
+        #time_3=time.time()
+        #single_primary_realization_oversampled = interpolated_image.shift(primary_offset_axis_1,primary_offset_axis_0 ).\
+        #    drawImage(nx=shape_of_sci_image*oversampling, ny=shape_of_sci_image*oversampling, scale=1, method='no_pixel').array 
+        #time_4=time.time()
+        #single_primary_realization = resize(single_primary_realization_oversampled,(shape_of_sci_image,shape_of_sci_image),())   
+        #time_5=time.time()  
+        #if self.verbosity==1:
+        #    print('time_2-time_1 for shift and resize '+str(time_2-time_1))
+        #    print('time_3-time_2 for shift and resize '+str(time_3-time_2))
+        #    print('time_4-time_3 for shift and resize '+str(time_4-time_3))
+        #    print('time_5-time_4 for shift and resize '+str(time_5-time_4))
+        #    print('time_5-time_1 for shift and resize '+str(time_5-time_1))
             
+        time_1=time.time()
+        #print('image.shape in create_complete_realization: '+str(image.shape))
+        #print('primary_offset in create_complete_realization (oversampled units)'+str([primary_offset_axis_1,primary_offset_axis_0 ]))
+
+        shape_of_oversampled_image=int(shape_of_sci_image*oversampling/2)  
+
+        # from https://github.com/Subaru-PFS/drp_stella/blob/6cceadfc8721fcb1c7eb1571cf4b9bc8472e983d/src/SpectralPsf.cc
+        # // Binning by an odd factor requires the centroid at the center of a pixel.
+        # // Binning by an even factor requires the centroid on the edge of a pixel.
+
+        # the definitions used in primary image
+        # we separate if the image shape is odd or even, but at the moment there is no difference
+        if np.modf(shape_of_oversampled_image/2)[0]==0.0:
+            #print('shape is an even number')
+            
+            shift_x_mod=np.array([-(np.round(primary_offset_axis_1)-primary_offset_axis_1),-np.round(primary_offset_axis_1)])
+            shift_y_mod=np.array([-(np.round(primary_offset_axis_0)-primary_offset_axis_0),-np.round(primary_offset_axis_0)])            
+            
+        else:
+            #print('shape is an odd number')
+            shift_x_mod=np.array([-(np.round(primary_offset_axis_1)-primary_offset_axis_1),-np.round(primary_offset_axis_1)])
+            shift_y_mod=np.array([-(np.round(primary_offset_axis_0)-primary_offset_axis_0),-np.round(primary_offset_axis_0)])                
+      
+        #print('shift_x_mod (oversampled units): '+str(shift_x_mod))     
+        #print('shift_y_mod (oversampled units): '+str(shift_y_mod))
         
+        
+        image_integer_offset=image[center_position+int(shift_y_mod[1])-1-shape_of_oversampled_image\
+                             :center_position+int(shift_y_mod[1])+shape_of_oversampled_image+1,\
+                             center_position+int(shift_x_mod[1])-1-shape_of_oversampled_image:\
+                             center_position+int(shift_x_mod[1])+shape_of_oversampled_image+1]
+
+        image_integer_offset_lsst=lsst.afw.image.image.ImageD\
+            (image_integer_offset.astype('float64'))
+            
+            
+        oversampled_Image_LSST_apply_frac_offset=lsst.afw.math.offsetImage\
+            (image_integer_offset_lsst,shift_x_mod[0],shift_y_mod[0], algorithmName='lanczos5',buffer=5)
+            
+        single_primary_realization_oversampled=oversampled_Image_LSST_apply_frac_offset.array[1:-1,1:-1]
+            
+        assert single_primary_realization_oversampled.shape[0]==shape_of_sci_image*oversampling
+        
+        single_primary_realization = resize(single_primary_realization_oversampled,(shape_of_sci_image,shape_of_sci_image),())   
+        
+        #im1=  galsim.Image(image, copy=True,scale=1)
+        #time_2=time.time()
+        #interpolated_image = galsim._InterpolatedImage(im1,\
+        #                     x_interpolant=galsim.Lanczos(5, True))
+        #time_3=time.time()
+        #time_3_1=time.time()
+        #single_primary_realization_oversampled_1 = interpolated_image.shift(primary_offset_axis_1,primary_offset_axis_0 )
+        #time_3_2=time.time()
+        #single_primary_realization_oversampled_2=single_primary_realization_oversampled_1.drawImage(nx=shape_of_sci_image*oversampling, ny=shape_of_sci_image*oversampling, scale=1, method='no_pixel')
+        #time_3_3=time.time()
+        #single_primary_realization_oversampled_3=single_primary_realization_oversampled_2.array
+        #time_4=time.time()
+        #single_primary_realization = resize(single_primary_realization_oversampled_3,(shape_of_sci_image,shape_of_sci_image),())   
+        #time_5=time.time()  
+        #if self.verbosity==1:
+        #    print('time_2-time_1 for shift and resize '+str(time_2-time_1))
+        #    print('time_3-time_2 for shift and resize '+str(time_3-time_2))
+        #    print('time_3_1-time_3 for shift and resize '+str(time_3_1-time_3))
+        #    print('time_3_2-time_3_1 for shift and resize '+str(time_3_2-time_3_1))
+        #    print('time_3_3-time_3_2 for shift and resize '+str(time_3_3-time_3_2))
+        #    print('time_4-time_3_3 for shift and resize '+str(time_4-time_3_3))
+        #    print('time_4-time_3 for shift and resize '+str(time_4-time_3))
+        #    print('time_5-time_4 for shift and resize '+str(time_5-time_4))
+        #    print('time_5-time_1 for shift and resize '+str(time_5-time_1))
+            
+            
+            
         ###################
         # skip this part if only doing primary
         # go through secondary loop if the flux ratio is not zero
         # (needs to be implemented - if secondary too far outside the image, do not go through secondary)
         if ratio_secondary !=0:
 
-            #single_secondary_realization = interpolated_image.shift(secondary_offset_axis_1,secondary_offset_axis_0 ).\
-            #drawImage(nx=shape_of_sci_image, ny=shape_of_sci_image, scale=oversampling,  method='no_pixel').array
-            
-            single_secondary_realization_oversampled = interpolated_image.shift(secondary_offset_axis_1,secondary_offset_axis_0 ).\
-            drawImage(nx=shape_of_sci_image*oversampling, ny=shape_of_sci_image*oversampling, scale=1, method='no_pixel').array        
+            #overloading the definitions used in primary image
+            if np.modf(shape_of_oversampled_image/2)[0]==0.0:
+                #print('shape is an even number')
+                
+                
+                shift_x_mod=np.array([-(np.round(secondary_offset_axis_1)-secondary_offset_axis_1),-np.round(secondary_offset_axis_1)])
+                shift_y_mod=np.array([-(np.round(secondary_offset_axis_0)-secondary_offset_axis_0),-np.round(secondary_offset_axis_0)])    
+                
+            else:
+                #print('shape is an odd number')
+                shift_x_mod=np.array([-(np.round(secondary_offset_axis_1)-secondary_offset_axis_1),-np.round(secondary_offset_axis_1)])
+                shift_y_mod=np.array([-(np.round(secondary_offset_axis_0)-secondary_offset_axis_0),-np.round(secondary_offset_axis_0)])     
+
+
+
+                
+            image_integer_offset=image[center_position+int(shift_y_mod[1])-1-shape_of_oversampled_image\
+                                 :center_position+int(shift_y_mod[1])+shape_of_oversampled_image+2,\
+                                 center_position+int(shift_x_mod[1])-1-shape_of_oversampled_image:\
+                                 center_position+int(shift_x_mod[1])+shape_of_oversampled_image+2]
+    
+            image_integer_offset_lsst=lsst.afw.image.image.ImageD\
+                (image_integer_offset.astype('float64'))
+                
+                
+            oversampled_Image_LSST_apply_frac_offset=lsst.afw.math.offsetImage\
+                (image_integer_offset_lsst,shift_y_mod[0],shift_x_mod[0], algorithmName='lanczos5',buffer=5)
+                
+            single_secondary_realization_oversampled=oversampled_Image_LSST_apply_frac_offset.array[1:-1,1:-1]
+                
             single_secondary_realization = resize(single_secondary_realization_oversampled,(shape_of_sci_image,shape_of_sci_image),())   
             
-            
+
         inverted_mask=~mask_image.astype(bool)
 
         ###################
@@ -6822,11 +6998,14 @@ class Psf_position(object):
         # find chi values and save the results
         #print('checkpoint in create_complete_realization')
         if return_full_result==False:
+            time_1=time.time()
             chi_2_almost_multi_values=self.create_chi_2_almost_Psf_position(complete_realization_renormalized,sci_image,var_image,mask_image,\
                                                                             use_only_chi=use_only_chi,use_center_of_light=use_center_of_light,\
                                                                             simulation_00=simulation_00)
+            time_2=time.time()
             if self.verbosity==1:
                 print('chi2 within shgo with use_only_chi '+str(use_only_chi)+' and use_center_of_light '+str(use_center_of_light)+' '+str(x)+' / '+str(chi_2_almost_multi_values))
+                #print('time_2-time_1 for create_chi_2_almost_Psf_position: '+str(time_2-time_1))
             return chi_2_almost_multi_values
         else:
             if ratio_secondary !=0:
@@ -6857,11 +7036,12 @@ class Psf_position(object):
             if simulation_00==True:
                 if self.verbosity==1:
                     print('saving oversampled simulation_00 image')
-                single_primary_realization_oversampled_to_save = interpolated_image.shift(primary_offset_axis_1,primary_offset_axis_0 ).\
-                    drawImage(nx=21*oversampling, ny=21*oversampling, scale=1, method='no_pixel').array 
-                complete_realization_renormalized_to_save = resize(single_primary_realization_oversampled_to_save,(21,21),()) 
-                np.save(TESTING_FINAL_IMAGES_FOLDER+'single_primary_realization_oversampled_to_save',single_primary_realization_oversampled_to_save) 
-                np.save(TESTING_FINAL_IMAGES_FOLDER+'complete_realization_renormalized_to_save',complete_realization_renormalized_to_save)
+                    print('I have to implement that again')
+                #single_primary_realization_oversampled_to_save = interpolated_image.shift(primary_offset_axis_1,primary_offset_axis_0 ).\
+                #    drawImage(nx=21*oversampling, ny=21*oversampling, scale=1, method='no_pixel').array 
+                #complete_realization_renormalized_to_save = resize(single_primary_realization_oversampled_to_save,(21,21),()) 
+                #np.save(TESTING_FINAL_IMAGES_FOLDER+'single_primary_realization_oversampled_to_save',single_primary_realization_oversampled_to_save) 
+                #np.save(TESTING_FINAL_IMAGES_FOLDER+'complete_realization_renormalized_to_save',complete_realization_renormalized_to_save)
 
 
             return chi_2_almost_multi_values,\
@@ -6870,6 +7050,9 @@ class Psf_position(object):
             #old code that did not include mask...
             #return np.mean((sci_image-complete_realization_renormalized)**2/var_image),\
             #single_primary_realization_renormalized,single_secondary_realization_renormalized,complete_realization_renormalized   
+         
+            
+            
 
     def create_chi_2_almost_Psf_position(self,modelImg,sci_image,var_image,mask_image,\
                                          use_only_chi=False,use_center_of_light=False,simulation_00=False):
@@ -6919,16 +7102,16 @@ class Psf_position(object):
             
             
             if simulation_00==False or simulation_00==None:
-                
-                print('sim00=False and center of light =true')
+                if self.verbosity==1:
+                    print('sim00=False and center of light =true')
                 
                 distance_of_flux_center=np.sqrt(np.sum((np.array(find_centroid_of_flux(modelImg_masked))-\
                                                         np.array(find_centroid_of_flux(sci_image_masked)))**2))
             else:
                 # if you pass both simulation_00 paramter and use_center_of_light=True, center of light will be centered
                 # in the downsampled image
-                
-                print('sim00=True and center of light =true')
+                if self.verbosity==1:
+                    print('sim00=True and center of light =true')
                 
                 distance_of_flux_center=np.sqrt(np.sum((np.array(find_centroid_of_flux(modelImg_masked))-\
                                                         np.array(np.array(np.ones((21,21)).shape)/2-0.5))**2))
