@@ -1,0 +1,10 @@
+#
+# Blocks of science pipelines
+#
+scienceBlock:
+  -
+    name: pipeline_on_brn
+    id: "visit=0^2^4^6^8^10"
+  -
+    name: pipeline_on_bmn
+    id: "visit=1^3^5^7^9^11"
