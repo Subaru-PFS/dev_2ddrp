@@ -139,10 +139,9 @@ make_brmn() {
     done
 }
 
-COUNTER=0
+COUNTER=1000 # Keep visit namespace separate to that for core weekly data
 COMMANDS=()
 # Objects
-# for pfsDesignId in {9..14}; do
 for pfsDesignId in 9 10; do
     # create a symlink to the relevant pfsDesign file to that makeSim can access it
     $( ( $DRYRUN ) && echo "echo " )ln -s $(printf "$OBJ_SPECTRA_DIR/pfsDesign/pfsDesign-0x%016x.fits" $pfsDesignId) .
