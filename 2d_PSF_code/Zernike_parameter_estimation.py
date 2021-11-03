@@ -48,7 +48,7 @@ from functools import partial
 # User has to manualy the version number in order to ensure
 # that the verions used is the one the user expects
 # This is somewhat extreme, but potentially saves a lot of trouble
-assert Zernike_Module.__version__ == '0.49', "Zernike_Module version is not as expected"
+assert Zernike_Module.__version__ == '0.49e', "Zernike_Module version is not as expected"
 
 os.environ["MKL_NUM_THREADS"] = "1"
 os.environ["NUMEXPR_NUM_THREADS"] = "1"
@@ -1202,7 +1202,7 @@ array_of_wavelengths = np.array(list_of_wavelengths)
 
 print('print check just before the pool of workers is created')
 # pool = Pool()
-pool = Pool(processes=32)
+pool = Pool(processes=16)
 print('print check just after the pool of workers is created')
 
 
