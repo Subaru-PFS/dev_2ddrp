@@ -145,6 +145,14 @@ Oct 28, 2021: 0.49a -> 0.49b modified create_custom_var so that it does not fall
 Nov 01, 2021: 0.49b -> 0.49c create_custom_var does not change var image from step to step anymore
 Nov 02, 2021: 0.49c -> 0.49d eliminated std varianble from create_simplified_H
 Nov 03, 2021: 0.49d -> 0.49e PIPE2D-930; fixed reusing list_of_variance in Tokovinin
+Nov 03, 2021: 0.49e -> 0.50 PIPE2D-931; modified creation of polyfit for variance image higher up
+                            so it is done only once per sci/var/mask image combination
+Nov 20, 2021: 0.50 -> 0.50a Hilo modifications
+Dec 06, 2021: 0.50a -> 0.51 Zernike_estimation_preparation class
+Dec 09, 2021: 0.51 -> 0.51a introduced `fixed_single_spot`
+Feb 11, 2022: 0.51a -> 0.51b unified index parameter allowed to vary
+Mar 18, 2022: 0.51b -> 0.51c introduced div_same par, controlling how many particles are same
+Mar 24, 2022: 0.51c -> 0.51d multiple small changes, for running same illum in fiber
 
 @author: Neven Caplar
 @contact: ncaplar@princeton.edu
@@ -184,6 +192,8 @@ import time
 # import sys
 import math
 import socket
+import sys
+import pickle
 os.environ["MKL_NUM_THREADS"] = "1"
 os.environ["NUMEXPR_NUM_THREADS"] = "1"
 os.environ["OMP_NUM_THREADS"] = "1"
@@ -243,9 +253,11 @@ __all__ = [
     'svd_invert',
     'Tokovinin_multi',
     'find_centroid_of_flux',
-    'create_custom_var']
+    'create_popt_for_custom_var',
+    'create_custom_var_from_popt',
+    'Zernike_estimation_preparation']
 
-__version__ = "0.49e"
+__version__ = "0.51a"
 
 
 ############################################################
@@ -253,8 +265,11 @@ __version__ = "0.49e"
 # name your directory where you want to have files!
 if socket.gethostname() == 'IapetusUSA':
     PSF_DIRECTORY = '/Volumes/Saturn_USA/PFS/'
+elif socket.gethostname() == 'pfsa-usr01-gb.subaru.nao.ac.jp' or \
+        socket.gethostname() == 'pfsa-usr02-gb.subaru.nao.ac.jp':
+    PSF_DIRECTORY = '/work/ncaplar/'
 else:
-    PSF_DIRECTORY = '/tigress/ncaplar/PFS/'
+    PSF_DIRECTORY = '/tigress/ncaplar/'
 
 # PSF_DIRECTORY='/Users/nevencaplar/Documents/PFS/'
 ############################################################
@@ -1775,7 +1790,9 @@ class ZernikeFitter_PFS(object):
             optPsf, return_intermediate_images=return_intermediate_images)
 
         if self.save == 1:
-            if socket.gethostname() == 'IapetusUSA' or socket.gethostname() == 'tiger2-sumire.princeton.edu':
+            if socket.gethostname() == 'IapetusUSA' or socket.gethostname() == 'tiger2-sumire.princeton.edu' \
+                or socket.gethostname() == 'pfsa-usr01-gb.subaru.nao.ac.jp' or \
+                    socket.gethostname() == 'pfsa-usr02-gb.subaru.nao.ac.jp':
                 np.save(TESTING_FINAL_IMAGES_FOLDER + 'optPsf', optPsf)
                 np.save(
                     TESTING_FINAL_IMAGES_FOLDER +
@@ -2150,6 +2167,7 @@ class ZernikeFitter_PFS(object):
                                            verbosity=self.verbosity,
                                            save=self.save)
         time_end_single = time.time()
+
         if self.verbosity == 1:
             print('self.save paramter is: ' + str(self.save))
             print('socket.gethostname(): ' + str(socket.gethostname()))
@@ -2158,6 +2176,8 @@ class ZernikeFitter_PFS(object):
         #  run the code for centering
         time_start_single = time.time()
         # set simulation_00='None', the simulated at 00 image has been created above
+
+        #np.save('/tigress/ncaplar/Results/' + 'optPsf_cut_grating_convolved', optPsf_cut_grating_convolved)
 
         # changes to Psf_position introduced in 0.46a
         optPsf_cut_fiber_convolved_downsampled, psf_position =\
@@ -2187,7 +2207,9 @@ class ZernikeFitter_PFS(object):
             print('Sucesfully created optPsf_cut_fiber_convolved_downsampled')
 
         if self.save == 1:
-            if socket.gethostname() == 'IapetusUSA' or socket.gethostname() == 'tiger2-sumire.princeton.edu':
+            if socket.gethostname() == 'IapetusUSA' or socket.gethostname() == 'tiger2-sumire.princeton.edu' \
+                or socket.gethostname() == 'pfsa-usr01-gb.subaru.nao.ac.jp' or \
+                    socket.gethostname() == 'pfsa-usr02-gb.subaru.nao.ac.jp':
                 np.save(TESTING_FINAL_IMAGES_FOLDER + 'pixel_gauss_padded', pixel_gauss_padded)
 
                 np.save(TESTING_FINAL_IMAGES_FOLDER + 'optPsf_cut', optPsf_cut)
@@ -2201,22 +2223,14 @@ class ZernikeFitter_PFS(object):
                 np.save(TESTING_FINAL_IMAGES_FOLDER + 'scattered_light_kernel', scattered_light_kernel)
                 np.save(TESTING_FINAL_IMAGES_FOLDER + 'fiber', fiber)
                 np.save(TESTING_FINAL_IMAGES_FOLDER + 'fiber_padded', fiber_padded)
-                np.save(
-                    TESTING_FINAL_IMAGES_FOLDER +
-                    'optPsf_cut_downsampled_scattered',
-                    optPsf_cut_downsampled_scattered)
-                np.save(
-                    TESTING_FINAL_IMAGES_FOLDER +
-                    'optPsf_cut_fiber_convolved',
-                    optPsf_cut_fiber_convolved)
-                np.save(
-                    TESTING_FINAL_IMAGES_FOLDER +
-                    'optPsf_cut_pixel_response_convolved',
-                    optPsf_cut_pixel_response_convolved)
-                np.save(
-                    TESTING_FINAL_IMAGES_FOLDER +
-                    'optPsf_cut_grating_convolved',
-                    optPsf_cut_grating_convolved)
+                np.save(TESTING_FINAL_IMAGES_FOLDER + 'optPsf_cut_downsampled_scattered',
+                        optPsf_cut_downsampled_scattered)
+                np.save(TESTING_FINAL_IMAGES_FOLDER + 'optPsf_cut_fiber_convolved',
+                        optPsf_cut_fiber_convolved)
+                np.save(TESTING_FINAL_IMAGES_FOLDER + 'optPsf_cut_pixel_response_convolved',
+                        optPsf_cut_pixel_response_convolved)
+                np.save(TESTING_FINAL_IMAGES_FOLDER + 'optPsf_cut_grating_convolved',
+                        optPsf_cut_grating_convolved)
                 np.save(TESTING_FINAL_IMAGES_FOLDER + 'grating_kernel', grating_kernel)
 
         if self.verbosity == 1:
@@ -2288,12 +2302,11 @@ class ZernikeFitter_PFS(object):
         pupil = Pupil_Image.getPupil(point)
 
         if self.save == 1:
-            if socket.gethostname() == 'IapetusUSA' or socket.gethostname() == 'tiger2-sumire.princeton.edu':
-                np.save(
-                    TESTING_PUPIL_IMAGES_FOLDER +
-                    'pupil.illuminated',
-                    pupil.illuminated.astype(
-                        np.float32))
+            if socket.gethostname() == 'IapetusUSA' or socket.gethostname() == 'tiger2-sumire.princeton.edu' \
+                or socket.gethostname() == 'pfsa-usr01-gb.subaru.nao.ac.jp' or \
+                    socket.gethostname() == 'pfsa-usr02-gb.subaru.nao.ac.jp':
+                np.save(TESTING_PUPIL_IMAGES_FOLDER + 'pupil.illuminated',
+                        pupil.illuminated.astype(np.float32))
 
         if self.verbosity == 1:
             print('Finished with _get_Pupil')
@@ -2712,7 +2725,9 @@ class ZernikeFitter_PFS(object):
         self.scale_ModelImage_PFS_naturalResolution = scale_ModelImage_PFS_naturalResolution
 
         if self.save == 1:
-            if socket.gethostname() == 'IapetusUSA' or socket.gethostname() == 'tiger2-sumire.princeton.edu':
+            if socket.gethostname() == 'IapetusUSA' or socket.gethostname() == 'tiger2-sumire.princeton.edu' \
+                or socket.gethostname() == 'pfsa-usr01-gb.subaru.nao.ac.jp' or \
+                    socket.gethostname() == 'pfsa-usr02-gb.subaru.nao.ac.jp':
                 np.save(TESTING_PUPIL_IMAGES_FOLDER + 'aperilluminated', aper.illuminated)
                 # dont save as we do not generate this array in vast majority of cases
                 # (status on July 1, 2020)
@@ -2909,7 +2924,7 @@ class LN_PFS_multi_same_spot(object):
 
         # print('double_sources in module: ' + str(double_sources))
         # print('double_sources_positions_ratios in module: ' + str(double_sources_positions_ratios))
-
+        # print('list_of_psf_positions in LN_PFS_multi_same_spot '+str(list_of_psf_positions))
         if double_sources is not None and bool(double_sources) is not False:
             assert np.sum(np.abs(double_sources_positions_ratios)) > 0
 
@@ -3381,7 +3396,6 @@ class LN_PFS_multi_same_spot(object):
         array_of_psf_positions_output [index 5] : `np.array`
             Array showing the centering of images
         """
-
         self.use_only_chi = use_only_chi
 
         list_of_single_res = []
@@ -3396,8 +3410,8 @@ class LN_PFS_multi_same_spot(object):
         else:
             allparametrization = list_of_allparameters_input
 
-            print('self.list_of_defocuses: ' + str(self.list_of_defocuses))
-            print('allparametrization.type: ' + str(allparametrization.type))
+            # print('self.list_of_defocuses: ' + str(self.list_of_defocuses))
+            # print('allparametrization.type: ' + str(allparametrization.type))
             list_of_allparameters = self.create_list_of_allparameters(
                 allparametrization, list_of_defocuses=self.list_of_defocuses)
 
@@ -3544,7 +3558,7 @@ class LN_PFS_multi_same_spot(object):
                     return_intermediate_images=True,
                     use_only_chi=use_only_chi,
                     multi_background_factor=multi_background_factor)
-                # print(res_single_with_intermediate_images)
+
                 if res_single_with_intermediate_images == -np.inf:
                     return -np.inf
                 if isinstance(res_single_with_intermediate_images, tuple):
@@ -3593,13 +3607,12 @@ class LN_PFS_multi_same_spot(object):
                     use_only_chi=self.use_only_chi,
                     use_center_of_flux=use_center_of_flux)
                 if not return_Images:
-
                     res_single_without_intermediate_images = model_single(
                         list_of_allparameters[i],
                         return_Image=return_Images,
                         use_only_chi=use_only_chi,
                         multi_background_factor=multi_background_factor)
-                    # print(res_single_without_intermediate_images)
+
 
                     likelihood_result = res_single_without_intermediate_images[0]
                     psf_position = res_single_with_intermediate_images[-1]
@@ -3624,12 +3637,10 @@ class LN_PFS_multi_same_spot(object):
                     list_of_single_chi_results.append(chi_results)
                     list_of_psf_positions_output.append(psf_position)
                     # possibly implement intermediate images here
-
         array_of_single_res = np.array(list_of_single_res)
         array_of_psf_positions_output = np.array(list_of_psf_positions_output)
 
         # renormalization
-
         if self.verbosity == 1:
             print('################################')
             print('Likelihoods returned per individual images are: ' + str(array_of_single_res))
@@ -3674,6 +3685,7 @@ class LN_PFS_multi_same_spot(object):
             return_Images=False,
             use_only_chi=False,
             multi_background_factor=3):
+
         return self.lnlike_Neven_multi_same_spot(list_of_allparameters, return_Images=return_Images,
                                                  use_only_chi=use_only_chi,
                                                  multi_background_factor=multi_background_factor)
@@ -4025,10 +4037,6 @@ class Tokovinin_multi(object):
         list_of_var_images = self.list_of_var_images
         list_of_mask_images = self.list_of_mask_images
 
-
-
-
-
         double_sources_positions_ratios = self.double_sources_positions_ratios
         list_of_defocuses_input_long = self.list_of_defocuses
 
@@ -4047,12 +4055,28 @@ class Tokovinin_multi(object):
             else:
                 self.list_of_psf_positions = previous_best_result[-1][-1]
 
+        # print('self.list_of_psf_positions in start of Tokovinin_multi'+str(self.list_of_psf_positions))
         ##########################################################################
         # Create initial modeling as basis for future effort
         # the outputs of this section are 0. pre_model_result, 1. model_results, 2. pre_images,
         # 3. pre_input_parameters, 4. chi_2_before_iteration_array, 5. list_of_psf_positions
         if self.verbosity >= 1:
             print('list_of_defocuses analyzed: ' + str(list_of_defocuses_input_long))
+            
+        # print('list_of_sci_images'+str(list_of_sci_images))
+        # print('list_of_var_images'+str(list_of_var_images))
+        # print('list_of_mask_images'+str(list_of_mask_images))
+        # print('wavelength'+str(self.wavelength))
+        # print('dithering'+str(self.dithering))
+        # print('self.save'+str(self.save))
+        # print('self.zmax'+str(self.zmax))
+        # print('self.double_sources'+str(self.double_sources))
+        # print('self.double_sources_positions_ratios'+str(self.double_sources_positions_ratios))
+        # print('self.npix'+str(self.npix))
+        # print('self.list_of_defocuses_input_long'+str(list_of_defocuses_input_long))
+        # print('self.fit_for_flux'+str(self.fit_for_flux))
+        # print('self.test_run'+str(self.test_run))
+        # print('self.list_of_psf_positions'+str(self.list_of_psf_positions))
 
         model_multi = LN_PFS_multi_same_spot(
             list_of_sci_images,
@@ -4099,25 +4123,29 @@ class Tokovinin_multi(object):
         # chi_2_before_iteration_array - list of lists describing quality of fitting
         # list_of_psf_positions -?
         try:
-            # print('checkpoint 0')
             # print('len(list_of_minchain): '+str(len(list_of_minchain)))
             # print('list_of_minchain[0] '+str(list_of_minchain[0]))
+            # print('multi_background_factor: '+str(multi_background_factor))
+            # print('type'+str(type(multi_background_factor)))
+            # print('up_to_which_z: '+str(up_to_which_z))
+            # print(str( list_of_minchain))
+            # print('use_only_chi: '+str( use_only_chi))
+            # print('list_of_minchain: '+str( list_of_minchain))
+            
             pre_model_result, model_results, pre_images, pre_input_parameters, chi_2_before_iteration_array,\
                 list_of_psf_positions =\
                 model_multi(list_of_minchain, return_Images=True, use_only_chi=use_only_chi,
                             multi_background_factor=multi_background_factor)
-            # print('checkpoint 1')
             # modify variance image according to the models that have just been created
             # first time modifying variance image
             list_of_single_model_image = pre_images
             list_of_var_images_via_model = []
             for index_of_single_image in range(len(list_of_sci_images)):
-                single_var_image_via_model = create_custom_var(
-                    model_image=list_of_single_model_image[index_of_single_image],
-                    sci_image=self.list_of_sci_images[index_of_single_image],
-                    var_image=self.list_of_var_images[index_of_single_image],
-                    mask_image=self.list_of_mask_images[index_of_single_image])
-
+                popt = create_popt_for_custom_var(self.list_of_sci_images[index_of_single_image],
+                                                  self.list_of_var_images[index_of_single_image],
+                                                  self.list_of_mask_images[index_of_single_image])
+                single_var_image_via_model =\
+                    create_custom_var_from_popt(list_of_single_model_image[index_of_single_image], popt)
                 list_of_var_images_via_model.append(single_var_image_via_model)
 
             # replace the variance images provided with these custom variance images
@@ -4278,6 +4306,50 @@ class Tokovinin_multi(object):
                     uber_std)
             np.save('/tigress/ncaplar/Results/uber_I_' + str(num_iter),
                     uber_I)
+
+
+        # March 14, 2022, adding just pure avoid of the run
+        if up_to_which_z is False:
+            # 0. likelihood averaged over all images (before the function)
+            # 1. likelihood averaged over all images (before the function)
+            # 2. likelihood per image (output from model_multi) (before the function)
+            # 3. likelihood per image (output from model_multi) (before the function)
+            # 4. out_images
+            # 5. list of initial model images
+            # 6. list of initial model images
+            # 7. parametrization before the function
+            # 8. parametrization after the function
+            # 9. list of parameters per image (before the function)
+            # 10. list of parameters per image (after the function)
+            # 11. list of chi2 per image (before the function)
+            # 12. list of chi2 per image (after the function)
+            # 13. list of psf position of image (before the function)
+            # 14. list of psf position of image (after the function)
+
+            initial_model_result, list_of_initial_model_result, list_of_image_0,\
+                list_of_initial_input_parameters, list_of_pre_chi2, list_of_psf_positions =\
+                pre_model_result, model_results, pre_images, pre_input_parameters,\
+                chi_2_before_iteration_array, list_of_psf_positions
+
+            if previous_best_result is None:
+                return initial_model_result, initial_model_result,\
+                       list_of_initial_model_result, list_of_initial_model_result,\
+                       None, pre_images, pre_images,\
+                       allparameters_parametrization_proposal,\
+                       allparameters_parametrization_proposal,\
+                       list_of_initial_input_parameters, list_of_initial_input_parameters,\
+                       list_of_pre_chi2, list_of_pre_chi2,\
+                       list_of_psf_positions, list_of_psf_positions,\
+                       [None, None, None,None, None]
+            else:
+                return initial_model_result, initial_model_result,\
+                      list_of_initial_model_result, list_of_initial_model_result,\
+                      None, pre_images, pre_images,\
+                      allparameters_parametrization_proposal,\
+                      allparameters_parametrization_proposal,\
+                     list_of_initial_input_parameters, list_of_initial_input_parameters,\
+                      list_of_pre_chi2, list_of_pre_chi2,\
+                     list_of_psf_positions, list_of_psf_positions
 
         # set number of extra Zernike
         # number_of_extra_zernike=0
@@ -4489,11 +4561,11 @@ class Tokovinin_multi(object):
                 list_of_single_model_image = list_of_image_0
                 list_of_var_images_via_model = []
                 for index_of_single_image in range(len(list_of_sci_images)):
-                    single_var_image_via_model = create_custom_var(
-                        model_image=list_of_single_model_image[index_of_single_image],
-                        sci_image=self.list_of_sci_images[index_of_single_image],
-                        var_image=self.list_of_var_images[index_of_single_image],
-                        mask_image=self.list_of_mask_images[index_of_single_image])
+                    popt = create_popt_for_custom_var(self.list_of_sci_images[index_of_single_image],
+                                                      self.list_of_var_images[index_of_single_image],
+                                                      self.list_of_mask_images[index_of_single_image])
+                    single_var_image_via_model =\
+                        create_custom_var_from_popt(list_of_single_model_image[index_of_single_image], popt)
 
                     list_of_var_images_via_model.append(single_var_image_via_model)
                 # replace the variance images provided with these custom variance images
@@ -5149,11 +5221,11 @@ class Tokovinin_multi(object):
             list_of_single_model_image = list_of_image_final
             list_of_var_images_via_model = []
             for index_of_single_image in range(len(list_of_sci_images)):
-                single_var_image_via_model = create_custom_var(
-                    model_image=list_of_single_model_image[index_of_single_image],
-                    sci_image=self.list_of_sci_images[index_of_single_image],
-                    var_image=self.list_of_var_images[index_of_single_image],
-                    mask_image=self.list_of_mask_images[index_of_single_image])
+                popt = create_popt_for_custom_var(self.list_of_sci_images[index_of_single_image],
+                                                  self.list_of_var_images[index_of_single_image],
+                                                  self.list_of_mask_images[index_of_single_image])
+                single_var_image_via_model =\
+                    create_custom_var_from_popt(list_of_single_model_image[index_of_single_image], popt)
 
                 list_of_var_images_via_model.append(single_var_image_via_model)
             # replace the variance images provided with these custom variance images
@@ -5440,7 +5512,7 @@ class Tokovinin_multi(object):
             # if you return images, return full
             if previous_best_result is None:
                 # 0. likelihood averaged over all images (before the function)
-                # 1. ikelihood averaged over all images (after the function)
+                # 1. likelihood averaged over all images (after the function)
                 # 2. likelihood per image (output from model_multi) (before the function)
                 # 3. likelihood per image (output from model_multi) (after the function)
                 # 4. out_images
@@ -5452,7 +5524,7 @@ class Tokovinin_multi(object):
                 # 10. list of parameters per image (after the function)
                 # 11. list of chi2 per image (before the function)
                 # 12. list of chi2 per image (after the function)
-                # 13. list of psf position of image (function the function)
+                # 13. list of psf position of image (before the function)
                 # 14. list of psf position of image (after the function)
                 return initial_model_result, final_model_result,\
                     list_of_initial_model_result, list_of_final_model_result,\
@@ -5517,7 +5589,6 @@ class Tokovinin_multi(object):
         list_of_image_0 = list_of_image_0_from_previous_best_result
 
         list_of_flux_mask = self.list_of_flux_mask
-        list_of_sci_image_std = self.list_of_sci_image_std
 
         ##########################################################################
         # divided model images by their standard deviations
@@ -5772,14 +5843,17 @@ class Tokovinin_multi(object):
         return np.dot(H, first_proposal_Tokovnin)
 
     def __call__(self, allparameters_parametrization_proposal, return_Images=True, num_iter=None,
-                 previous_best_result=None, use_only_chi=False, multi_background_factor=3):
+                 previous_best_result=None, use_only_chi=False,
+                 multi_background_factor=3, up_to_which_z=None):
+
         return self.Tokovinin_algorithm_chi_multi(
             allparameters_parametrization_proposal,
             return_Images=return_Images,
             num_iter=num_iter,
             previous_best_result=previous_best_result,
             use_only_chi=use_only_chi,
-            multi_background_factor=multi_background_factor)
+            multi_background_factor=int(multi_background_factor),
+            up_to_which_z=up_to_which_z)
 
 
 class LN_PFS_single(object):
@@ -5961,6 +6035,10 @@ class LN_PFS_single(object):
         self.mask_image = mask_image
         self.sci_image = sci_image
         self.var_image = var_image
+
+        popt_for_custom_var_image = self.create_popt_for_custom_var(sci_image, var_image, mask_image)
+        self.popt_for_custom_var_image = popt_for_custom_var_image
+
         self.dithering = dithering
         self.pupil_parameters = pupil_parameters
         self.use_pupil_parameters = use_pupil_parameters
@@ -6003,6 +6081,7 @@ class LN_PFS_single(object):
             print('Dithering value is: ' + str(dithering))
             print('')
 
+            print('explicit_psf_position in LN_PFS_single: '+str(explicit_psf_position))
             print('supplied extra Zernike parameters (beyond zmax): ' + str(extraZernike))
 
         """
@@ -6093,22 +6172,20 @@ class LN_PFS_single(object):
 
             self.single_image_analysis = single_image_analysis
 
-    def create_custom_var(self, model_image, sci_image, var_image, mask_image=None):
-        """The algorithm creates variance map from the model image.
+    def create_popt_for_custom_var(self, sci_image, var_image, mask_image=None):
+        """Create 2nd order poly fit; to be used in creation of custom var image
+
+        TODO: same function in LN_PFS_Single... Very unsatifactory!
 
         The connection between variance and flux is determined from the provided science image
         and variance image.
-        All of inputs have to be 2d np.arrays with same size. Tries fitting
-        2nd degree fit to the flux-variance data; if the 2nd order parameter
-        is negative (i.e., the function is convex), does the linear fit.
-        Introduced in v0.41.
+        All of inputs have to be 2d np.arrays with same size.
+        Introduced in 0.50 (PIPE2D-931)
 
-        Called by LN_PFS_single during init
+        Called by Tokovinin_algorithm_chi_multi
 
         Parameters
         ----------
-        modelImg : `np.array`
-            Model image (! not needed !)
         sci_image : `np.array`
             Scientific array
         var_image : `np.array`
@@ -6121,9 +6198,6 @@ class LN_PFS_single(object):
         custom_var_image : `np.array`
             Recreated variance map
 
-        introduced in v0.41
-
-        TODO: rewrite so that optimize.curve_fit done only once
         """
         if mask_image is None:
             sci_pixels = sci_image.ravel()
@@ -6142,8 +6216,48 @@ class LN_PFS_single(object):
         popt, pcov = scipy.optimize.curve_fit(f, sci_pixels, var_pixels, [0, 0, np.min(var_pixels)],
                                               bounds=([-np.inf, -np.inf, np.min(var_pixels)],
                                                       [np.inf, np.inf, np.inf]))
-        # print(str(popt) + ' / '+str(sci_pixels[0]) + ' / ' +str(var_pixels[0]))
+        return popt
+
+    def create_custom_var_from_popt(self, model_image, popt):
+        """Creates variance map from the model image, given the 2nd poly fit parameters
+
+        Introduced in 0.50 (PIPE2D-931)
+
+        Parameters
+        ----------
+        modelImg : `np.array`
+            Model image
+        popt : `np.array`
+            2d polyfit parameters
+        Returns
+        ----------
+        custom_var_image : `np.array`
+            Recreated variance map
+        """
+
+        # I am using lambda expression to avoid superflous definition of quadratic function
+        f = lambda x, *p: p[0] * x**2 + p[1] * x + p[2] #noqa : E373
         custom_var_image = f(model_image, *popt)
+        return custom_var_image
+
+    def create_custom_var(self, model_image, sci_image, var_image, mask_image):
+        """Creates variance map from the model image, sci, var and mask_image
+
+        Introduced in 0.50 (PIPE2D-931)
+
+        Parameters
+        ----------
+        modelImg : `np.array`
+            Model image
+        ...
+        Returns
+        ----------
+        custom_var_image : `np.array`
+            Recreated variance map
+        """
+
+        popt_for_custom_var = self.create_popt_for_custom_var(sci_image, var_image, mask_image)
+        custom_var_image = self.create_custom_var_from_popt(model_image, popt_for_custom_var)
         return custom_var_image
 
     def create_chi_2_almost(
@@ -6219,7 +6333,7 @@ class LN_PFS_single(object):
             # print('var_image[0][0:5]'+str(var_image[0][0:5]))
             # print('mask_image.shape'+str(mask_image.shape))
             # print('mask_image[0][0:5]'+str(mask_image[0][0:5]))
-            custom_var_image = self.create_custom_var(modelImg, sci_image, var_image, mask_image)
+            custom_var_image = self.create_custom_var_from_popt(modelImg, self.popt_for_custom_var_image)
             # print('custom_var_image[0][0:5]'+str(custom_var_image[0][0:5]))
             # overload var_image with newly created image
             var_image = custom_var_image
@@ -6940,7 +7054,7 @@ class Psf_position(object):
         returns model image in the size of the science image and centered to the science image
         (unless simulation_00=True or explicit_psf_position has been passed)
         """
-
+        
         self.sci_image = sci_image
         self.var_image = var_image
         self.mask_image = mask_image
@@ -7037,6 +7151,9 @@ class Psf_position(object):
                           np.array(find_centroid_of_flux(sci_image))))
 
                     if verbosity == 1:
+                        print('centroid_of_initial_complete_realization ' +
+                              str(find_centroid_of_flux(initial_complete_realization)))
+                        print('centroid_of_sci_image '+str(find_centroid_of_flux(sci_image)))
                         print('offset_initial_and_sci: ' + str(offset_initial_and_sci))
                         print('[x_primary, y_primary, y_secondary,ratio_secondary] / chi2 output')
                     if self.save == 1:
@@ -7059,8 +7176,8 @@ class Psf_position(object):
 
                     if use_center_of_flux:
                         for i in range(5):
-
-                            print("###")
+                            if verbosity == 1:
+                                print("###")
 
                             if i == 0:
 
@@ -7079,10 +7196,10 @@ class Psf_position(object):
                                 use_center_of_light=True, simulation_00=simulation_00)[-1]
                             offset_initial_and_sci = -((np.array(find_centroid_of_flux(complete_realization))
                                                         - np.array(find_centroid_of_flux(sci_image))))
-
-                            print('offset_initial_and_sci in step ' +
-                                  str(i) + ' ' + str(offset_initial_and_sci))
-                            print("###")
+                            if verbosity == 1:
+                                print('offset_initial_and_sci in step ' +
+                                      str(i) + ' ' + str(offset_initial_and_sci))
+                                print("###")
                             x_i, y_i = offset_initial_and_sci * oversampling
 
                         primary_position_and_ratio_x = [x_offset, y_offset]
@@ -7091,7 +7208,10 @@ class Psf_position(object):
                         # implement try syntax for secondary too
                         try:
                             # print('simulation_00 here is: '+str(simulation_00))
-                            # print('(False,use_only_chi,use_center_of_flux)'+str((False,use_only_chi,use_center_of_flux)))
+                            # print('(False, use_only_chi,use_center_of_flux)' +
+                            #       str((False, use_only_chi, use_center_of_flux)))
+                            # print('x_2sources_limits' + str(x_2sources_limits))
+                            # print('y_2sources_limits' + str(y_2sources_limits))
                             primary_position_and_ratio_shgo = scipy.optimize.shgo(
                                 self.create_complete_realization,
                                 args=(
@@ -7125,7 +7245,8 @@ class Psf_position(object):
                                     'fatol': 0.00001})
 
                             primary_position_and_ratio_x = primary_position_and_ratio.x
-                        except BaseException:
+                        except BaseException as e:
+                            print(e)
                             print('search for primary position failed')
                             primary_position_and_ratio_x = [0, 0]
 
@@ -7228,16 +7349,15 @@ class Psf_position(object):
                 (np.array(centroid_of_initial_complete_realization) - np.array(centroid_of_sci_image))
 
             if verbosity == 1:
+
                 print('Evaulating double source psf positioning loop')
                 print('offset_initial_and_sci: ' + str(offset_initial_and_sci))
                 print('[x_primary, y_primary, y_secondary,ratio_secondary] / chi2 output')
 
             if self.save == 1:
                 np.save(TESTING_FINAL_IMAGES_FOLDER + 'sci_image', sci_image)
-                np.save(
-                    TESTING_FINAL_IMAGES_FOLDER +
-                    'initial_complete_realization',
-                    initial_complete_realization)
+                np.save(TESTING_FINAL_IMAGES_FOLDER + 'initial_complete_realization',
+                        initial_complete_realization)
 
             # implement that it does not search if second object far away while in focus
             # focus size is 20
@@ -7405,15 +7525,6 @@ class Psf_position(object):
 
         calls create_chi_2_almost_Psf_position
         """
-
-        # print('len(x): '+str(len(x)))
-        # print('x passed to create_complete_realization is: '+str(x))
-        # print('return_full_result in create_complete_realization: '+str(return_full_result))
-        # print('use_only_chi in create_complete_realization:  '+str(use_only_chi))
-        # print('use_center_of_light in create_complete_realization:  '+str(use_center_of_light))
-        # print('image.shape: '+str(self.image.shape))
-        # print('x: '+str(x))
-        # print('simulation_00: '+str(simulation_00))
 
         # oversampled input image
         image = self.image
@@ -7950,28 +8061,1286 @@ class Psf_position(object):
         """
 
 
+class Zernike_estimation_preparation(object):
+    """
+    Class that creates the inputs for the Zernike parameter estimation
+
+    Parameters
+    ----------
+    list_of_obs : `list`
+        list of observations
+    list_of_spots :
+        list of spots to be analyzed
+    dataset : int
+
+    list_of_arc : `list`
+        list of arcs to be analyzed
+
+        ...
+
+
+    Returns
+    ----------
+    array_of_array_of_polyfit_1_parameterizations_proposal_shape_2d : `np.array`
+        array of the initial parametrization proposals
+        input for ?
+    array_of_sci_images_multi_spot : `np.array`
+        array of science images
+    array_of_var_images_multi_spot : `np.array`
+        array of var images
+    array_of_mask_images_multi_spot : `np.array`
+        array of mask images
+
+    """
+
+    def __init__(self, list_of_labelInput, list_of_spots, dataset,
+                 list_of_arc, eps, nsteps, analysis_type=analysis_type,
+                 analysis_type_fiber=None):
+
+        self.list_of_labelInput = list_of_labelInput
+        self.list_of_spots = list_of_spots
+        self.dataset = dataset
+        self.list_of_arc = list_of_arc
+        self.eps = eps
+        self.nsteps = nsteps
+        self.analysis_type_fiber = analysis_type_fiber
+
+        # TODO : make this as input or deduce from the data
+        self.multi_var = True
+
+        print('Dataset analyzed is: ' + str(dataset))
+        if dataset == 0 or dataset == 1:
+            print('ehm.... old data, not analyzed')
+
+        # folder contaning the data from February 2019
+        # dataset 1
+        # DATA_FOLDER='/tigress/ncaplar/Data/Feb5Data/'
+
+        # folder containing the data taken with F/2.8 stop in April and May 2019
+        # dataset 2
+        if dataset == 2:
+            DATA_FOLDER = '/tigress/ncaplar/ReducedData/Data_May_28/'
+
+        # folder containing the data taken with F/2.8 stop in April and May 2019
+        # dataset 3
+        if dataset == 3:
+            DATA_FOLDER = '/tigress/ncaplar/ReducedData/Data_Jun_25/'
+
+        # folder containing the data taken with F/2.8 stop in July 2019
+        # dataset 4 (defocu) and 5 (fine defocus)
+        if dataset == 4 or dataset == 5:
+            DATA_FOLDER = '/tigress/ncaplar/ReducedData/Data_Aug_14/'
+
+        # folder contaning the data taken with F/2.8 stop in November 2020 on Subaru
+        if dataset == 6:
+            DATA_FOLDER = '/tigress/ncaplar/ReducedData/Data_Nov_20/'
+
+        # folder contaning the data taken with F/2.8 stop in June 2021, at LAM, on SM2
+        if dataset == 7:
+            DATA_FOLDER = '/tigress/ncaplar/ReducedData/Data_May_21_2021/'
+
+        # folder contaning the data taken with F/2.8 stop in June 2021, at Subaru
+        # (21 fibers)
+        if dataset == 8:
+            if 'subaru' in socket.gethostname():
+                DATA_FOLDER = '/work/ncaplar/ReducedData/Data_May_25_2021/'
+            else:
+                DATA_FOLDER = '/tigress/ncaplar/ReducedData/Data_May_25_2021/'
+
+        STAMPS_FOLDER = DATA_FOLDER + 'Stamps_cleaned/'
+        DATAFRAMES_FOLDER = DATA_FOLDER + 'Dataframes/'
+        if 'subaru' in socket.gethostname():
+            RESULT_FOLDER = '/work/ncaplar/Results/'
+        else:
+            RESULT_FOLDER = '/tigress/ncaplar/Results/'
+
+        self.STAMPS_FOLDER = STAMPS_FOLDER
+        self.DATAFRAMES_FOLDER = DATAFRAMES_FOLDER
+        self.RESULT_FOLDER = RESULT_FOLDER
+
+        if eps == 1:
+            # particle count, c1 parameter (individual), c2 parameter (global)
+            options = [390, 1.193, 1.193]
+        if eps == 2:
+            options = [790, 1.193, 1.193]
+            nsteps = int(nsteps / 2)
+        if eps == 3:
+            options = [390, 1.593, 1.193]
+        if eps == 4:
+            options = [390, 0.993, 1.193]
+        if eps == 5:
+            options = [480, 2.793, 0.593]
+        if eps == 6:
+            options = [480, 2.793, 1.193]
+        if eps == 7:
+            options = [48, 2.793, 1.193]
+        if eps == 8:
+            options = [480, 2.793, 0.193]
+        if eps == 9:
+            options = [190, 1.193, 1.193]
+            nsteps = int(2 * nsteps)
+        if eps == 10:
+            options = [390, 1.893, 2.893]
+
+        particleCount = options[0]
+        c1 = options[1]
+        c2 = options[2]
+
+        self.particleCount = particleCount
+        self.options = options
+        self.c1 = c1
+        self.c2 = c2
+
+
+        # names for paramters - names if we go up to z22
+        columns22 = [
+            'z4',
+            'z5',
+            'z6',
+            'z7',
+            'z8',
+            'z9',
+            'z10',
+            'z11',
+            'z12',
+            'z13',
+            'z14',
+            'z15',
+            'z16',
+            'z17',
+            'z18',
+            'z19',
+            'z20',
+            'z21',
+            'z22',
+            'hscFrac',
+            'strutFrac',
+            'dxFocal',
+            'dyFocal',
+            'slitFrac',
+            'slitFrac_dy',
+            'wide_0',
+            'wide_23',
+            'wide_43',
+            'misalign',
+            'x_fiber',
+            'y_fiber',
+            'effective_radius_illumination',
+            'frd_sigma',
+            'frd_lorentz_factor',
+            'det_vert',
+            'slitHolder_frac_dx',
+            'grating_lines',
+            'scattering_slope',
+            'scattering_amplitude',
+            'pixel_effect',
+            'fiber_r',
+            'flux']
+
+        self.columns22 = columns22
+
+    def return_auxiliary_info(self):
+        """
+
+
+        Parameters
+        ----------
+
+        Return
+        ----------
+
+
+        """
+
+        return self.particleCount, self.c1, self.c2
+
+
+
+
+    def create_list_of_obs_from_list_of_label(self):
+        """
+
+
+        Parameters
+        ----------
+
+        Return
+        ----------
+
+
+        """
+        dataset = self.dataset
+        list_of_labelInput = self.list_of_labelInput
+        #arc = self.list_of_arc[0]
+
+        print('self.list_of_arc: '+str(self.list_of_arc))
+        ################################################
+        # (3.) import obs_pos & connect
+        ################################################
+
+        # What are the observations that can be analyzed
+        # This information is used to associate observation with their input labels (see definition of `label` below)
+        # This is so that the initial parameters guess is correct
+
+        list_of_obs_possibilites = []
+        for arc in self.list_of_arc:
+
+            # dataset 0, December 2017 data - possibly deprecated
+            """
+            if arc == 'HgAr':
+                obs_possibilites = np.array([8552, 8555, 8558, 8561, 8564, 8567, 8570, 8573,
+                                             8603, 8600, 8606, 8609, 8612, 8615, 8618, 8621, 8624, 8627])
+            elif arc == 'Ne':
+                print('Neon?????')
+                obs_possibilites = np.array([8552, 8555, 8558, 8561, 8564, 8567, 8570, 8573,
+                                             8603, 8600, 8606, 8609, 8612, 8615, 8618, 8621, 8624, 8627])+90
+            """
+
+            # F/3.2 data
+            if dataset == 1:
+                if arc == 'HgAr':
+                    obs_possibilites = np.array([11796,
+                                                 11790,
+                                                 11784,
+                                                 11778,
+                                                 11772,
+                                                 11766,
+                                                 11760,
+                                                 11754,
+                                                 11748,
+                                                 11694,
+                                                 11700,
+                                                 11706,
+                                                 11712,
+                                                 11718,
+                                                 11724,
+                                                 11730,
+                                                 11736])
+                elif arc == 'Ne':
+                    obs_possibilites = np.array([12403,
+                                                 12397,
+                                                 12391,
+                                                 12385,
+                                                 12379,
+                                                 12373,
+                                                 12367,
+                                                 12361,
+                                                 12355,
+                                                 12349,
+                                                 12343,
+                                                 12337,
+                                                 12331,
+                                                 12325,
+                                                 12319,
+                                                 12313,
+                                                 12307])
+
+            # F/2.8 data
+            if dataset == 2:
+                if arc == 'HgAr':
+                    obs_possibilites = np.array([17023,
+                                                 17023 + 6,
+                                                 17023 + 12,
+                                                 17023 + 18,
+                                                 17023 + 24,
+                                                 17023 + 30,
+                                                 17023 + 36,
+                                                 17023 + 42,
+                                                 17023 + 48,
+                                                 17023 + 54,
+                                                 17023 + 60,
+                                                 17023 + 66,
+                                                 17023 + 72,
+                                                 17023 + 78,
+                                                 17023 + 84,
+                                                 17023 + 90,
+                                                 17023 + 96,
+                                                 17023 + 48])
+                if arc == 'Ne':
+                    obs_possibilites = np.array([16238 +
+                                                 6, 16238 +
+                                                 12, 16238 +
+                                                 18, 16238 +
+                                                 24, 16238 +
+                                                 30, 16238 +
+                                                 36, 16238 +
+                                                 42, 16238 +
+                                                 48, 16238 +
+                                                 54, 16238 +
+                                                 60, 16238 +
+                                                 66, 16238 +
+                                                 72, 16238 +
+                                                 78, 16238 +
+                                                 84, 16238 +
+                                                 90, 16238 +
+                                                 96, 16238 +
+                                                 102, 16238 +
+                                                 54])
+                if arc == 'Kr':
+                    obs_possibilites = np.array([17310 +
+                                                 6, 17310 +
+                                                 12, 17310 +
+                                                 18, 17310 +
+                                                 24, 17310 +
+                                                 30, 17310 +
+                                                 36, 17310 +
+                                                 42, 17310 +
+                                                 48, 17310 +
+                                                 54, 17310 +
+                                                 60, 17310 +
+                                                 66, 17310 +
+                                                 72, 17310 +
+                                                 78, 17310 +
+                                                 84, 17310 +
+                                                 90, 17310 +
+                                                 96, 17310 +
+                                                 102, 17310 +
+                                                 54])
+
+            # F/2.5 data
+            if dataset == 3:
+                if arc == 'HgAr':
+                    obs_possibilites = np.array([19238,
+                                                 19238 + 6,
+                                                 19238 + 12,
+                                                 19238 + 18,
+                                                 19238 + 24,
+                                                 19238 + 30,
+                                                 19238 + 36,
+                                                 19238 + 42,
+                                                 19238 + 48,
+                                                 19238 + 54,
+                                                 19238 + 60,
+                                                 19238 + 66,
+                                                 19238 + 72,
+                                                 19238 + 78,
+                                                 19238 + 84,
+                                                 19238 + 90,
+                                                 19238 + 96,
+                                                 19238 + 48])
+                elif arc == 'Ne':
+                    obs_possibilites = np.array([19472 +
+                                                 6, 19472 +
+                                                 12, 19472 +
+                                                 18, 19472 +
+                                                 24, 19472 +
+                                                 30, 19472 +
+                                                 36, 19472 +
+                                                 42, 19472 +
+                                                 48, 19472 +
+                                                 54, 19472 +
+                                                 60, 19472 +
+                                                 66, 19472 +
+                                                 72, 19472 +
+                                                 78, 19472 +
+                                                 84, 19472 +
+                                                 90, 19472 +
+                                                 96, 19472 +
+                                                 102, 19472 +
+                                                 54])
+
+            # F/2.8 July data
+            if dataset == 4:
+                if arc == 'HgAr':
+                    obs_possibilites = np.array([21346 +
+                                                 6, 21346 +
+                                                 12, 21346 +
+                                                 18, 21346 +
+                                                 24, 21346 +
+                                                 30, 21346 +
+                                                 36, 21346 +
+                                                 42, 21346 +
+                                                 48, 21346 +
+                                                 54, 21346 +
+                                                 60, 21346 +
+                                                 66, 21346 +
+                                                 72, 21346 +
+                                                 78, 21346 +
+                                                 84, 21346 +
+                                                 90, 21346 +
+                                                 96, 21346 +
+                                                 102, 21346 +
+                                                 48])
+                if arc == 'Ne':
+                    obs_possibilites = np.array([21550 +
+                                                 6, 21550 +
+                                                 12, 21550 +
+                                                 18, 21550 +
+                                                 24, 21550 +
+                                                 30, 21550 +
+                                                 36, 21550 +
+                                                 42, 21550 +
+                                                 48, 21550 +
+                                                 54, 21550 +
+                                                 60, 21550 +
+                                                 66, 21550 +
+                                                 72, 21550 +
+                                                 78, 21550 +
+                                                 84, 21550 +
+                                                 90, 21550 +
+                                                 96, 21550 +
+                                                 102, 21550 +
+                                                 54])
+                if arc == 'Kr':
+                    obs_possibilites = np.array([21754 +
+                                                 6, 21754 +
+                                                 12, 21754 +
+                                                 18, 21754 +
+                                                 24, 21754 +
+                                                 30, 21754 +
+                                                 36, 21754 +
+                                                 42, 21754 +
+                                                 48, 21754 +
+                                                 54, 21754 +
+                                                 60, 21754 +
+                                                 66, 21754 +
+                                                 72, 21754 +
+                                                 78, 21754 +
+                                                 84, 21754 +
+                                                 90, 21754 +
+                                                 96, 21754 +
+                                                 102, 21754 +
+                                                 54])
+
+            # F/2.8 data, Subaru
+            if dataset == 6:
+                if arc == 'Ar':
+                    obs_possibilites = np.array([34341,
+                                                 34341 + 6,
+                                                 34341 + 12,
+                                                 34341 + 18,
+                                                 34341 + 24,
+                                                 34341 + 30,
+                                                 34341 + 36,
+                                                 34341 + 42,
+                                                 34341 + 48,
+                                                 34341 + 54,
+                                                 34341 + 60,
+                                                 34341 + 66,
+                                                 34341 + 72,
+                                                 34341 + 78,
+                                                 34341 + 84,
+                                                 34341 + 90,
+                                                 34341 + 96,
+                                                 21346 + 48])
+                if arc == 'Ne':
+                    obs_possibilites = np.array([34217,
+                                                 34217 + 6,
+                                                 34217 + 12,
+                                                 34217 + 18,
+                                                 34217 + 24,
+                                                 34217 + 30,
+                                                 34217 + 36,
+                                                 34217 + 42,
+                                                 34217 + 48,
+                                                 34217 + 54,
+                                                 34217 + 60,
+                                                 34217 + 66,
+                                                 34217 + 72,
+                                                 34217 + 78,
+                                                 34217 + 84,
+                                                 34217 + 90,
+                                                 34217 + 96,
+                                                 34217 + 48])
+                if arc == 'Kr':
+                    obs_possibilites = np.array([34561,
+                                                 34561 + 6,
+                                                 34561 + 12,
+                                                 34561 + 18,
+                                                 34561 + 24,
+                                                 34561 + 30,
+                                                 34561 + 36,
+                                                 34561 + 42,
+                                                 34561 + 48,
+                                                 34561 + 54,
+                                                 34561 + 60,
+                                                 34561 + 66,
+                                                 34561 + 72,
+                                                 34561 + 78,
+                                                 34561 + 84,
+                                                 34561 + 90,
+                                                 34561 + 96,
+                                                 34561 + 48])
+
+            # SM2 test data
+            if dataset == 7:
+                if arc == 'Ar':
+                    obs_possibilites = np.array([27779, -
+                                                 999, 27683, -
+                                                 999, -
+                                                 999, -
+                                                 999, -
+                                                 999, -
+                                                 999, 27767, -
+                                                 999, -
+                                                 999, -
+                                                 999, -
+                                                 999, -
+                                                 999, 27698, -
+                                                 999, 27773, -
+                                                 999])
+                if arc == 'Ne':
+                    obs_possibilites = np.array([27713, -
+                                                 999, 27683, -
+                                                 999, -
+                                                 999, -
+                                                 999, -
+                                                 999, -
+                                                 999, 27677, -
+                                                 999, -
+                                                 999, -
+                                                 999, -
+                                                 999, -
+                                                 999, 27698, -
+                                                 999, 27719, -
+                                                 999])
+                # Krypton data not taken
+                # if arc == 'Kr':
+                #     obs_possibilites = np.array([34561, 34561+6, 34561+12, 34561+18, 34561+24, 34561+30,
+                #                                 34561+36, 34561+42, 34561+48,
+                #                                 34561+54, 34561+60, 34561+66, 34561+72,
+                # 34561+78, 34561+84, 34561+90, 34561+96, 34561+48])
+
+            # 21 fibers data from May/Jun 2021, taken at Subaru
+            if dataset == 8:
+                if arc == 'Ar':
+                    obs_possibilites = np.array([51485,
+                                                 51485 + 12,
+                                                 51485 + 2 * 12,
+                                                 51485 + 3 * 12,
+                                                 51485 + 4 * 12,
+                                                 51485 + 5 * 12,
+                                                 51485 + 6 * 12,
+                                                 51485 + 7 * 12,
+                                                 51485 + 8 * 12,
+                                                 51485 + 9 * 12,
+                                                 51485 + 10 * 12,
+                                                 51485 + 11 * 12,
+                                                 51485 + 12 * 12,
+                                                 51485 + 13 * 12,
+                                                 51485 + 14 * 12,
+                                                 51485 + 15 * 12,
+                                                 51485 + 16 * 12,
+                                                 51485 + 8 * 12])
+                if arc == 'Ne':
+                    obs_possibilites = np.array([59655,
+                                                 59655 + 12,
+                                                 59655 + 2 * 12,
+                                                 59655 + 3 * 12,
+                                                 59655 + 4 * 12,
+                                                 59655 + 5 * 12,
+                                                 59655 + 6 * 12,
+                                                 59655 + 7 * 12,
+                                                 59655 + 8 * 12,
+                                                 59655 + 9 * 12,
+                                                 59655 + 10 * 12,
+                                                 59655 + 11 * 12,
+                                                 59655 + 12 * 12,
+                                                 59655 + 13 * 12,
+                                                 59655 + 14 * 12,
+                                                 59655 + 15 * 12,
+                                                 59655 + 16 * 12,
+                                                 59655 + 8 * 12])
+                if arc == 'Kr':
+                    obs_possibilites = np.array([52085,
+                                                 52085 + 12,
+                                                 52085 + 2 * 12,
+                                                 52085 + 3 * 12,
+                                                 52085 + 4 * 12,
+                                                 52085 + 5 * 12,
+                                                 52085 + 6 * 12,
+                                                 52085 + 7 * 12,
+                                                 52085 + 8 * 12,
+                                                 52085 + 9 * 12,
+                                                 52085 + 10 * 12,
+                                                 52085 + 11 * 12,
+                                                 52085 + 12 * 12,
+                                                 52085 + 13 * 12,
+                                                 52085 + 14 * 12,
+                                                 52085 + 15 * 12,
+                                                 52085 + 16 * 12,
+                                                 52085 + 8 * 12])
+
+            print('arc: '+str(arc))
+            print('obs_possibilites: '+str(obs_possibilites))
+            list_of_obs_possibilites.append(obs_possibilites)
+
+        print('list_of_obs_possibilites: '+str(list_of_obs_possibilites))
+        ##############################################
+
+        # associates each observation with the label describing movement of the hexapod and rough estimate of z4
+        z4Input_possibilites = np.array([28, 24.5, 21, 17.5, 14, 10.5, 7, 3.5, 0,
+                                         -3.5, -7, -10.5, -14, -17.5, -21, -24.5, -28, 0])
+        label = ['m4', 'm35', 'm3', 'm25', 'm2', 'm15', 'm1', 'm05', '0',
+                 'p05', 'p1', 'p15', 'p2', 'p25', 'p3', 'p35', 'p4', '0p']
+
+        list_of_obs_cleaned = []
+
+        for a in range(len(self.list_of_arc)):
+            obs_possibilites = list_of_obs_possibilites[a]
+            list_of_obs = []
+            for i in range(len(list_of_labelInput)):
+                label_i = list_of_labelInput[i]
+                obs_cleaned = obs_possibilites[list(label).index(label_i)]
+                list_of_obs.append(obs_cleaned)
+            list_of_obs_cleaned.append(list_of_obs)
+
+
+        self.list_of_obs_cleaned = list_of_obs_cleaned
+        # TODO: clean out this cheating here
+        list_of_obs = list_of_obs_cleaned
+        self.list_of_obs = list_of_obs
+        self.list_of_obs_cleaned = list_of_obs_cleaned
+        print('self.list_of_obs:'+str(self.list_of_obs))
+        print('list_of_obs_cleaned:'+str(list_of_obs_cleaned))
+        return list_of_obs_cleaned
+
+
+
+
+    def get_sci_var_mask_data(self):
+        """
+        Get sci, var and mask data
+
+        Parameters
+        ----------
+
+        Return
+        ----------
+
+
+        """
+
+        STAMPS_FOLDER = self.STAMPS_FOLDER
+
+        list_of_sci_images_multi_spot = []
+        list_of_mask_images_multi_spot = []
+        list_of_var_images_multi_spot = []
+        list_of_obs_cleaned_multi_spot = []
+
+        self.create_list_of_obs_from_list_of_label()
+
+        print('list_of_obs_cleaned'+str(self.list_of_obs_cleaned))
+        for s in range(len(self.list_of_spots)):
+            arc = self.list_of_arc[s]
+            single_number = self.list_of_spots[s]
+
+            list_of_sci_images = []
+            list_of_mask_images = []
+            list_of_var_images = []
+            list_of_obs_cleaned = []
+            # list_of_times = []
+
+            # loading images for the analysis
+            for obs in self.list_of_obs_cleaned[s]:
+                try:
+                    sci_image = np.load(
+                        STAMPS_FOLDER +
+                        'sci' +
+                        str(obs) +
+                        str(single_number) +
+                        str(arc) +
+                        '_Stacked.npy')
+                    mask_image = np.load(
+                        STAMPS_FOLDER +
+                        'mask' +
+                        str(obs) +
+                        str(single_number) +
+                        str(arc) +
+                        '_Stacked.npy')
+                    var_image = np.load(
+                        STAMPS_FOLDER +
+                        'var' +
+                        str(obs) +
+                        str(single_number) +
+                        str(arc) +
+                        '_Stacked.npy')
+                    print(
+                        'sci_image loaded from: ' +
+                        STAMPS_FOLDER +
+                        'sci' +
+                        str(obs) +
+                        str(single_number) +
+                        str(arc) +
+                        '_Stacked.npy')
+                except Exception:
+                    # change to that code does not fail and hang if the image is not found
+                    # this will lead to pass statment in next step because
+                    # np.sum(sci_image) = 0
+                    print('sci_image not found')
+                    sci_image = np.zeros((20, 20))
+                    var_image = np.zeros((20, 20))
+                    mask_image = np.zeros((20, 20))
+                    print('not able to load image at: ' + str(STAMPS_FOLDER + 'sci' +
+                          str(obs) + str(single_number) + str(arc) + '_Stacked.npy'))
+
+                # If there is no science image, do not add images
+                if int(np.sum(sci_image)) == 0:
+                    print('No science image - passing')
+                    pass
+                else:
+                    # do not analyze images where a large fraction of the image is masked
+                    if np.mean(mask_image) > 0.1:
+                        print(str(np.mean(mask_image) * 100) +
+                              '% of image is masked... \
+                              when it is more than 10% - exiting')
+                        pass
+                    else:
+                        # the images ahs been found successfully
+                        print('adding images for obs: ' + str(obs))
+                        list_of_sci_images.append(sci_image)
+                        list_of_mask_images.append(mask_image)
+                        list_of_var_images.append(var_image)
+
+                        # observation which are of good enough quality to be analyzed get added here
+                        list_of_obs_cleaned.append(obs)
+
+            print('for spot ' + str(self.list_of_spots[s]) + ' len of list_of_sci_images: ' +
+                  str(len(list_of_sci_images)))
+            print('len of accepted images ' + str(len(list_of_obs_cleaned)) +
+                  ' / len of asked images ' + str(len(self.list_of_obs_cleaned[s])))
+
+            # If there is no valid images imported, exit
+            if list_of_sci_images == []:
+                print('No valid images - exiting')
+                sys.exit(0)
+
+            # if you were able only to import only a fraction of images
+            # if this fraction is too low - exit
+            if (len(list_of_obs_cleaned) / len(self.list_of_obs_cleaned[s])) < 0.6:
+                print('Fraction of images imported is too low - exiting')
+                sys.exit(0)
+
+            list_of_sci_images_multi_spot.append(list_of_sci_images)
+            list_of_mask_images_multi_spot.append(list_of_mask_images)
+            list_of_var_images_multi_spot.append(list_of_var_images)
+            list_of_obs_cleaned_multi_spot.append(list_of_obs_cleaned)
+
+        self.list_of_obs_cleaned = list_of_obs_cleaned
+
+        self.list_of_sci_images = list_of_sci_images
+        self.list_of_var_images = list_of_var_images
+        self.list_of_mask_images = list_of_mask_images
+
+        array_of_sci_images_multi_spot = np.array(list_of_sci_images_multi_spot)
+        array_of_mask_images_multi_spot = np.array(list_of_mask_images_multi_spot)
+        array_of_var_images_multi_spot = np.array(list_of_var_images_multi_spot)
+        array_of_obs_cleaned_multi_spot = np.array(list_of_obs_cleaned_multi_spot)
+
+        self.array_of_obs_cleaned_multi_spot = array_of_obs_cleaned_multi_spot
+
+        return array_of_sci_images_multi_spot, array_of_var_images_multi_spot,\
+            array_of_mask_images_multi_spot, array_of_obs_cleaned_multi_spot
+
+    def create_output_names(self, date_of_output):
+        """
+        Get sci, var and mask data
+
+        Parameters
+        ----------
+
+        Return
+        ----------
+
+
+        """
+
+        eps = self.eps
+
+        list_of_NAME_OF_CHAIN = []
+        list_of_NAME_OF_LIKELIHOOD_CHAIN = []
+
+        for s in range(len(self.list_of_spots)):
+            arc = self.list_of_arc[s]
+            # to be consistent with previous versions of the code, use the last obs avalible in the name
+            obs_for_naming = self.array_of_obs_cleaned_multi_spot[s][-1]
+            # give it invidual name here, just to make srue that by accident we do not
+            # overload the variable and cause errors downstream
+            single_number_str = self.list_of_spots[s]
+            NAME_OF_CHAIN = 'chain' + str(date_of_output) + '_Single_P_' + \
+                str(obs_for_naming) + str(single_number_str) + str(eps) + str(arc)
+            NAME_OF_LIKELIHOOD_CHAIN = 'likechain' + str(date_of_output) + '_Single_P_' +\
+                str(obs_for_naming) + str(single_number_str) + str(eps) + str(arc)
+
+            list_of_NAME_OF_CHAIN.append(NAME_OF_CHAIN)
+            list_of_NAME_OF_LIKELIHOOD_CHAIN.append(NAME_OF_LIKELIHOOD_CHAIN)
+
+        return list_of_NAME_OF_CHAIN, list_of_NAME_OF_LIKELIHOOD_CHAIN
+
+
+    def get_finalArc(self, arc, date_of_input='Sep0521', direct_or_interpolation='direct'):
+        # TODO make it so you ont need to specify date of input if you only want finalArc
+        DATAFRAMES_FOLDER = self.DATAFRAMES_FOLDER
+
+        dataset = self.dataset
+        ################################################
+        # (3.) import dataframes
+        ################################################
+
+        # where are the dataframes located
+        # these files give auxiliary information which enables us to connect spot number with other properties
+        # such as the position on the detector, wavelength, etc...
+        # Ar (Argon)
+        if str(arc) == 'Ar' or arc == 'HgAr':
+            with open(DATAFRAMES_FOLDER + 'results_of_fit_many_' + str(direct_or_interpolation) +
+                      '_Ar_from_' + str(date_of_input) + '.pkl', 'rb') as f:
+                results_of_fit_input_HgAr = pickle.load(f)
+                print('results_of_fit_input_Ar is taken from: ' + str(f))
+            # if before considering all fibers
+            if dataset < 8:
+                with open(DATAFRAMES_FOLDER + 'finalAr_Feb2020', 'rb') as f:
+                    finalAr_Feb2020_dataset = pickle.load(f)
+            else:
+                with open(DATAFRAMES_FOLDER + 'finalAr_Jul2021.pkl', 'rb') as f:
+                    finalAr_Feb2020_dataset = pickle.load(f)
+
+        # Ne (Neon)
+        if str(arc) == 'Ne':
+            with open(DATAFRAMES_FOLDER + 'results_of_fit_many_' + str(direct_or_interpolation) +
+                      '_Ne_from_' + str(date_of_input) + '.pkl', 'rb') as f:
+                results_of_fit_input_Ne = pickle.load(f)
+            print('results_of_fit_input_Ne is taken from: ' + str(f))
+            if dataset < 8:
+                with open(DATAFRAMES_FOLDER + 'finalNe_Feb2020', 'rb') as f:
+                    finalNe_Feb2020_dataset = pickle.load(f)
+            else:
+                with open(DATAFRAMES_FOLDER + 'finalNe_Jul2021.pkl', 'rb') as f:
+                    finalNe_Feb2020_dataset = pickle.load(f)
+
+        # Kr (Krypton)
+        if str(arc) == 'Kr':
+            with open(DATAFRAMES_FOLDER + 'results_of_fit_many_' + str(direct_or_interpolation) +
+                      '_Kr_from_' + str(date_of_input) + '.pkl', 'rb') as f:
+                results_of_fit_input_Kr = pickle.load(f)
+            print('results_of_fit_input_Kr is taken from: ' + str(f))
+            if dataset < 8:
+                with open(DATAFRAMES_FOLDER + 'finalKr_Feb2020', 'rb') as f:
+                    finalKr_Feb2020_dataset = pickle.load(f)
+            else:
+                with open(DATAFRAMES_FOLDER + 'finalKr_Jul2021.pkl', 'rb') as f:
+                    finalKr_Feb2020_dataset = pickle.load(f)
+
+        # depening on the arc, select the appropriate dataframe
+        # change here to account for 21 fiber data
+        if arc == "HgAr":
+            results_of_fit_input = results_of_fit_input_HgAr
+            # finalArc = finalHgAr_Feb2020_dataset
+        elif arc == "Ne":
+            results_of_fit_input = results_of_fit_input_Ne
+            finalArc = finalNe_Feb2020_dataset
+        elif arc == "Kr":
+            results_of_fit_input = results_of_fit_input_Kr
+            finalArc = finalKr_Feb2020_dataset
+        elif arc == "Ar":
+            results_of_fit_input = results_of_fit_input_HgAr
+            finalArc = finalAr_Feb2020_dataset
+
+        self.results_of_fit_input = results_of_fit_input
+        self.finalArc = finalArc
+
+        return finalArc
+
+    def create_array_of_wavelengths(self):
+
+        list_of_spots = self.list_of_spots
+
+        list_of_wavelengths = []
+        for s in range(len(list_of_spots)):
+            arc = self.list_of_arc[s]
+            finalArc = self.get_finalArc(arc)
+            single_number = list_of_spots[s]
+            wavelength = float(finalArc.iloc[int(single_number)]['wavelength'])
+            print("wavelength used for spot "+str(s)+" [nm] is: " + str(wavelength))
+            list_of_wavelengths.append(wavelength)
+        array_of_wavelengths = np.array(list_of_wavelengths)
+
+        return array_of_wavelengths
+
+
+    def create_parametrization_proposals(self, date_of_input,
+                                         direct_or_interpolation='direct',
+                                         twentytwo_or_extra=56):
+        """
+        
+
+        Parameters
+        ----------
+        date_of_input: `str`
+            Date desription of the input dataframe
+        direct_or_interpolation: `str`
+            Mode description of the input dataframe
+        twentytwo_or_extra: `int`
+            Highest Zernike to go to
+
+        Return
+        ----------
+
+        Notes
+        ---------- 
+        """
+
+        list_of_spots = self. list_of_spots
+        dataset = self.dataset
+
+
+        DATAFRAMES_FOLDER = self.DATAFRAMES_FOLDER
+
+
+
+        list_of_array_of_polyfit_1_parameterizations_proposal_shape_2d = []
+
+        for s in range(len(list_of_spots)):
+            arc = self.list_of_arc[s]
+            finalArc = self.get_finalArc(arc, date_of_input=date_of_input,
+             direct_or_interpolation = direct_or_interpolation)
+            results_of_fit_input = self.results_of_fit_input
+
+            single_number = list_of_spots[s]
+
+            # you are passing multiple images, so allparameters and defocuses need to be passed into a list
+            list_of_allparameters = []
+            list_of_defocuses = []
+            # search for the previous avaliable results
+            # add the ones that you found in array_of_allparameters and for which
+            # labels are avaliable in list_of_defocuses
+            for label in ['m4', 'm35', 'm3', 'm05', '0', 'p05', 'p3', 'p35', 'p4']:
+
+                # check if your single_number is avaliable
+
+                print('adding label ' +
+                      str(label) +
+                      ' with single_number ' +
+                      str(int(single_number)) +
+                      ' for creation of array_of_allparameters')
+                try:
+                    if int(single_number) < 999:
+                        print(results_of_fit_input[label].index.astype(int))
+                        # if your single_number is avaliable go ahead
+                        if int(single_number) in results_of_fit_input[label].index.astype(
+                                int):
+                            print('Solution for this spot is avaliable')
+                            if isinstance(results_of_fit_input[label].index[0], str) or str(
+                                    type(results_of_fit_input[label].index[0])) == "<class 'numpy.str_'>":
+                                list_of_allparameters.append(
+                                    results_of_fit_input[label].loc[str(single_number)].values)
+                                print('results_of_fit_input[' + str(label) + '].loc[' +
+                                      str(int(single_number)) + '].values' + str(
+                                    results_of_fit_input[label].loc[str(single_number)].values))
+                            else:
+                                # print('results_of_fit_input[label]'+str(results_of_fit_input[label]))
+                                list_of_allparameters.append(
+                                    results_of_fit_input[label].loc[int(single_number)].values)
+                                print('results_of_fit_input[' + str(label) + '].loc[' +
+                                      str(int(single_number)) + '].values' + str(
+                                    results_of_fit_input[label].loc[int(single_number)].values))
+                            list_of_defocuses.append(label)
+
+                        else:
+                            # if the previous solution is not avaliable,
+                            # find the closest avaliable, right?
+                            print(
+                                'Solution for this spot is not avaliable, reconstructing from nearby spot')
+
+                            # positions of all avaliable spots
+                            x_positions = finalArc.loc[results_of_fit_input[label].index.astype(
+                                int)]['xc_effective']
+                            y_positions = finalArc.loc[results_of_fit_input[label].index.astype(
+                                int)]['yc']
+                            print('checkpoint 1')
+                            print(label)
+                            # print(results_of_fit_input[labelInput].index)
+                            # position of the input spot
+                            position_x_single_number = finalArc['xc_effective'].loc[int(
+                                single_number)]
+                            position_y_single_number = finalArc['yc'].loc[int(
+                                single_number)]
+                            print('checkpoint 2')
+                            print(position_x_single_number)
+                            distance_of_avaliable_spots = np.abs(
+                                (x_positions - position_x_single_number)**2 +
+                                (y_positions - position_y_single_number)**2)
+                            single_number_input =\
+                                distance_of_avaliable_spots[distance_of_avaliable_spots ==
+                                                            np.min(distance_of_avaliable_spots)].index[0]
+                            print(
+                                'Nearest spot avaliable is: ' +
+                                str(single_number_input))
+                            if isinstance(results_of_fit_input[label].index[0], str) or str(
+                                    type(results_of_fit_input[label].index[0])) == "<class 'numpy.str_'>":
+                                list_of_allparameters.append(
+                                    results_of_fit_input[label].loc[str(single_number_input)].values)
+                            else:
+                                list_of_allparameters.append(
+                                    results_of_fit_input[label].loc[int(single_number_input)].values)
+                            list_of_defocuses.append(label)
+                            print('results_of_fit_input[' + str(label) + '].loc[' +
+                                  str(int(single_number_input)) + '].values' + str(
+                                results_of_fit_input[label].loc[int(single_number_input)].values))
+
+                            pass
+
+                except BaseException:
+                    print('not able to add label ' + str(label))
+                    pass
+
+            array_of_allparameters = np.array(list_of_allparameters)
+
+            # based on the information from the previous step (results at list_of_defocuses),
+            # generate singular array_of_allparameters at list_of_labelInput positions
+            # has shape 2xN, N = number of parameters
+            print('Variable twentytwo_or_extra: ' + str(twentytwo_or_extra))
+            analysis_type = 'defocus'
+            if analysis_type == 'defocus':
+                print('Variable array_of_allparameters.shape: ' +
+                      str(array_of_allparameters.shape))
+
+                # model_multi is only needed to create reasonable parametrizations and
+                # could possibly be avoided in future versions?
+                model_multi = LN_PFS_multi_same_spot(
+                    list_of_sci_images=self.list_of_sci_images,
+                    list_of_var_images=self.list_of_var_images,
+                    list_of_mask_images=self.list_of_mask_images,
+                    wavelength=800,
+                    dithering=1,
+                    save=0,
+                    verbosity=0,
+                    npix=1536,
+                    list_of_defocuses=self.list_of_labelInput,
+                    zmax=twentytwo_or_extra,
+                    double_sources=False,
+                    double_sources_positions_ratios=[0, 0],
+                    test_run=False)
+
+                array_of_polyfit_1_parameterizations_proposal =\
+                    model_multi.create_resonable_allparameters_parametrizations(
+                        array_of_allparameters=array_of_allparameters,
+                        list_of_defocuses_input=list_of_defocuses,
+                        zmax=twentytwo_or_extra,
+                        remove_last_n=2)
+
+                # lets be explicit that the shape of the array is 2d
+                array_of_polyfit_1_parameterizations_proposal_shape_2d =\
+                    array_of_polyfit_1_parameterizations_proposal
+
+            list_of_array_of_polyfit_1_parameterizations_proposal_shape_2d.append(
+                array_of_polyfit_1_parameterizations_proposal_shape_2d)
+
+        # array contaning the arrays with parametrizations for all spots
+        array_of_array_of_polyfit_1_parameterizations_proposal_shape_2d = np.array(
+            list_of_array_of_polyfit_1_parameterizations_proposal_shape_2d)
+
+        self.array_of_array_of_polyfit_1_parameterizations_proposal_shape_2d = \
+            array_of_array_of_polyfit_1_parameterizations_proposal_shape_2d
+
+        return array_of_array_of_polyfit_1_parameterizations_proposal_shape_2d
+
+    def create_init_parameters_for_particles(self,zmax_input=56,analysis_type_fiber=None):
+        """
+        Create initial parameters for all particles
+
+        Parameters
+        ----------
+        zmax_input: `int`
+            Highest Zernike order in input?
+
+        analysis_type: `str` 
+            fiber_par
+            Zernike_par?
+            ?
+            ?
+
+
+        Return
+        ----------
+
+
+        """
+        print('analysis_type '+str(analysis_type))
+        options = self.options
+
+        array_of_array_of_polyfit_1_parameterizations_proposal_shape_2d = \
+            self.array_of_array_of_polyfit_1_parameterizations_proposal_shape_2d
+        list_of_spots = self.list_of_spots
+        multi_var = self.multi_var
+
+        if analysis_type_fiber is "fiber_par":
+            # x_fiber, y_fiber, effective_radius_illumination, frd_sigma, frd_lorentz_factor
+            unified_index = [ 10, 11, 12, 13, 14]
+
+        ################################################
+        # (8.) Create init parameters for particles
+        ################################################
+
+        # TODO: ellimate either columns or columns22 variable
+        # columns = columns22
+
+        #############
+        # First swarm
+
+        # if working with defocus, but many images
+        # z4, z5, z6, z7, z8, z9, , z11
+        # z12, z13, z14, z15, z16, z17, z18, z19, z20, z21, z22
+        # hscFrac, strutFrac, dxFocal, dyFocal, slitFrac, slitFrac_dy
+        # wide_0, wide_23, wide_43, misalign
+        # x_fiber, y_fiber, effective_radius_illumination, frd_sigma, frd_lorentz_factor, 
+        # det_vert, slitHolder_frac_dx, grating_lines,
+        # scattering_slope, scattering_amplitude
+        # pixel_effect, fiber_r
+
+        if analysis_type_fiber is "fiber_par":
+            # dont vary global illumination paramters or Zernike
+            stronger_array_01 = np.array([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                                        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                                        0, 0, 0, 0, 0, 0,
+                                        0, 0, 0, 0,
+                                        1.2, 1.2, 1.2, 1.2, 1.2,
+                                        0,0, 1,
+                                        1, 1,
+                                        1, 0.6, 1])
+        elif analysis_type_fiber is "fixed_fiber_par":
+            stronger_array_01 = np.array([1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+                                        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+                                        1, 1, 1, 1, 1, 1,
+                                        1, 1, 1, 1,
+                                        0, 0, 0, 0, 0,
+                                        1,1, 1,
+                                        1, 1,
+                                        1, 0.6, 1])
+        else:
+            stronger_array_01 = np.array([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                                        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                                        1.2, 1.2, 1.2, 1.2, 1.2, 1.2,
+                                        1.2, 1.2, 1.2, 1.2,
+                                        1.2, 1.2, 1.2, 1.2, 1.2, 1.2,
+                                            1.2, 1.2,
+                                            1.2, 1.2, 1.2, 1.2, 1])
+
+        # fix all of the properties that describe the fiber illumination
+        # v051.b change
+        # if self.analysis_type == 'fixed_single_spot':
+        #    stronger_array_01[19*2:][unified_index] = 0
+
+        # we are passing the parametrizations, which need to be translated to parameters for each image
+        # from Zernike_Module we imported the function `check_global_parameters'
+        list_of_global_parameters = []
+        for s in range(len(self.list_of_spots)):
+            array_of_polyfit_1_parameterizations_proposal_shape_2d =\
+                array_of_array_of_polyfit_1_parameterizations_proposal_shape_2d[s]
+
+            global_parameters = array_of_polyfit_1_parameterizations_proposal_shape_2d[:, 1][19:19 + 23]
+
+            list_of_global_parameters.append(global_parameters)
+
+        # create global parameters which are the same for all spots
+        # modify global parameters which should be the same for all of the spots in the fiber
+        # these parama
+        array_of_global_parameters = np.array(list_of_global_parameters)
+        global_parameters = np.mean(array_of_global_parameters, axis=0)
+        checked_global_parameters = check_global_parameters(global_parameters)
+
+        # return the unified global parameters to each spot, for the parameters which should be unified
+        # index of global parameters that we are setting to be same
+        # 'x_fiber', 'y_fiber', 'effective_radius_illumination', 'frd_sigma',
+        # 'frd_lorentz_factor'
+
+        for s in range(len(list_of_spots)):
+            for i in unified_index:
+                array_of_array_of_polyfit_1_parameterizations_proposal_shape_2d[s][:, 1][19:19 + 23][i] =\
+                    checked_global_parameters[i]
+
+        # list contaning parInit1 for each spot
+        list_of_parInit1 = []
+        for s in range(len(list_of_spots)):
+
+            array_of_polyfit_1_parameterizations_proposal_shape_2d =\
+                array_of_array_of_polyfit_1_parameterizations_proposal_shape_2d[s]
+            print(
+                'array_of_polyfit_1_parameterizations_proposal_shape_2d: ' +
+                str(array_of_polyfit_1_parameterizations_proposal_shape_2d))
+            parInit1 = create_parInit(
+                allparameters_proposal=array_of_polyfit_1_parameterizations_proposal_shape_2d,
+                multi=multi_var,
+                pupil_parameters=None,
+                allparameters_proposal_err=None,
+                stronger=stronger_array_01,
+                use_optPSF=None,
+                deduced_scattering_slope=None,
+                zmax=zmax_input)
+
+            # the number of walkers is given by options array, specified with
+            # the parameter eps at the start
+            while len(parInit1) < options[0]:
+                parInit1_2 = create_parInit(
+                    allparameters_proposal=array_of_polyfit_1_parameterizations_proposal_shape_2d,
+                    multi=multi_var,
+                    pupil_parameters=None,
+                    allparameters_proposal_err=None,
+                    stronger=stronger_array_01,
+                    use_optPSF=None,
+                    deduced_scattering_slope=None,
+                    zmax=zmax_input)
+                parInit1 = np.vstack((parInit1, parInit1_2))
+
+            list_of_parInit1.append(parInit1)
+
+        # Standard deviation of parameters (for control only?).
+        # One array is enough, because we can use it for both spots (right?).
+        parInit1_std = []
+        for i in range(parInit1.shape[1]):
+            parInit1_std.append(np.std(parInit1[:, i]))
+        parInit1_std = np.array(parInit1_std)
+        print('parInit1_std: ' + str(parInit1_std))
+
+        # Number of particles and number of parameters
+        particleCount = options[0]
+        paramCount = len(parInit1[0])
+
+        # initialize the particles
+        particle_likelihood = np.array([-9999999])
+        particle_position = np.zeros(paramCount)
+        particle_velocity = np.zeros(paramCount)
+        best_particle_likelihood = particle_likelihood[0]
+
+        #
+        list_of_array_of_particle_position_proposal = []
+        list_of_array_of_particle_velocity_proposal = []
+        list_of_best_particle_likelihood = []
+        for s in range(len(list_of_spots)):
+            parInit1 = list_of_parInit1[s]
+            array_of_particle_position_proposal = parInit1[0:particleCount]
+            array_of_particle_velocity_proposal = np.zeros(
+                (particleCount, paramCount))
+
+            list_of_array_of_particle_position_proposal.append(
+                array_of_particle_position_proposal)
+            list_of_array_of_particle_velocity_proposal.append(
+                array_of_particle_velocity_proposal)
+            list_of_best_particle_likelihood.append(best_particle_likelihood)
+
+        return list_of_array_of_particle_position_proposal,\
+        list_of_array_of_particle_velocity_proposal, list_of_best_particle_likelihood,\
+        paramCount
+
+
+
 # ***********************
 # 'free' (not inside a class) definitions below
 # ***********************
 
-def create_custom_var(model_image, sci_image, var_image, mask_image=None):
-    """The algorithm creates variance map from the model image.
+def create_popt_for_custom_var(sci_image, var_image, mask_image=None):
+    """Create 2nd order poly fit; to be used in creation of custom var image
 
     TODO: same function in LN_PFS_Single... Very unsatifactory!
 
     The connection between variance and flux is determined from the provided science image
     and variance image.
-    All of inputs have to be 2d np.arrays with same size. Tries fitting
-    2nd degree fit to the flux-variance data; if the 2nd order parameter
-    is negative (i.e., the function is convex), does the linear fit.
-    Introduced in v0.41.
+    All of inputs have to be 2d np.arrays with same size.
+    Introduced in 0.50 (PIPE2D-931)
 
     Called by Tokovinin_algorithm_chi_multi
 
     Parameters
     ----------
-    modelImg : `np.array`
-        Model image (! not needed !)
     sci_image : `np.array`
         Scientific array
     var_image : `np.array`
@@ -7983,8 +9352,6 @@ def create_custom_var(model_image, sci_image, var_image, mask_image=None):
     ----------
     custom_var_image : `np.array`
         Recreated variance map
-
-    introduced in v0.41
 
     """
     if mask_image is None:
@@ -8004,7 +9371,27 @@ def create_custom_var(model_image, sci_image, var_image, mask_image=None):
     popt, pcov = scipy.optimize.curve_fit(f, sci_pixels, var_pixels, [0, 0, np.min(var_pixels)],
                                           bounds=([-np.inf, -np.inf, np.min(var_pixels)],
                                                   [np.inf, np.inf, np.inf]))
-    # print(str(sci_pixels[0])+' '+str(var_pixels[0])+' '+str(np.sum(mask_image))+' '+str(popt))
+    return popt
+
+
+def create_custom_var_from_popt(model_image, popt):
+    """Creates variance map from the model image, given the 2nd poly fit parameters
+
+    Introduced in 0.50 (PIPE2D-931)
+
+    Parameters
+    ----------
+    modelImg : `np.array`
+        Model image
+    popt : `np.array`
+        2d polyfit parameters
+    Returns
+    ----------
+    custom_var_image : `np.array`
+        Recreated variance map
+    """
+    # I am using lambda expression to avoid superflous definition of quadratic function
+    f = lambda x, *p: p[0] * x**2 + p[1] * x + p[2] #noqa : E373
     custom_var_image = f(model_image, *popt)
     return custom_var_image
 
@@ -8499,6 +9886,7 @@ def create_parInit(allparameters_proposal, multi=None, pupil_parameters=None, al
                 print('NameError!')
 
     try:
+        div_same = 10 
 
         # hscFrac always positive
         globalparameters_flat_0 = np.abs(
@@ -8507,7 +9895,7 @@ def create_parInit(allparameters_proposal, multi=None, pupil_parameters=None, al
                 globalparameters_flatten_err[0],
                 nwalkers * 20))
         globalparameters_flat_0[np.random.choice(len(globalparameters_flat_0),
-                                                 size=int(len(globalparameters_flat_0)/2),
+                                                 size=int(len(globalparameters_flat_0)/div_same),
                                                  replace=False)] = globalparameters_flatten[0]
         globalparameters_flat_0 = np.concatenate(([globalparameters_flatten[0]],
                                                   globalparameters_flat_0[np.all(
@@ -8522,7 +9910,7 @@ def create_parInit(allparameters_proposal, multi=None, pupil_parameters=None, al
                 nwalkers * 200))
         globalparameters_flat_1 = globalparameters_flat_1_long
         globalparameters_flat_1[np.random.choice(len(globalparameters_flat_1),
-                                                 size=int(len(globalparameters_flat_1)/2),
+                                                 size=int(len(globalparameters_flat_1)/div_same),
                                                  replace=False)] = globalparameters_flatten[1]
         globalparameters_flat_1 = np.concatenate(([globalparameters_flatten[1]],
                                                   globalparameters_flat_1[np.all(
@@ -8535,7 +9923,7 @@ def create_parInit(allparameters_proposal, multi=None, pupil_parameters=None, al
             globalparameters_flatten_err[2],
             nwalkers * 20)
         globalparameters_flat_2[np.random.choice(len(globalparameters_flat_2),
-                                                 size=int(len(globalparameters_flat_2)/2),
+                                                 size=int(len(globalparameters_flat_2)/div_same),
                                                  replace=False)] = globalparameters_flatten[2]
         globalparameters_flat_2 = np.concatenate(([globalparameters_flatten[2]],
                                                   globalparameters_flat_2[np.all(
@@ -8548,7 +9936,7 @@ def create_parInit(allparameters_proposal, multi=None, pupil_parameters=None, al
             globalparameters_flatten_err[3],
             nwalkers * 20)
         globalparameters_flat_3[np.random.choice(len(globalparameters_flat_3),
-                                                 size=int(len(globalparameters_flat_3)/2),
+                                                 size=int(len(globalparameters_flat_3)/div_same),
                                                  replace=False)] = globalparameters_flatten[3]
         globalparameters_flat_3 = np.concatenate(([globalparameters_flatten[3]],
                                                   globalparameters_flat_3[np.all(
@@ -8563,7 +9951,7 @@ def create_parInit(allparameters_proposal, multi=None, pupil_parameters=None, al
                 nwalkers * 20))
         # print(globalparameters_flatten_err[4])
         globalparameters_flat_4[np.random.choice(len(globalparameters_flat_4),
-                                                 size=int(len(globalparameters_flat_4)/2),
+                                                 size=int(len(globalparameters_flat_4)/div_same),
                                                  replace=False)] = globalparameters_flatten[4]
         globalparameters_flat_4 = np.concatenate(([globalparameters_flatten[4]],
                                                   globalparameters_flat_4[np.all(
@@ -8577,7 +9965,7 @@ def create_parInit(allparameters_proposal, multi=None, pupil_parameters=None, al
                 globalparameters_flatten_err[5],
                 nwalkers * 20))
         globalparameters_flat_5[np.random.choice(len(globalparameters_flat_5),
-                                                 size=int(len(globalparameters_flat_5)/2),
+                                                 size=int(len(globalparameters_flat_5)/div_same),
                                                  replace=False)] = globalparameters_flatten[5]
         globalparameters_flat_5 = np.concatenate(([globalparameters_flatten[5]],
                                                   globalparameters_flat_5[np.all(
@@ -8591,7 +9979,7 @@ def create_parInit(allparameters_proposal, multi=None, pupil_parameters=None, al
                 globalparameters_flatten_err[6],
                 nwalkers * 20))
         globalparameters_flat_6[np.random.choice(len(globalparameters_flat_6),
-                                                 size=int(len(globalparameters_flat_6)/2),
+                                                 size=int(len(globalparameters_flat_6)/div_same),
                                                  replace=False)] = globalparameters_flatten[6]
         globalparameters_flat_6 = np.concatenate(([globalparameters_flatten[6]],
                                                   globalparameters_flat_6[np.all(
@@ -8604,7 +9992,7 @@ def create_parInit(allparameters_proposal, multi=None, pupil_parameters=None, al
             globalparameters_flatten_err[7],
             nwalkers * 20)
         globalparameters_flat_7[np.random.choice(len(globalparameters_flat_7),
-                                                 size=int(len(globalparameters_flat_7)/2),
+                                                 size=int(len(globalparameters_flat_7)/div_same),
                                                  replace=False)] = globalparameters_flatten[7]
         globalparameters_flat_7 = np.concatenate(([globalparameters_flatten[7]],
                                                   globalparameters_flat_7[np.all(
@@ -8618,7 +10006,7 @@ def create_parInit(allparameters_proposal, multi=None, pupil_parameters=None, al
                 globalparameters_flatten_err[8],
                 nwalkers * 20))
         globalparameters_flat_8[np.random.choice(len(globalparameters_flat_8),
-                                                 size=int(len(globalparameters_flat_8)/2),
+                                                 size=int(len(globalparameters_flat_8)/div_same),
                                                  replace=False)] = globalparameters_flatten[8]
         globalparameters_flat_8 = np.concatenate(([globalparameters_flatten[8]],
                                                   globalparameters_flat_8[np.all(
@@ -8632,7 +10020,7 @@ def create_parInit(allparameters_proposal, multi=None, pupil_parameters=None, al
                 globalparameters_flatten_err[9],
                 nwalkers * 20))
         globalparameters_flat_9[np.random.choice(len(globalparameters_flat_9),
-                                                 size=int(len(globalparameters_flat_9)/2),
+                                                 size=int(len(globalparameters_flat_9)/div_same),
                                                  replace=False)] = globalparameters_flatten[9]
         globalparameters_flat_9 = np.concatenate(([globalparameters_flatten[9]],
                                                   globalparameters_flat_9[np.all(
@@ -8645,7 +10033,7 @@ def create_parInit(allparameters_proposal, multi=None, pupil_parameters=None, al
             globalparameters_flatten_err[10],
             nwalkers * 20)
         globalparameters_flat_10[np.random.choice(len(globalparameters_flat_10),
-                                                  size=int(len(globalparameters_flat_10)/2),
+                                                  size=int(len(globalparameters_flat_10)/div_same),
                                                   replace=False)] = globalparameters_flatten[10]
         globalparameters_flat_10 = np.concatenate(([globalparameters_flatten[10]],
                                                    globalparameters_flat_10[np.all(
@@ -8658,7 +10046,7 @@ def create_parInit(allparameters_proposal, multi=None, pupil_parameters=None, al
             globalparameters_flatten_err[11],
             nwalkers * 20)
         globalparameters_flat_11[np.random.choice(len(globalparameters_flat_11),
-                                                  size=int(len(globalparameters_flat_11)/2),
+                                                  size=int(len(globalparameters_flat_11)/div_same),
                                                   replace=False)] = globalparameters_flatten[11]
         globalparameters_flat_11 = np.concatenate(([globalparameters_flatten[11]],
                                                    globalparameters_flat_11[np.all(
@@ -8672,7 +10060,7 @@ def create_parInit(allparameters_proposal, multi=None, pupil_parameters=None, al
             globalparameters_flatten_err[12],
             nwalkers * 20)
         globalparameters_flat_12[np.random.choice(len(globalparameters_flat_12),
-                                                  size=int(len(globalparameters_flat_12)/2),
+                                                  size=int(len(globalparameters_flat_12)/div_same),
                                                   replace=False)] = globalparameters_flatten[12]
         globalparameters_flat_12 = np.concatenate(([globalparameters_flatten[12]],
                                                    globalparameters_flat_12[np.all(
@@ -8688,7 +10076,7 @@ def create_parInit(allparameters_proposal, multi=None, pupil_parameters=None, al
             globalparameters_flatten_err[13],
             nwalkers * 20)
         globalparameters_flat_13[np.random.choice(len(globalparameters_flat_13),
-                                                  size=int(len(globalparameters_flat_13)/2),
+                                                  size=int(len(globalparameters_flat_13)/div_same),
                                                   replace=False)] = globalparameters_flatten[13]
         globalparameters_flat_13 = np.concatenate(([globalparameters_flatten[13]],
                                                    globalparameters_flat_13[np.all(
@@ -8702,7 +10090,7 @@ def create_parInit(allparameters_proposal, multi=None, pupil_parameters=None, al
             globalparameters_flatten_err[14],
             nwalkers * 20)
         globalparameters_flat_14[np.random.choice(len(globalparameters_flat_14),
-                                                  size=int(len(globalparameters_flat_14)/2),
+                                                  size=int(len(globalparameters_flat_14)/div_same),
                                                   replace=False)] = globalparameters_flatten[14]
         globalparameters_flat_14 = np.concatenate(([globalparameters_flatten[14]],
                                                    globalparameters_flat_14[np.all(
@@ -8716,7 +10104,7 @@ def create_parInit(allparameters_proposal, multi=None, pupil_parameters=None, al
             globalparameters_flatten_err[15],
             nwalkers * 20)
         globalparameters_flat_15[np.random.choice(len(globalparameters_flat_15),
-                                                  size=int(len(globalparameters_flat_15)/2),
+                                                  size=int(len(globalparameters_flat_15)/div_same),
                                                   replace=False)] = globalparameters_flatten[15]
         globalparameters_flat_15 = np.concatenate(([globalparameters_flatten[15]],
                                                    globalparameters_flat_15[np.all(
@@ -8730,7 +10118,7 @@ def create_parInit(allparameters_proposal, multi=None, pupil_parameters=None, al
             globalparameters_flatten_err[16],
             nwalkers * 20)
         globalparameters_flat_16[np.random.choice(len(globalparameters_flat_16),
-                                                  size=int(len(globalparameters_flat_16)/2),
+                                                  size=int(len(globalparameters_flat_16)/div_same),
                                                   replace=False)] = globalparameters_flatten[16]
         globalparameters_flat_16 = np.concatenate(([globalparameters_flatten[16]],
                                                    globalparameters_flat_16[np.all(
@@ -8744,7 +10132,7 @@ def create_parInit(allparameters_proposal, multi=None, pupil_parameters=None, al
             globalparameters_flatten_err[17],
             nwalkers * 20)
         globalparameters_flat_17[np.random.choice(len(globalparameters_flat_17),
-                                                  size=int(len(globalparameters_flat_17)/2),
+                                                  size=int(len(globalparameters_flat_17)/div_same),
                                                   replace=False)] = globalparameters_flatten[17]
         globalparameters_flat_17 = np.concatenate(([globalparameters_flatten[17]],
                                                    globalparameters_flat_17[np.all(
@@ -8758,7 +10146,7 @@ def create_parInit(allparameters_proposal, multi=None, pupil_parameters=None, al
             globalparameters_flatten_err[18],
             nwalkers * 20)
         globalparameters_flat_18[np.random.choice(len(globalparameters_flat_18),
-                                                  size=int(len(globalparameters_flat_18)/2),
+                                                  size=int(len(globalparameters_flat_18)/div_same),
                                                   replace=False)] = globalparameters_flatten[18]
         globalparameters_flat_18 = np.concatenate(([globalparameters_flatten[18]],
                                                    globalparameters_flat_18[np.all(
@@ -8771,7 +10159,7 @@ def create_parInit(allparameters_proposal, multi=None, pupil_parameters=None, al
             globalparameters_flatten_err[19],
             nwalkers * 20)
         globalparameters_flat_19[np.random.choice(len(globalparameters_flat_19),
-                                                  size=int(len(globalparameters_flat_19)/2),
+                                                  size=int(len(globalparameters_flat_19)/div_same),
                                                   replace=False)] = globalparameters_flatten[19]
         globalparameters_flat_19 = np.concatenate(([globalparameters_flatten[19]],
                                                    globalparameters_flat_19[np.all(
@@ -8784,7 +10172,7 @@ def create_parInit(allparameters_proposal, multi=None, pupil_parameters=None, al
             globalparameters_flatten_err[20],
             nwalkers * 20)
         globalparameters_flat_20[np.random.choice(len(globalparameters_flat_20),
-                                                  size=int(len(globalparameters_flat_20)/2),
+                                                  size=int(len(globalparameters_flat_20)/div_same),
                                                   replace=False)] = globalparameters_flatten[20]
         globalparameters_flat_20 = np.concatenate(([globalparameters_flatten[20]],
                                                    globalparameters_flat_20[np.all(
@@ -8801,7 +10189,7 @@ def create_parInit(allparameters_proposal, multi=None, pupil_parameters=None, al
             globalparameters_flatten_err[21],
             nwalkers * 20)
         globalparameters_flat_21[np.random.choice(len(globalparameters_flat_21),
-                                                  size=int(len(globalparameters_flat_21)/2),
+                                                  size=int(len(globalparameters_flat_21)/div_same),
                                                   replace=False)] = globalparameters_flatten[21]
         globalparameters_flat_21 = np.concatenate(([globalparameters_flatten[21]],
                                                    globalparameters_flat_21[np.all(
