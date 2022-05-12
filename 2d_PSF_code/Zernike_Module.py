@@ -153,6 +153,9 @@ Dec 09, 2021: 0.51 -> 0.51a introduced `fixed_single_spot`
 Feb 11, 2022: 0.51a -> 0.51b unified index parameter allowed to vary
 Mar 18, 2022: 0.51b -> 0.51c introduced div_same par, controlling how many particles are same
 Mar 24, 2022: 0.51c -> 0.51d multiple small changes, for running same illum in fiber
+Apr 03, 2022: 0.51d -> 0.51e test is now analysis_type_fiber == "fixed_fiber_par"
+May 05, 2022: 0.51e -> 0.51f added documentation
+May 09, 2022: 0.51f -> 0.51g replaced print with logging
 
 @author: Neven Caplar
 @contact: ncaplar@princeton.edu
@@ -160,7 +163,7 @@ Mar 24, 2022: 0.51c -> 0.51d multiple small changes, for running same illum in f
 """
 ########################################
 # standard library imports
-# from __future__ import absolute_import, division, print_function
+# from __future__ import absolute_import, division, logging.info_function
 from functools import partial
 from typing import Tuple, Iterable
 
@@ -194,12 +197,13 @@ import math
 import socket
 import sys
 import pickle
+import logging
 os.environ["MKL_NUM_THREADS"] = "1"
 os.environ["NUMEXPR_NUM_THREADS"] = "1"
 os.environ["OMP_NUM_THREADS"] = "1"
 np.set_printoptions(suppress=True)
 np.seterr(divide='ignore', invalid='ignore')
-# print(np.__config__)
+# logging.info(np.__config__)
 
 
 ########################################
@@ -235,7 +239,7 @@ galsim.GSParams.maximum_fft_size = 12000
 __all__ = [
     'PupilFactory',
     'Pupil',
-    'ZernikeFitter_PFS',
+    'ZernikeFitterPFS',
     'LN_PFS_multi_same_spot',
     'LN_PFS_single',
     'LNP_PFS',
@@ -257,31 +261,10 @@ __all__ = [
     'create_custom_var_from_popt',
     'Zernike_estimation_preparation']
 
-__version__ = "0.51a"
-
-
-############################################################
-
-# name your directory where you want to have files!
-if socket.gethostname() == 'IapetusUSA':
-    PSF_DIRECTORY = '/Volumes/Saturn_USA/PFS/'
-elif socket.gethostname() == 'pfsa-usr01-gb.subaru.nao.ac.jp' or \
-        socket.gethostname() == 'pfsa-usr02-gb.subaru.nao.ac.jp':
-    PSF_DIRECTORY = '/work/ncaplar/'
-else:
-    PSF_DIRECTORY = '/tigress/ncaplar/'
-
-# PSF_DIRECTORY='/Users/nevencaplar/Documents/PFS/'
-############################################################
-
-TESTING_FOLDER = PSF_DIRECTORY + 'Testing/'
-TESTING_PUPIL_IMAGES_FOLDER = TESTING_FOLDER + 'Pupil_Images/'
-TESTING_WAVEFRONT_IMAGES_FOLDER = TESTING_FOLDER + 'Wavefront_Images/'
-TESTING_FINAL_IMAGES_FOLDER = TESTING_FOLDER + 'Final_Images/'
+__version__ = "0.51g"
 
 # classes Pupil, PupilFactory and PFSPupilFactory have different form of documentation,
 # compared to other classes as they have been imported from code written by Josh Meyers
-
 
 class Pupil(object):
     """!Pupil obscuration function.
@@ -306,6 +289,9 @@ class Pupil(object):
 
 class PupilFactory(object):
     """!Pupil obscuration function factory for use with Fourier optics.
+    
+    Based on the code by Josh Meyers, developed for HSC camera
+    Contains functions that can create various obscurations in the camera
     """
 
     def __init__(
@@ -313,7 +299,7 @@ class PupilFactory(object):
             pupilSize,
             npix,
             input_angle,
-            hscFrac,
+            detFrac,
             strutFrac,
             slitFrac,
             slitFrac_dy,
@@ -323,24 +309,65 @@ class PupilFactory(object):
             frd_sigma,
             frd_lorentz_factor,
             det_vert,
-            verbosity=None,
             wide_0=0,
             wide_23=0,
             wide_43=0,
-            misalign=0):
-        """!Construct a PupilFactory.
-
-        @params[in] others
-        @param[in] npix       Constructed Pupils will be npix x npix.
+            misalign=0,
+            verbosity=0):
+        """Construct a PupilFactory.
+        Parameters
+        ----------
+        pupilSize: `float`
+            Size of the exit pupil [m]
+        npix: `int`
+            Constructed Pupils will be npix x npix
+        input_angle: `float`
+            Angle of the pupil (for all practical purposes fixed an np.pi/2)
+        detFrac: `float`
+            Value determining how much of the exit pupil obscured by the
+            central obscuration(detector)
+        strutFrac: `float`
+            Value determining how much of the exit pupil is obscured
+            by a single strut
+        slitFrac: `float`
+             Value determining how much of the exit pupil is obscured by slit
+        slitFrac_dy: `float`
+            Value determining what is the vertical position of the slit
+            in the exit pupil
+        x_fiber: `float`
+            Position of the fiber misaligment in the x direction
+        y_fiber: `float`
+            Position of the fiber misaligment in the y direction
+        effective_ilum_radius: `float`
+            Fraction of the maximal radius of the illumination
+            of the exit pupil that is actually illuminated
+        frd_sigma: `float`
+            Sigma of Gaussian convolving only outer edge, mimicking FRD
+        frd_lorentz_factor: `float`
+            Strength of the lorentzian factor describing wings
+        det_vert: `float`
+            Multiplicative factor determining vertical size
+            of the detector obscuration
+        wide_0: `float`
+            Widening of the strut at 0 degrees
+        wide_23: `float`
+            Widening of the strut at the top-left corner
+        wide_43: `float`
+            Widening of the strut at the bottom-left corner
+        misalign: `float`
+            Describing the amount of misaligment
+        verbosity: `int`
+            How verbose during evaluation (1 = full verbosity)
         """
         self.verbosity = verbosity
         if self.verbosity == 1:
-            print('Entering PupilFactory class')
+            logging.info('Entering PupilFactory class')
+            logging.info('Entering PupilFactory class')
 
         self.pupilSize = pupilSize
         self.npix = npix
         self.input_angle = input_angle
-        self.hscFrac = hscFrac
+        self.detFrac = detFrac
         self.strutFrac = strutFrac
         self.pupilScale = pupilSize / npix
         self.slitFrac = slitFrac
@@ -418,155 +445,6 @@ class PupilFactory(object):
 
         pupil.illuminated[r2 > r**2 * b**2 / (b**2 * (np.cos(theta))**2 + r**2 * (np.sin(theta))**2)] = False
 
-    def _cutSquare_slow(self, pupil, p0, r, angle, det_vert):
-        """Cut out the interior of a circular region from a Pupil.
-
-        Is this even used (April 3, 2021)?
-
-
-        @param[in,out] pupil  Pupil to modify in place
-        @param[in] p0         2-tuple indicating region center
-        @param[in] r          half length of the square side
-        @param[in] angle      angle that the camera is rotated
-        @param[in] det_vert
-        """
-        pupil_illuminated_only1 = np.ones_like(pupil.illuminated, dtype=np.float32)
-
-        time_start_single_square = time.time()
-
-        ###########################################################
-        # Central square
-        if det_vert is None:
-            det_vert = 1
-
-        print('r' + str(r))
-
-        x21 = -r / 2 * det_vert * 1
-        x22 = +r / 2 * det_vert * 1
-        y21 = -r / 2 * 1
-        y22 = +r / 2 * 1
-
-        angleRad = angle
-        print('p0' + str(p0))
-        print('angleRad' + str(angleRad))
-
-        pupil_illuminated_only1[np.logical_and(((self.u - p0[0]) * np.cos(-angle) +
-                                                (self.v - p0[1]) * np.sin(-angleRad) < x22) &
-                                               ((self.u - p0[0]) * np.cos(-angleRad) +
-                                                (self.v - p0[1]) * np.sin(-angleRad) > x21),
-                                               ((self.v - p0[1]) * np.cos(-angleRad) -
-                                                (self.u - p0[0]) * np.sin(-angleRad) < y22) &
-                                               ((self.v - p0[1]) * np.cos(-angleRad) -
-                                                (self.u - p0[0]) * np.sin(-angleRad) > y21))] = False
-
-        f = 0.2
-        ###########################################################
-        # Lower right corner
-        x21 = -r / 2
-        x22 = +r / 2
-        y21 = -r / 2 * det_vert
-        y22 = +r / 2 * det_vert
-
-        angleRad21 = -np.pi / 4
-        triangle21 = [[p0[0] + x22, p0[1] + y21], [p0[0] + x22, p0[1] +
-                                                   y21 - y21 * f], [p0[0] + x22 - x22 * f, p0[1] + y21]]
-
-        p21 = triangle21[0]
-        y22 = (triangle21[1][1] - triangle21[0][1]) / np.sqrt(2)
-        y21 = 0
-        x21 = (triangle21[2][0] - triangle21[0][0]) / np.sqrt(2)
-        x22 = -(triangle21[2][0] - triangle21[0][0]) / np.sqrt(2)
-
-        pupil_illuminated_only1[np.logical_and(((self.u - p21[0]) * np.cos(-angleRad21) +
-                                                (self.v - p21[1]) * np.sin(-angleRad21) < x22) &
-                                               ((self.u - p21[0]) * np.cos(-angleRad21) +
-                                                (self.v - p21[1]) * np.sin(-angleRad21) > x21),
-                                               ((self.v - p21[1]) * np.cos(-angleRad21) -
-                                                (self.u - p21[0]) * np.sin(-angleRad21) < y22) &
-                                               ((self.v - p21[1]) * np.cos(-angleRad21) -
-                                                (self.u - p21[0]) * np.sin(-angleRad21) > y21))] = True
-
-        ###########################################################
-        # Upper left corner
-        x21 = -r / 2 * 1
-        x22 = +r / 2 * 1
-        y21 = -r / 2 * det_vert
-        y22 = +r / 2 * det_vert
-        angleRad12 = -np.pi / 4
-        triangle12 = [[p0[0] + x21, p0[1] + y22], [p0[0] + x21, p0[1] +
-                                                   y22 - y22 * f], [p0[0] + x21 - x21 * f, p0[1] + y22]]
-
-        p21 = triangle12[0]
-        y22 = 0
-        y21 = (triangle12[1][1] - triangle12[0][1]) / np.sqrt(2)
-        x21 = -(triangle12[2][0] - triangle12[0][0]) / np.sqrt(2)
-        x22 = +(triangle12[2][0] - triangle12[0][0]) / np.sqrt(2)
-
-        pupil_illuminated_only1[np.logical_and(((self.u - p21[0]) * np.cos(-angleRad12) +
-                                                (self.v - p21[1]) * np.sin(-angleRad12) < x22) &
-                                               ((self.u - p21[0]) * np.cos(-angleRad12) +
-                                                (self.v - p21[1]) * np.sin(-angleRad12) > x21),
-                                               ((self.v - p21[1]) * np.cos(-angleRad12) -
-                                                (self.u - p21[0]) * np.sin(-angleRad12) < y22) &
-                                               ((self.v - p21[1]) * np.cos(-angleRad12) -
-                                                (self.u - p21[0]) * np.sin(-angleRad12) > y21))] = True
-        ###########################################################
-        # Upper right corner
-        x21 = -r / 2 * 1
-        x22 = +r / 2 * 1
-        y21 = -r / 2 * det_vert
-        y22 = +r / 2 * det_vert
-        angleRad12 = np.pi / 4
-        triangle22 = [[p0[0] + x22, p0[1] + y22], [p0[0] + x22, p0[1] +
-                                                   y22 - y22 * f], [p0[0] + x22 - x22 * f, p0[1] + y22]]
-
-        p21 = triangle22[0]
-        y22 = -0
-        y21 = +(triangle22[1][1] - triangle22[0][1]) / np.sqrt(2)
-        x21 = +(triangle22[2][0] - triangle22[0][0]) / np.sqrt(2)
-        x22 = -(triangle22[2][0] - triangle22[0][0]) / np.sqrt(2)
-
-        pupil_illuminated_only1[np.logical_and(((self.u - p21[0]) * np.cos(-angleRad12) +
-                                                (self.v - p21[1]) * np.sin(-angleRad12) < x22) &
-                                               ((self.u - p21[0]) * np.cos(-angleRad12) +
-                                                (self.v - p21[1]) * np.sin(-angleRad12) > x21),
-                                               ((self.v - p21[1]) * np.cos(-angleRad12) -
-                                                (self.u - p21[0]) * np.sin(-angleRad12) < y22) &
-                                               ((self.v - p21[1]) * np.cos(-angleRad12) -
-                                                (self.u - p21[0]) * np.sin(-angleRad12) > y21))] = True
-
-        ###########################################################
-        # Lower right corner
-        x21 = -r / 2 * 1
-        x22 = +r / 2 * 1
-        y21 = -r / 2 * det_vert
-        y22 = +r / 2 * det_vert
-        angleRad12 = np.pi / 4
-        triangle11 = [[p0[0] + x21, p0[1] + y21], [p0[0] + x21, p0[1] +
-                                                   y21 - y21 * f], [p0[0] + x21 - x21 * f, p0[1] + y21]]
-
-        p21 = triangle11[0]
-        y22 = -(triangle22[1][1] - triangle22[0][1]) / np.sqrt(2)
-        y21 = 0
-        x21 = +(triangle22[2][0] - triangle22[0][0]) / np.sqrt(2)
-        x22 = -(triangle22[2][0] - triangle22[0][0]) / np.sqrt(2)
-
-        pupil_illuminated_only1[np.logical_and(((self.u - p21[0]) * np.cos(-angleRad12) +
-                                                (self.v - p21[1]) * np.sin(-angleRad12) < x22) &
-                                               ((self.u - p21[0]) * np.cos(-angleRad12) +
-                                                (self.v - p21[1]) * np.sin(-angleRad12) > x21),
-                                               ((self.v - p21[1]) * np.cos(-angleRad12) -
-                                                (self.u - p21[0]) * np.sin(-angleRad12) < y22) &
-                                               ((self.v - p21[1]) * np.cos(-angleRad12) -
-                                                (self.u - p21[0]) * np.sin(-angleRad12) > y21))] = True
-
-        pupil.illuminated = pupil.illuminated * pupil_illuminated_only1
-        time_end_single_square = time.time()
-
-        if self.verbosity == 1:
-            print('Time for cutting out the square is ' +
-                  str(time_end_single_square - time_start_single_square))
-
     def _cutSquare(self, pupil, p0, r, angle, det_vert):
         """Cut out the interior of a circular region from a Pupil.
 
@@ -575,8 +453,6 @@ class PupilFactory(object):
         @param[in] r          half lenght of the length of square side
         @param[in] angle      angle that the camera is rotated
         @param[in] det_vert   multiplicative factor that distorts the square into a rectangle
-
-
         """
         pupil_illuminated_only1 = np.ones_like(pupil.illuminated, dtype=np.float32)
 
@@ -605,13 +481,13 @@ class PupilFactory(object):
         camX_value_for_f_multiplier = p0[0]
         camY_value_for_f_multiplier = p0[1]
 
-        # print(camX_value_for_f_multiplier,camY_value_for_f_multiplier)
+        # logging.info(camX_value_for_f_multiplier,camY_value_for_f_multiplier)
         camY_Max = 0.02
         f_multiplier_factor = (-camX_value_for_f_multiplier * 100 / 3) * \
             (np.abs(camY_value_for_f_multiplier) / camY_Max) + 1
         # f_multiplier_factor=1
         if self.verbosity == 1:
-            print('f_multiplier_factor for size of detector triangle is: ' + str(f_multiplier_factor))
+            logging.info('f_multiplier_factor for size of detector triangle is: ' + str(f_multiplier_factor))
 
         pupil_illuminated_only0_in_only1 = np.zeros((i_y_max - i_y_min, i_x_max - i_x_min))
 
@@ -641,13 +517,6 @@ class PupilFactory(object):
         x21 = (triangle21[2][0] - triangle21[0][0]) / np.sqrt(2)
         x22 = -(triangle21[2][0] - triangle21[0][0]) / np.sqrt(2)
 
-        # print('lr'+str([x21,x22,y21,y22]))
-
-        # np.save('/Users/nevencaplar/Documents/PFS/TigerAnalysis/Results/pupil_illuminated_only0_in_only1',pupil_illuminated_only0_in_only1)
-        # np.save('/Users/nevencaplar/Documents/PFS/TigerAnalysis/Results/v0',v0)
-        # np.save('/Users/nevencaplar/Documents/PFS/TigerAnalysis/Results/u0',u0)
-        # np.save('/Users/nevencaplar/Documents/PFS/TigerAnalysis/Results/p21',p21)
-
         pupil_illuminated_only0_in_only1[((v0 - p21[1]) * np.cos(-angleRad21) -
                                           (u0 - p21[0]) * np.sin(-angleRad21) < y22)] = True
 
@@ -669,8 +538,6 @@ class PupilFactory(object):
         x21 = -(triangle12[2][0] - triangle12[0][0]) / np.sqrt(2)
         x22 = +(triangle12[2][0] - triangle12[0][0]) / np.sqrt(2)
 
-        # print('ul'+str([x21,x22,y21,y22]))
-
         pupil_illuminated_only0_in_only1[((v0 - p21[1]) * np.cos(-angleRad21) -
                                           (u0 - p21[0]) * np.sin(-angleRad21) > y21)] = True
 
@@ -680,7 +547,6 @@ class PupilFactory(object):
         x22 = +r / 2 * 1
         y21 = -r / 2 * det_vert
         y22 = +r / 2 * det_vert
-        # angleRad12 = np.pi / 4
         f_ur = np.copy(f) * f_multiplier
 
         triangle22 = [[p0[0] + x22, p0[1] + y22], [p0[0] + x22, p0[1] +
@@ -692,7 +558,6 @@ class PupilFactory(object):
         x21 = +(triangle22[2][0] - triangle22[0][0]) / np.sqrt(2)
         x22 = -(triangle22[2][0] - triangle22[0][0]) / np.sqrt(2)
 
-        # print('ur'+str([x21,x22,y21,y22]))
 
         pupil_illuminated_only0_in_only1[((u0 - p21[0]) * np.cos(-angleRad21) +
                                           (v0 - p21[1]) * np.sin(-angleRad21) > x21)] = True
@@ -703,7 +568,6 @@ class PupilFactory(object):
         x22 = +r / 2 * 1
         y21 = -r / 2 * det_vert
         y22 = +r / 2 * det_vert
-        # angleRad12 = np.pi / 4
         f_ll = np.copy(f) * f_multiplier
 
         triangle11 = [[p0[0] + x21, p0[1] + y21], [p0[0] + x21, p0[1] +
@@ -715,8 +579,6 @@ class PupilFactory(object):
         x21 = +(triangle11[2][0] - triangle11[0][0]) / np.sqrt(2)
         x22 = +(triangle11[2][0] - triangle11[0][0]) / np.sqrt(2)
 
-        # print('ll'+str([x21,x22,y21,y22]))
-
         pupil_illuminated_only0_in_only1[((u0 - p21[0]) * np.cos(-angleRad21) +
                                           (v0 - p21[1]) * np.sin(-angleRad21) < x22)] = True
 
@@ -726,7 +588,7 @@ class PupilFactory(object):
         time_end_single_square = time.time()
 
         if self.verbosity == 1:
-            print('Time for cutting out the square is ' +
+            logging.info('Time for cutting out the square is ' +
                   str(time_end_single_square - time_start_single_square))
 
     def _cutRay(self, pupil, p0, angle, thickness, angleunit=None, wide=0):
@@ -758,20 +620,6 @@ class PupilFactory(object):
                           ((self.u - p0[0]) * np.cos(angleRad) +
                            (self.v - p0[1]) * np.sin(angleRad) >= 0)] = False
 
-        """
-        # print and save commands for debugging
-        print('p0: '+str(p0))
-        print('angleRad: '+str(angleRad))
-        print('thickness: '+str(thickness))
-        print('wide: '+str(wide))
-        print('**********')
-        np.save('/Users/nevencaplar/Documents/PFS/TigerAnalysis/Test/d'+str(p0[0])+'_'+str(p0[1])+'_'+str(wide),d)
-        np.save('/Users/nevencaplar/Documents/PFS/TigerAnalysis/Test/p0'+str(p0[0])+'_'+str(p0[1])+'_'+str(wide),p0)
-        np.save('/Users/nevencaplar/Documents/PFS/TigerAnalysis/Test/pupil_illuminated'+str(p0[0])+'_'+str(p0[1])+'_'+str(wide),pupil.illuminated)
-        np.save('/Users/nevencaplar/Documents/PFS/TigerAnalysis/Test/u',self.u)
-        np.save('/Users/nevencaplar/Documents/PFS/TigerAnalysis/Test/v',self.v)
-        """
-
     def _addRay(self, pupil, p0, angle, thickness, angleunit=None):
         """Add a ray from a Pupil.
 
@@ -794,7 +642,11 @@ class PupilFactory(object):
 
 
 class PFSPupilFactory(PupilFactory):
-    """!Pupil obscuration function factory for PFS
+    """Pupil obscuration function factory for PFS
+    
+    Based on the code by Josh Meyers, initially developed for HSC camera
+    Invokes PupilFactory to create obscurations of the camera
+    Adds various illumination effects which are specified to the spectrographs
     """
 
     def __init__(
@@ -802,7 +654,7 @@ class PFSPupilFactory(PupilFactory):
             pupilSize,
             npix,
             input_angle,
-            hscFrac,
+            detFrac,
             strutFrac,
             slitFrac,
             slitFrac_dy,
@@ -813,47 +665,68 @@ class PFSPupilFactory(PupilFactory):
             frd_lorentz_factor,
             det_vert,
             slitHolder_frac_dx,
-            verbosity=None,
             wide_0=0,
             wide_23=0,
             wide_43=0,
-            misalign=0):
+            misalign=0,
+            verbosity=0):
         """!Construct a PupilFactory.
 
 
-        @param[in] pupilSize               Size in meters of constructed Pupils.
-        @param[in] npix                    Constructed Pupils will be npix x npix.
-        @param[in] input_angle
-        @param[in] hscFrac
-        @param[in] strutFrac
-        @param[in] slitFrac
-        @param[in] slitFrac_dy
-        @param[in] x_fiber
-        @param[in] y_fiber
-        @param[in] effective_ilum_radius
-        @param[in] frd_sigma
-        @param[in] frd_lorentz_factor
-        @param[in] det_vert
-        @param[in] slitHolder_frac_dx
-        @param[in] verbosity
-        @param[in] wide_0
-        @param[in] wide_23
-        @param[in] wide_43
+        Parameters
+        ----------
+        pupilSize: `float`
+            Size of the exit pupil [m]
+        npix: `int`
+             Constructed Pupils will be npix x npix
+        input_angle: `float`
+            Angle of the pupil (for all practical purposes fixed an np.pi/2)
+        detFrac: `float`
+             Value determining how much of the exit pupil obscured by the
+             central obscuration(detector)
+        strutFrac: `float`
+            Value determining how much of the exit pupil is obscured
+            by a single strut
+        slitFrac: `float`
+             Value determining how much of the exit pupil is obscured by slit
+        slitFrac_dy: `float`
+            Value determining what is the vertical position of the slit
+            in the exit pupil
+        x_fiber: `float`
+              Position of the fiber misaligment in the x direction
+        y_fiber: `float`
+              Position of the fiber misaligment in the y direction
+        effective_ilum_radius: `float`
+            Fraction of the maximal radius of the illumination
+            of the exit pupil that is actually illuminated
+        frd_sigma: `float`
+            Sigma of Gaussian convolving only outer edge, mimicking FRD
+        frd_lorentz_factor: `float`
+            Strength of the lorentzian factor describing wings
+        det_vert: `float`
+             Multiplicative factor determining vertical size
+             of the detector obscuration
+        wide_0: `float`
+           Widening of the strut at 0 degrees
+        wide_23: `float`
+          Widening of the strut at the top-left corner
+        wide_43: `float`
+              Widening of the strut at the bottom-left corner
+        misalign: `float`
+         Describing the amount of misaligment
+        verbosity: `int`
+            How verbose during evaluation (1 = full verbosity)
         """
-
         self.verbosity = verbosity
         if self.verbosity == 1:
-            print('Entering PFSPupilFactory class')
-        # wide here
-        # PupilFactory.__init__(self, pupilSize,npix,input_angle,hscFrac,strutFrac,slitFrac,slitFrac_dy,
-        #                      x_fiber,y_fiber,effective_ilum_radius,frd_sigma,frd_lorentz_factor,det_vert,verbosity=self.verbosity)
+            logging.info('Entering PFSPupilFactory class')
 
         PupilFactory.__init__(
             self,
             pupilSize,
             npix,
             input_angle,
-            hscFrac,
+            detFrac,
             strutFrac,
             slitFrac,
             slitFrac_dy,
@@ -881,21 +754,6 @@ class PFSPupilFactory(PupilFactory):
         self.wide_43 = wide_43
         self.misalign = misalign
 
-    def _horizonRotAngle(self, resultunit=None):
-        """!Compute rotation angle of camera with respect to horizontal
-        coordinates from self.visitInfo.
-
-        @returns horizon rotation angle.
-
-        """
-
-        if resultunit is None:
-            print('error')
-            # parAng = Angle(self.input_angle)
-            # return parAng.wrap()
-        else:
-            return 0
-
     def getPupil(self, point):
         """!Calculate a Pupil at a given point in the focal plane.
 
@@ -903,13 +761,13 @@ class PFSPupilFactory(PupilFactory):
         @returns      Pupil
         """
         if self.verbosity == 1:
-            print('Entering getPupil (function inside PFSPupilFactory)')
+            logging.info('Entering getPupil (function inside PFSPupilFactory)')
 
         # called subaruRadius as it was taken from the code fitting pupil for HSC on Subaru
         subaruRadius = (self.pupilSize / 2) * 1
 
-        hscFrac = self.hscFrac  # linear fraction
-        hscRadius = hscFrac * subaruRadius
+        detFrac = self.detFrac  # linear fraction
+        hscRadius = detFrac * subaruRadius
         slitFrac = self.slitFrac  # linear fraction
         subaruSlit = slitFrac * subaruRadius
         strutFrac = self.strutFrac  # linear fraction
@@ -945,11 +803,8 @@ class PFSPupilFactory(PupilFactory):
         pupil_frd = (1 / 2 * (scipy.special.erf((-center_distance + self.effective_ilum_radius) / sigma) +
                               scipy.special.erf((center_distance + self.effective_ilum_radius) / sigma)))
 
-        # print('misalign '+str(self.misalign) )
-
-        # misaligment starts here
-
         ################
+        # Adding misaligment in this section
         time_misalign_start = time.time()
 
         position_of_center_0 = np.where(center_distance == np.min(center_distance))
@@ -966,7 +821,6 @@ class PFSPupilFactory(PupilFactory):
                                          (len(pupil_frd) - position_of_center[1])**2)])
 
         max_distance_to_corner = np.max(distances_to_corners)
-        # 3
         threshold_value = 0.5
         left_from_center = np.where(pupil_frd[position_of_center_0_x]
                                     [0:position_of_center_0_y] < threshold_value)[0]
@@ -1023,64 +877,10 @@ class PFSPupilFactory(PupilFactory):
         time_misalign_end = time.time()
 
         if self.verbosity == 1:
-            print('Time to execute illumination considerations due to misalignment ' +
+            logging.info('Time to execute illumination considerations due to misalignment ' +
                   str(time_misalign_end - time_misalign_start))
 
         ####
-        # misaligment ends here
-
-        # misaligment ends here
-
-        pupil_lorentz = (np.arctan(2 * (self.effective_ilum_radius - center_distance) / (4 * sigma)) +
-                         np.arctan(2 * (self.effective_ilum_radius + center_distance) / (4 * sigma))) /\
-                        (2 * np.arctan((2 * self.effective_ilum_radius) / (4 * sigma)))
-
-        pupil.illuminated = (pupil_frd + 1 * self.frd_lorentz_factor *
-                             pupil_lorentz) / (1 + self.frd_lorentz_factor)
-
-        # print('sigma '+str(sigma))
-        # print('self.effective_ilum_radius '+str(self.effective_ilum_radius))
-        # np.save('/Users/nevencaplar/Documents/PFS/TigerAnalysis/Test/center_distance',center_distance)
-
-        # np.save('/Users/nevencaplar/Documents/PFS/TigerAnalysis/Test/pupil_frd',pupil_frd)
-        # np.save('/Users/nevencaplar/Documents/PFS/TigerAnalysis/Test/pupil_lorentz',pupil_lorentz)
-        # np.save('/Users/nevencaplar/Documents/PFS/TigerAnalysis/Test/pupil_illuminated',pupil.illuminated)
-
-        # Cout out the acceptance angle of the camera
-        # self._cutCircleExterior(pupil, (0.0, 0.0), subaruRadius)
-
-        # print(self.det_vert)
-        # Cut out detector shadow
-        # self._cutSquare(pupil, (camX, camY), hscRadius,self.input_angle,self.det_vert)
-
-        # No vignetting of this kind for the spectroscopic camera
-        # self._cutCircleExterior(pupil, (lensX, lensY), lensRadius)
-
-        # Cut out spider shadow
-        # print('self.wide_0,self.wide_23,self.wide_43 '+str([self.wide_0,self.wide_23,self.wide_43]))
-
-        # for pos, angle in zip(self._spiderStartPos, self._spiderAngles):
-        #    x = pos[0] + camX
-        #    y = pos[1] + camY
-        #
-        # print('[x,y,angle)'+str([x,y,angle]))
-        #    if angle==0:
-        #        self._cutRay(pupil, (x, y), angle, subaruStrutThick,'rad',self.wide_0)
-        #    if angle==np.pi*2/3:
-        #        self._cutRay(pupil, (x, y), angle, subaruStrutThick,'rad',self.wide_23)
-        #    if angle==np.pi*4/3:
-        #        self._cutRay(pupil, (x, y), angle, subaruStrutThick,'rad',self.wide_43)
-
-        # cut out slit shadow
-        # self._cutRay(pupil, (2,slitFrac_dy/18),-np.pi,subaruSlit,'rad')
-
-        # cut out slit holder shadow
-        # also subaruSlit/3 not fitted, just put roughly correct number
-        # self._cutRay(pupil, (self.slitHolder_frac_dx/18,1),-np.pi/2,subaruSlit/3,'rad')
-
-        # if self.verbosity==1:
-        #    print('Finished with getPupil')
-
         pupil_lorentz = (np.arctan(2 * (self.effective_ilum_radius - center_distance) / (4 * sigma)) +
                          np.arctan(2 * (self.effective_ilum_radius + center_distance) / (4 * sigma))) /\
                         (2 * np.arctan((2 * self.effective_ilum_radius) / (4 * sigma)))
@@ -1093,8 +893,6 @@ class PFSPupilFactory(PupilFactory):
         self._cutCircleExterior(pupil, (0.0, 0.0), subaruRadius)
 
         # Cut out detector shadow
-        # print( '(camX, camY): '+str( (camX, camY)))
-
         self._cutSquare(pupil, (camX, camY), hscRadius, self.input_angle, self.det_vert)
 
         # No vignetting of this kind for the spectroscopic camera
@@ -1106,32 +904,33 @@ class PFSPupilFactory(PupilFactory):
             y = pos[1] + camY
 
             if angle == 0:
-                # print('cutRay applied to strut at angle '+str(angle))
+                # logging.info('cutRay applied to strut at angle '+str(angle))
                 self._cutRay(pupil, (x, y), angle, subaruStrutThick, 'rad', self.wide_0)
             if angle == np.pi * 2 / 3:
-                # print('cutRay applied to strut at angle '+str(angle))
+                # logging.info('cutRay applied to strut at angle '+str(angle))
                 self._cutRay(pupil, (x, y), angle, subaruStrutThick, 'rad', self.wide_23)
             if angle == np.pi * 4 / 3:
-                # print('cutRay applied to strut at angle '+str(angle))
+                # logging.info('cutRay applied to strut at angle '+str(angle))
                 self._cutRay(pupil, (x, y), angle, subaruStrutThick, 'rad', self.wide_43)
 
         # cut out slit shadow
         self._cutRay(pupil, (2, slitFrac_dy / 18), -np.pi, subaruSlit * 1.05, 'rad')
 
         # cut out slit holder shadow
-        # also subaruSlit/3 not fitted, just put roughly correct number
+        # subaruSlit/3 is roughly the width of the holder
         self._cutRay(pupil, (self.slitHolder_frac_dx / 18, 1), -np.pi / 2, subaruSlit * 0.3, 'rad')
 
         if self.verbosity == 1:
-            print('Finished with getPupil')
+            logging.info('Finished with getPupil')
 
         return pupil
 
 
 class Pupil_misalign(object):
-
-    """
-
+    """Apply misaligment correction to the illumination of the pupil
+    
+    Developed by Brent Belland (Caltech)
+    Copied here without modifications
     """
 
     def __init__(self, radiusvalues, imageradius, sigtotp, misalign):
@@ -1172,7 +971,7 @@ class Pupil_misalign(object):
     def ndfc(self, x):
         # Standard model dropoff from a Gaussian convolution, normalized to brightness 1,
         # radius (rh) 0, and sigTOT 1
-        # print(len(x))
+        # logging.info(len(x))
         ndfcfun = 1 - (0.5 * erf(x / np.sqrt(2)) + 0.5)
         return ndfcfun
 
@@ -1197,7 +996,7 @@ class Pupil_misalign(object):
         return dif_due_to_mis
 
 
-class ZernikeFitter_PFS(object):
+class ZernikeFitterPFS(object):
 
     """Create a model images for PFS
 
@@ -1221,135 +1020,139 @@ class ZernikeFitter_PFS(object):
     Called by LN_PFS_Single (function constructModelImage_PFS_naturalResolution)
     """
 
-    def __init__(self, image=None, image_var=None, image_mask=None, pixelScale=None, wavelength=None,
-                 diam_sic=None, npix=None, pupilExplicit=None,
-                 wf_full_Image=None, radiometricEffectArray_Image=None,
-                 ilum_Image=None, dithering=None, save=None,
+    def __init__(self, image=np.ones((20, 20)), image_var=np.ones((20, 20)), image_mask=None, pixelScale=20.76, wavelength=794,
+                 diam_sic=139.5327e-3, npix=1536, pupilExplicit=None,
+                 wf_full_Image=None,
+                 ilum_Image=None, dithering=1, save=None,
                  pupil_parameters=None, use_pupil_parameters=None, use_optPSF=None, use_wf_grid=None,
                  zmaxInit=None, extraZernike=None, simulation_00=None, verbosity=None,
                  double_sources=None, double_sources_positions_ratios=None, test_run=None,
                  explicit_psf_position=None, use_only_chi=False, use_center_of_flux=False,
-                 *args):
+                 PSF_DIRECTORY=None, *args):
         """
-        @param image        image to analyze
-        @param image_var    variance image
-        @param image_mask
-        @param pixelScale   pixel scale in arcseconds
-        @param wavelength
-        @param diam_sic
-        @param npix
-        @param pupilExplicit
-        @param wf_full_Image
-        @param radiometricEffectArray_Image
-        @param ilum_Image
-        @param dithering
-        @param save
-        @param pupil_parameters
-        @param use_pupil_parameters
-        @param use_optPSF
-        @param use_wf_grid
-        @param zmaxInit
-        @param extraZernike
-        @param simulation_00
-        @param verbosity
-        @param double_sources
-        @param double_sources_positions_ratios
-        @param test_run
-        @param explicit_psf_position
+        Parameters
+        ----------
+        image: `np.array`, (N, N)
+            image that you wish to model
+            if you do not pass the image that you wish to compare,
+            the algorithm will default to creating 20x20 image that has
+            value of '1' everywhere
+        image_var: `np.array`, (N, N)
+            variance image
+            if you do not pass the variance image,
+            the algorithm will default to creating 20x20 image that has
+            value of '1' everywhere
+        image_mask: `np.array`, (N, N)
+            mask image
+        pixelScale: `float`
+            pixel scale in arcseconds
+            This is size of the pixel in arcsec for PFS red arm in focus
+            calculated with http://www.wilmslowastro.com/software/formulae.htm
+            pixel size in microns/focal length in mm x 206.3
+            pixel size = 15 microns, focal length = 149.2 mm
+            (138 aperature x 1.1 f number)
+        wavelength: `float`
+            wavelength of the psf [nm]
+            if you do not pass the value for wavelength it will default to 794 nm,
+            which is roughly in the middle of the red detector
+        diam_sic: `float`
+            size of the exit pupil [m]
+            Exit pupil size in focus, default is 139.5237e-3 meters
+            (taken from Zemax)
+        npix: `int`
+            size of 2d array contaning exit pupil illumination
+        pupilExplicit: `np.array`, (Np, Np)
+            if avaliable, uses this image for pupil instead of
+            creating it from supplied parameters
+        wf_full_Image: `np.array`, (Np, Np)
+            wavefront image
+            if avaliable, uses this image for wavefront instead of
+            creating it from supplied parameters
+        dithering: `int`
+            dithering scale (most likely 1 or 2)
+        save: `int`
+            if 1, save various intermediate results, for testing purposes
+            needs to set up also PSF_DIRECTORY
+        use_optPSF: `np.array`, (Np, Np)
+            if provided skip creation of optical psf, only do postprocessing
+        use_wf_grid: `np.array`, (Ny, Nx)
+            if provided, use this explicit wavefront map
+         zmaxInit: `int`
+             highest Zernike order (11 or 22)
+        extraZernike: `np.array`, (N)
+            if provided, simulated Zernike orders higher than 22
+        simulation_00: `np.array`, (2,)
+            places optical center at the center of the final image
+        verbosity: `int`
+            verbosity during evaluations
+        double_sources:
+            is there a second source present in the image
+        double_sources_positions_ratios: `np.arrray`, (2,)
+            initial guess for the position and strength of the second source
+        explicit_psf_position: `np.array`, (2,)
+            explicit position where to place optical psf
+        use_only_chi: `bool`
+            if True, fit to minimize np.abs(chi), and not chi**2
+        use_center_of_flux: `bool`
+            if True, fit to minimize the distance between the center of flux
+            for the model and the input image
+        PSF_DIRECTORY: `str`
+            where will intermediate outputs be saved for testing purposes
+            
+        Notes
+        ----------
+        Creates a model image that is fitted to the input sicence image
+        The model image is made by the convolution of
+        1. an OpticalPSF (constructed using FFT)
+            created with _getOptPsf_naturalResolution
+        The OpticalPSF part includes
+            1.1. description of pupil
+                 created with get_Pupil
+            1.2. specification of an arbitrary number of
+                zernike wavefront aberrations,
+                which are input to galsim.phase_screens.OpticalScreen
+        2. an input fiber image and other convolutions such as
+            CCD charge diffusion created with _optPsf_postprocessing
+        This code uses lmfit to initalize the parameters.
+        Calls class PsfPosition
+        Calls class PFSPupilFactory
+        
+        Examples
+        ----------
+        Simple exampe with initial parameters, changing only one parameter
+        >>> zmax = 22
+        >>> single_image_analysis = ZernikeFitterPFS(zmaxInit = zmax,
+                                                     verbosity=1)
+        >>> single_image_analysis.initParams()
+        >>> single_image_analysis.params['detFrac'] =\
+            lmfit.Parameter(name='detFrac', value=0.70)
+        >>> resulting_image, psf_pos =\
+            single_image_analysis.constructModelImage_PFS_naturalResolution()
         """
-
-        # if you do not pass the image that you wish to compare, the model will
-        # default to creating 41x41 image
-        if image is None:
-            image = np.ones((41, 41))
-            self.image = image
-        else:
-            self.image = image
-
-        # if you do not pass the  variance image that you wish to compare, the
-        # default variance image has value of '1' everywhere
-        if image_var is None:
-            image_var = np.ones((41, 41))
-            self.image_var = image_var
-        else:
-            self.image_var = image_var
-
+        self.image = image
+        self.image_var = image_var
         if image_mask is None:
             image_mask = np.zeros(image.shape)
-            self.image_mask = image_mask
+        self.image_mask = image_mask
+        self.wavelength = wavelength
+        self.diam_sic = diam_sic
+        self.npix = npix
+        self.dithering = dithering
+        self.pixelScale = pixelScale
+        self.pixelScale_effective = self.pixelScale / dithering    
+
+        if save in (None, 0):
+            save = None
         else:
-            self.image_mask = image_mask
-
-        # flux = number of counts in the image
-        flux = float(np.sum(image))
-        self.flux = flux
-
-        # if you do not pass the value for wavelength it will default to 794 nm,
-        # which is roughly in the middle of the red detector
-        if wavelength is None:
-            wavelength = 794
-            self.wavelength = wavelength
-        else:
-            self.wavelength = wavelength
-
-        # This is size of the pixel in arcsec for PFS red arm in focus
-        # calculated with http://www.wilmslowastro.com/software/formulae.htm
-        # pixel size in microns/focal length in mm x 206.3
-        # pixel size = 15 microns, focal length = 149.2 mm (138 aperature x 1.1 f number)
-        if pixelScale is None:
-            pixelScale = 20.76
-            self.pixelScale = pixelScale
-        else:
-            self.pixelScale = pixelScale
-        # print('self.pixelScale: '+str(self.pixelScale))
-
-        # Exit pupil size in focus, default is 139.5237e-3 meters (taken from Zemax)
-        if diam_sic is None:
-            diam_sic = 139.5327e-3
-            self.diam_sic = diam_sic
-        else:
-            self.diam_sic = diam_sic
-
-        # when creating pupils it will have size of npix pixels
-        if npix is None:
-            npix = 1536
-            self.npix = npix
-        else:
-            self.npix = npix
-
+            save = 1
+        self.save = save
+        self.use_optPSF = use_optPSF
+            
         # puilExplicit can be used to pass explicitly the image of the pupil
         # instead of creating it from the supplied parameters
         if pupilExplicit is None:
             pupilExplicit is False
-            self.pupilExplicit = pupilExplicit
-        else:
-            self.pupilExplicit = pupilExplicit
-
-        # radiometricEffectArray_Image can be used to pass explicitly the
-        # illumination of the exit pupil instead of creating it from the supplied
-        # parameters
-        if radiometricEffectArray_Image is None:
-            radiometricEffectArray_Image is False
-            self.radiometricEffectArray_Image = radiometricEffectArray_Image
-        else:
-            self.radiometricEffectArray_Image = radiometricEffectArray_Image
-
-        # effective size of pixels, which can be differ from physical size of pixels due to dithering
-        if dithering is None:
-            dithering = 1
-            self.dithering = dithering
-            # effective pixel scale is the same as physical pixel scale
-            self.pixelScale_effective = self.pixelScale / dithering
-        else:
-            self.dithering = dithering
-            self.pixelScale_effective = self.pixelScale / dithering
-
-        if save in (None, 0):
-            save = None
-            self.save = save
-        else:
-            save = 1
-            self.save = save
+        self.pupilExplicit = pupilExplicit
 
         if pupil_parameters is None:
             self.pupil_parameters = pupil_parameters
@@ -1362,13 +1165,7 @@ class ZernikeFitter_PFS(object):
             self.use_pupil_parameters = use_pupil_parameters
             self.args = args
 
-        if use_optPSF is None:
-            self.use_optPSF = use_optPSF
-        else:
-            self.use_optPSF = use_optPSF
-
         self.use_wf_grid = use_wf_grid
-
         self.zmax = zmaxInit
 
         self.simulation_00 = simulation_00
@@ -1376,9 +1173,7 @@ class ZernikeFitter_PFS(object):
             self.simulation_00 = 1
 
         self.extraZernike = extraZernike
-
         self.verbosity = verbosity
-
         self.double_sources = double_sources
         self.double_sources_positions_ratios = double_sources_positions_ratios
 
@@ -1387,161 +1182,181 @@ class ZernikeFitter_PFS(object):
         self.explicit_psf_position = explicit_psf_position
         self.use_only_chi = use_only_chi
         self.use_center_of_flux = use_center_of_flux
-
+        self.flux = float(np.sum(image))
+        
         try:
             if not explicit_psf_position:
                 self.explicit_psf_position = None
         except BaseException:
             pass
+        
+        self.PSF_DIRECTORY = PSF_DIRECTORY
+        ############################################################
+        if self.PSF_DIRECTORY == None:
+            # names of default directories where I often work
+            if socket.gethostname() == 'IapetusUSA':
+                self.PSF_DIRECTORY = '/Volumes/Saturn_USA/PFS/'
+            elif socket.gethostname() == 'pfsa-usr01-gb.subaru.nao.ac.jp' or \
+                    socket.gethostname() == 'pfsa-usr02-gb.subaru.nao.ac.jp':
+                self.PSF_DIRECTORY = '/work/ncaplar/'
+            else:
+                self.PSF_DIRECTORY = '/tigress/ncaplar/'
+
+
+        if self.PSF_DIRECTORY is not None:
+            self.TESTING_FOLDER = self.PSF_DIRECTORY + 'Testing/'
+            self.TESTING_PUPIL_IMAGES_FOLDER = self.TESTING_FOLDER + 'Pupil_Images/'
+            self.TESTING_WAVEFRONT_IMAGES_FOLDER = self.TESTING_FOLDER + 'Wavefront_Images/'
+            self.TESTING_FINAL_IMAGES_FOLDER = self.TESTING_FOLDER + 'Final_Images/'
 
         if self.verbosity == 1:
-            print('np.__version__' + str(np.__version__))
-            # print('skimage.__version__' +str(skimage.__version__))
-            print('scipy.__version__' + str(scipy.__version__))
-            print('Zernike_Module.__version__' + str(__version__))
-
+            # check the versions of the most important libraries
+            logging.info('np.__version__' + str(np.__version__))
+            logging.info('scipy.__version__' + str(scipy.__version__))
+            
     def initParams(
             self,
             z4Init=None,
-            dxInit=None,
-            dyInit=None,
-            hscFracInit=None,
+            detFracInit=None,
             strutFracInit=None,
             focalPlanePositionInit=None,
-            fiber_rInit=None,
             slitFracInit=None,
             slitFrac_dy_Init=None,
-            apodizationInit=None,
-            radiometricEffectInit=None,
-            trace_valueInit=None,
-            serial_trace_valueInit=None,
-            pixel_effectInit=None,
-            backgroundInit=None,
-            x_ilumInit=None,
-            y_ilumInit=None,
-            radiometricExponentInit=None,
-            x_fiberInit=None,
-            y_fiberInit=None,
-            effective_ilum_radiusInit=None,
-            grating_linesInit=None,
-            scattering_radiusInit=None,
-            scattering_slopeInit=None,
-            scattering_amplitudeInit=None,
-            fluxInit=None,
-            frd_sigmaInit=None,
-            frd_lorentz_factorInit=None,
-            det_vertInit=None,
-            slitHolder_frac_dxInit=None,
             wide_0Init=None,
             wide_23Init=None,
             wide_43Init=None,
-            misalignInit=None):
+            radiometricEffectInit=None,
+            radiometricExponentInit=None,
+            x_ilumInit=None,
+            y_ilumInit=None,
+            pixel_effectInit=None,
+            backgroundInit=None,
+            x_fiberInit=None,
+            y_fiberInit=None,
+            effective_ilum_radiusInit=None,
+            frd_sigmaInit=None,
+            frd_lorentz_factorInit=None,
+            misalignInit=None,
+            det_vertInit=None,
+            slitHolder_frac_dxInit=None,
+            grating_linesInit=None,
+            scattering_slopeInit=None,
+            scattering_amplitudeInit=None,
+            fiber_rInit=None,
+            fluxInit=None):
         """Initialize lmfit Parameters object.
 
-        @param zmax                      Total number of Zernike aberrations used
-        @param z4Init                    Initial Z4 aberration value in waves (that is 2*np.pi*wavelengths)
 
+        Allows to set up all parameters describing the pupil and
+        Zernike parameter (up to z22) explicitly. If any value is not passed,
+        it will be substituted by a default value (specified below).
+        Parameters
+        ----------
+        zmax: `int`
+            Total number of Zernike aberrations used (11 or 22)
+            Possible to add more with extra_zernike parameter
+        z4Init: `float`
+            Initial Z4 aberration value in waves (that is 2*np.pi*wavelengths)
         # pupil parameters
-        @param hscFracInit               Value determining how much of the exit pupil obscured by the
-                                         central obscuration(detector)
-        @param strutFracInit             Value determining how much of the exit pupil is obscured
-                                         by a single strut
-        @param focalPlanePositionInit    2-tuple for position of the central obscuration(detector)
-                                         in the focal plane
-        @param slitFracInit              Value determining how much of the exit pupil is obscured by slit
-        @param slitFrac_dy_Init          Value determining what is the vertical position of the slit
-                                         in the exit pupil
-
-        #
-        @param wide_0
-        @param wide_23
-        @param wide_34
-        @param misalign
-
+        detFracInit: `float`
+            Value determining how much of the exit pupil obscured by the
+             central obscuration(detector)
+        strutFracInit: `float`
+             Value determining how much of the exit pupil is obscured
+             by a single strut
+        focalPlanePositionInit: (`float`, `float`)
+            2-tuple for position of the central obscuration(detector)
+            in the focal plane
+        slitFracInit: `float`
+              Value determining how much of the exit pupil is obscured by slit
+        slitFrac_dy_Init: `float`
+              Value determining what is the vertical position of the slit
+               in the exit pupil
+        # parameters dsecribing individual struts
+        wide_0Init: `float`
+                Parameter describing widening of the strut at 0 degrees
+        wide_23Init: `float`
+               Parameter describing widening of the top-left strut
+        wide_34Init: `float`
+            Parameter describing widening of the bottom-left strut
         #non-uniform illumination
-        @param radiometricEffectInit     parameter describing non-uniform illumination of the pupil
-                                         (1-params['radiometricEffect']**2*r**2)**\
-                                         (params['radiometricExponent'])
-        @param radiometricExponentInit   parameter describing non-uniform illumination of the pupil
-                                         (1-params['radiometricEffect']**2*r**2)\
-                                         **(params['radiometricExponent'])
-        @param x_ilumInit                x-position of the center of illumination of the exit pupil
-        @param y_ilumInit                y-position of the center of illumination of the exit pupil
-
+        radiometricEffectInit: `float`
+            parameter describing non-uniform illumination of the pupil
+            (1-params['radiometricEffect']**2*r**2)**\
+            (params['radiometricExponent']) [DEPRECATED]
+        radiometricExponentInit: `float`
+            parameter describing non-uniform illumination of the pupil
+            (1-params['radiometricEffect']**2*r**2)\
+            **(params['radiometricExponent'])
+        x_ilumInit: `float`
+            x-position of the center of illumination
+            of the exit pupil [DEPRECATED]
+        y_ilumInit: `float`
+             y-position of the center of illumination
+             of the exit pupil [DEPRECATED]
         # illumination due to fiber, parameters
-        @param x_fiberInit               position of the fiber misaligment in the x direction
-        @param y_fiberInit               position of the fiber misaligment in the y direction
-        @param effective_ilum_radiusInit fraction of the maximal radius of the illumination of the exit pupil
-        @param frd_sigma                 sigma of Gaussian convolving only outer edge, mimicking FRD
-        @param frd_lorentz_factor        strength of the lorentzian factor describing wings
-                                         of the pupil illumination
-
+        x_fiberInit: `float`
+              position of the fiber misaligment in the x direction
+        y_fiberInit: `float`
+             position of the fiber misaligment in the y direction
+        effective_ilum_radiusInit: `float`
+            fraction of the maximal radius of the illumination
+            of the exit pupil that is actually illuminated
+        frd_sigma: `float`
+                 sigma of Gaussian convolving only outer edge, mimicking FRD
+        frd_lorentz_factor: `float`
+            strength of the lorentzian factor describing wings
+            of the pupil illumination
+        misalign: `float`
+            amount of misaligment in the illumination
         # further pupil parameters
-        @param det_vert                  multiplicative factor determining vertical size
-                                         of the detector obscuration
-        @param slitHolder_frac_dx        dx position of slit holder
-
+        det_vert: `float
+            multiplicative factor determining vertical size
+            of the detector obscuration
+        slitHolder_frac_dx: `float`
+            dx position of slit holder
         # convolving (postprocessing) parameters
-        @param grating_lines             number of effective lines in the grating
-        @param scattering_slopeInit      slope of scattering
-        @param scattering_amplitudeInit  amplitude of scattering compared to optical PSF
-        @param pixel_effectInit          sigma describing charge diffusion effect [in units of 15 microns]
-        @param fiber_rInit               radius of perfect tophat fiber, as seen on the detector
-                                         [in units of 15 microns]
-        @param fluxInit                  total flux in generated image compared to input image
-                                         (needs to be 1 or very close to 1)
-
-        #not used anymore
-        @param dxInit                     (not used in this version of the code -
-                                          parameter determing position of PSF on detector)
-        @param dyInit                     (not used in this version of the code -
-                                          parameter determing position of PSF on detector )
-        @param apodizationInit            (not used in this iteration of the code)
-                                          by how much pixels to convolve the pupil image
-                                          to apodize the strucutre - !
-        @param trace_valueInit            (not used in this iteration of the code)
-                                          inital value for adding vertical component to the data
-        @param serial_trace_valueInit     (not used in this iteration of the code)
-                                          inital value for adding horizontal component to the data
-
-
+        grating_lines: `int`
+             number of effective lines in the grating
+        scattering_slopeInit: `float`
+            slope of scattering
+        scattering_amplitudeInit: `float`
+            amplitude of scattering compared to optical PSF
+        pixel_effectInit: `float`
+            sigma describing charge diffusion effect [in units of 15 microns]
+        fiber_rInit: `float`
+             radius of perfect tophat fiber, as seen on the detector
+               [in units of 15 microns]
+        fluxInit: `float`
+            total flux in generated image compared to input image
+            (needs to be 1 or very close to 1)
         """
-
         if self.verbosity == 1:
-            print(' ')
-            print('Initializing ZernikeFitter_PFS')
-            print('Verbosity parameter is: ' + str(self.verbosity))
-            print('Highest Zernike polynomial is (zmax): ' + str(self.zmax))
+            logging.info(' ')
+            logging.info('Initializing ZernikeFitterPFS')
+            logging.info('Verbosity parameter is: ' + str(self.verbosity))
+            logging.info('Highest Zernike polynomial is (zmax): ' + str(self.zmax))
 
         params = lmfit.Parameters()
+        # Zernike parameters
         z_array = []
 
         if z4Init is None:
             params.add('z4', 0.0)
-
         else:
             params.add('z4', z4Init)
 
         for i in range(5, self.zmax + 1):
             params.add('z{}'.format(i), 0.0)
 
-        if dxInit is None:
-            params.add('dx', 0.0)
+        # pupil parameters
+        if detFracInit is None:
+            params.add('detFrac', 0.65)
         else:
-            params.add('dx', dxInit)
-
-        if dyInit is None:
-            params.add('dy', 0.0)
-        else:
-            params.add('dy', dyInit)
-
-        if hscFracInit is None:
-            params.add('hscFrac', 0)
-        else:
-            params.add('hscFrac', hscFracInit)
+            params.add('detFrac', detFracInit)
 
         if strutFracInit is None:
-            params.add('strutFrac', 0)
+            params.add('strutFrac', 0.07)
         else:
             params.add('strutFrac', strutFracInit)
 
@@ -1553,7 +1368,7 @@ class ZernikeFitter_PFS(object):
             params.add('dyFocal', focalPlanePositionInit[1])
 
         if slitFracInit is None:
-            params.add('slitFrac', 0)
+            params.add('slitFrac', 0.05)
         else:
             params.add('slitFrac', slitFracInit)
 
@@ -1562,101 +1377,7 @@ class ZernikeFitter_PFS(object):
         else:
             params.add('slitFrac_dy', slitFrac_dy_Init)
 
-        if fiber_rInit is None:
-            params.add('fiber_r', 1.8)
-        else:
-            params.add('fiber_r', fiber_rInit)
-
-        if radiometricEffectInit is None:
-            params.add('radiometricEffect', 0)
-        else:
-            params.add('radiometricEffect', radiometricEffectInit)
-
-        if trace_valueInit is None:
-            params.add('trace_value', 0)
-        else:
-            params.add('trace_value', trace_valueInit)
-
-        if serial_trace_valueInit is None:
-            params.add('serial_trace_value', 0)
-        else:
-            params.add('serial_trace_value', serial_trace_valueInit)
-
-        if pixel_effectInit is None:
-            params.add('pixel_effect', 1)
-        else:
-            params.add('pixel_effect', pixel_effectInit)
-
-        if backgroundInit is None:
-            params.add('background', 0)
-        else:
-            params.add('background', backgroundInit)
-
-        if fluxInit is None:
-            params.add('flux', 1)
-        else:
-            params.add('flux', fluxInit)
-
-        if x_ilumInit is None:
-            params.add('x_ilum', 1)
-        else:
-            params.add('x_ilum', x_ilumInit)
-
-        if y_ilumInit is None:
-            params.add('y_ilum', 1)
-        else:
-            params.add('y_ilum', y_ilumInit)
-
-        if radiometricExponentInit is None:
-            params.add('radiometricExponent', 0.25)
-        else:
-            params.add('radiometricExponent', radiometricExponentInit)
-
-        if x_ilumInit is None:
-            params.add('x_fiber', 1)
-        else:
-            params.add('x_fiber', x_fiberInit)
-
-        if effective_ilum_radiusInit is None:
-            params.add('effective_ilum_radius', 1)
-        else:
-            params.add('effective_ilum_radius', effective_ilum_radiusInit)
-
-        if y_fiberInit is None:
-            params.add('y_fiber', 0)
-        else:
-            params.add('y_fiber', y_fiberInit)
-
-        if grating_linesInit is None:
-            params.add('grating_lines', 100000)
-        else:
-            params.add('grating_lines', grating_linesInit)
-
-        if scattering_slopeInit is None:
-            params.add('scattering_slope', 2)
-        else:
-            params.add('scattering_slope', scattering_slopeInit)
-
-        if scattering_amplitudeInit is None:
-            params.add('scattering_amplitude', 10**-2)
-        else:
-            params.add('scattering_amplitude', scattering_amplitudeInit)
-
-        if frd_sigmaInit is None:
-            params.add('frd_sigma', 0.02)
-        else:
-            params.add('frd_sigma', frd_sigmaInit)
-
-        if frd_lorentz_factorInit is None:
-            params.add('frd_lorentz_factor', 0.5)
-        else:
-            params.add('frd_lorentz_factor', frd_lorentz_factorInit)
-
-        if det_vertInit is None:
-            params.add('det_vert', 1)
-        else:
-            params.add('det_vert', det_vertInit)
-
+        # parameters dsecribing individual struts
         if wide_0Init is None:
             params.add('wide_0', 0)
         else:
@@ -1672,15 +1393,99 @@ class ZernikeFitter_PFS(object):
         else:
             params.add('wide_43', wide_43Init)
 
+        # non-uniform illumination
+        if radiometricExponentInit is None:
+            params.add('radiometricExponent', 0.25)
+        else:
+            params.add('radiometricExponent', radiometricExponentInit)
+
+        if radiometricEffectInit is None:
+            params.add('radiometricEffect', 0)
+        else:
+            params.add('radiometricEffect', radiometricEffectInit)
+
+        if x_ilumInit is None:
+            params.add('x_ilum', 1)
+        else:
+            params.add('x_ilum', x_ilumInit)
+
+        if y_ilumInit is None:
+            params.add('y_ilum', 1)
+        else:
+            params.add('y_ilum', y_ilumInit)
+
+        # illumination due to fiber, parameters
+        if x_ilumInit is None:
+            params.add('x_fiber', 1)
+        else:
+            params.add('x_fiber', x_fiberInit)
+
+        if y_fiberInit is None:
+            params.add('y_fiber', 0)
+        else:
+            params.add('y_fiber', y_fiberInit)
+
+        if effective_ilum_radiusInit is None:
+            params.add('effective_ilum_radius', 0.9)
+        else:
+            params.add('effective_ilum_radius', effective_ilum_radiusInit)
+
+        if frd_sigmaInit is None:
+            params.add('frd_sigma', 0.02)
+        else:
+            params.add('frd_sigma', frd_sigmaInit)
+
+        if frd_lorentz_factorInit is None:
+            params.add('frd_lorentz_factor', 0.5)
+        else:
+            params.add('frd_lorentz_factor', frd_lorentz_factorInit)
+
         if misalignInit is None:
             params.add('misalign', 0)
         else:
             params.add('misalign', misalignInit)
 
+        # further pupil parameters
+        if det_vertInit is None:
+            params.add('det_vert', 1)
+        else:
+            params.add('det_vert', det_vertInit)
+
         if slitHolder_frac_dxInit is None:
             params.add('slitHolder_frac_dx', 0)
         else:
             params.add('slitHolder_frac_dx', slitHolder_frac_dxInit)
+
+        # convolving (postprocessing) parameters
+        if grating_linesInit is None:
+            params.add('grating_lines', 100000)
+        else:
+            params.add('grating_lines', grating_linesInit)
+
+        if scattering_slopeInit is None:
+            params.add('scattering_slope', 2)
+        else:
+            params.add('scattering_slope', scattering_slopeInit)
+
+        if scattering_amplitudeInit is None:
+            params.add('scattering_amplitude', 10**-2)
+        else:
+            params.add('scattering_amplitude', scattering_amplitudeInit)
+
+        if pixel_effectInit is None:
+            params.add('pixel_effect', 0.35)
+        else:
+            params.add('pixel_effect', pixel_effectInit)
+
+        if fiber_rInit is None:
+            params.add('fiber_r', 1.8)
+        else:
+            params.add('fiber_r', fiber_rInit)
+
+        if fluxInit is None:
+            params.add('flux', 1)
+        else:
+            params.add('flux', fluxInit)
 
         self.params = params
         self.optPsf = None
@@ -1695,77 +1500,70 @@ class ZernikeFitter_PFS(object):
             extraZernike=None,
             return_intermediate_images=False):
         """Construct model image given the set of parameters
-
-        Calls _getOptPsf_naturalResolution and optPsf_postprocessing
-        Called by LN_PFS_single.lnlike_Neven
-
-
         Parameters
         ----------
-
         params : `lmfit.Parameters` object or python dictionary
-            Parameters descrubing model; None to use self.params
+            Parameters describing model; None to use self.params
         shape : `(int, int)`
             Shape for model image; None to use the shape of self.maskedImage
         pixelScale : `float`
-            Pixel scale in arcseconds to use for model image; None to use self.pixelScale.
+            Pixel scale in arcseconds to use for model image;
+            None to use self.pixelScale.
         use_optPSF : `bool`
-            If True, use previously generated optical PSF and conduct only postprocessing
-        extraZernike : `int`
-            Number of Zernike parameteres beyond z22
+            If True, use previously generated optical PSF,
+            skip _getOptPsf_naturalResolution, and conduct only postprocessing
+        extraZernike : `np.array`, (N,)
+            Zernike parameteres beyond z22
         return_intermediate_images : `bool`
              If True, return intermediate images created during the run
              This is in order to help with debugging and inspect
              the images created during the process
-
         Return
         ----------
         (if not return_intermediate_images)
-        optPsf_cut_fiber_convolved_downsampled : `np.array`
+        optPsf_final : `np.array`, (N, N)
             Final model image
-        psf_position : np.array
+        psf_position : np.array, (2,)
             Position where image is centered
         (if return_intermediate_images)
-        optPsf_cut_fiber_convolved_downsampled : `np.array`
+        optPsf_final : `np.array`, (N, N)
             Final model image
-        ilum : `np.array`
+        ilum : `np.array`, (N, N)
             Illumination array
-        wf_grid_rot : `np.array`
+        wf_grid_rot : `np.array`, (N, N)
             Wavefront array
-        psf_position : np.array
+        psf_position : np.array, (2,)
             Position where image is centered
+        Notes
+        ----------
+        Calls _getOptPsf_naturalResolution and optPsf_postprocessing
         """
-
         if self.verbosity == 1:
-            print(' ')
-            print('Entering constructModelImage_PFS_naturalResolution')
+            logging.info(' ')
+            logging.info('Entering constructModelImage_PFS_naturalResolution')
 
         if params is None:
             params = self.params
-
         if shape is None:
             shape = self.image.shape
-
         if pixelScale is None:
             pixelScale = self.pixelScale
-
+            logging.info('pixelScale_1573'+str(pixelScale))
         try:
             parameter_values = params.valuesdict()
         except AttributeError:
             parameter_values = params
-
         use_optPSF = self.use_optPSF
 
         if extraZernike is None:
-            extraZernike = None
-            self.extraZernike = extraZernike
+            pass
         else:
             extraZernike = list(extraZernike)
-            self.extraZernike = extraZernike
+        self.extraZernike = extraZernike
 
-        # This give image in nyquist resolution
-        # if not explicitly stated to the full procedure
+        # if you did not pass pure optical psf image, create one here
         if use_optPSF is None:
+            # change outputs depending on if you want intermediate results
             if not return_intermediate_images:
                 optPsf = self._getOptPsf_naturalResolution(
                     parameter_values, return_intermediate_images=return_intermediate_images)
@@ -1773,7 +1571,8 @@ class ZernikeFitter_PFS(object):
                 optPsf, ilum, wf_grid_rot = self._getOptPsf_naturalResolution(
                     parameter_values, return_intermediate_images=return_intermediate_images)
         else:
-            # if first iteration still generated image
+            # if you claimed to have supplied optical psf image,
+            # but none is provided still create one
             if self.optPsf is None:
                 if not return_intermediate_images:
                     optPsf = self._getOptPsf_naturalResolution(
@@ -1786,75 +1585,82 @@ class ZernikeFitter_PFS(object):
                 optPsf = self.optPsf
 
         # at the moment, no difference in optPsf_postprocessing depending on return_intermediate_images
-        optPsf_cut_fiber_convolved_downsampled, psf_position = self._optPsf_postprocessing(
+        optPsf_final, psf_position = self._optPsf_postprocessing(
             optPsf, return_intermediate_images=return_intermediate_images)
 
         if self.save == 1:
-            if socket.gethostname() == 'IapetusUSA' or socket.gethostname() == 'tiger2-sumire.princeton.edu' \
-                or socket.gethostname() == 'pfsa-usr01-gb.subaru.nao.ac.jp' or \
-                    socket.gethostname() == 'pfsa-usr02-gb.subaru.nao.ac.jp':
-                np.save(TESTING_FINAL_IMAGES_FOLDER + 'optPsf', optPsf)
-                np.save(
-                    TESTING_FINAL_IMAGES_FOLDER +
-                    'optPsf_cut_fiber_convolved_downsampled',
-                    optPsf_cut_fiber_convolved_downsampled)
-            else:
-                pass
+                np.save(self.TESTING_FINAL_IMAGES_FOLDER + 'optPsf', optPsf)
+                np.save(self.TESTING_FINAL_IMAGES_FOLDER + 'optPsf_final', optPsf_final)
+        else:
+            pass
 
         if not return_intermediate_images:
-            return optPsf_cut_fiber_convolved_downsampled, psf_position
+            return optPsf_final, psf_position
         if return_intermediate_images:
-            return optPsf_cut_fiber_convolved_downsampled, ilum, wf_grid_rot, psf_position
+            return optPsf_final, ilum, wf_grid_rot, psf_position
 
         if self.verbosity == 1:
-            print('Finished with constructModelImage_PFS_naturalResolution')
-            print(' ')
+            logging.info('Finished with constructModelImage_PFS_naturalResolution')
+            logging.info(' ')
 
     def _optPsf_postprocessing(self, optPsf, return_intermediate_images=False):
         """Apply postprocessing to the pure optical psf image
-
-        Takes optical psf and postprocesses it to generate final image
-
         Parameters
         ----------
-        optPsf : `np.array`
+        optPsf : `np.array`, (N, N)
             Optical image, only psf
         return_intermediate_images : `bool`
              If True, return intermediate images created during the run
-             This is in order to help with debugging and inspect
+             This is potentially in order to help with debugging and inspect
              the images created during the process
-
-        Return
+        Returns
         ----------
-        (At the moment, the output is the same no matter what return_intermediate_images is,
-        but there is a possibility to add intermediate outputs)
-
-        optPsf_cut_fiber_convolved_downsampled : `np.array`
+        (At the moment, the output is the same no matter what
+         return_intermediate_images is, but there is a possibility
+         to add intermediate outputs)
+        optPsf_final : `np.array`, (N, N)
             Final model image
-        psf_position : np.array
-            Position where image is centered
+        psf_position : `np.array`, (2,)
+            Position where the image is centered
+        Notes
+        ----------
+        Takes optical psf and ``postprocesses`` it to generate final image.
+        The algorithm first reduces the oversampling and cuts the central part
+        of the image. This is done to speed up the calculations.
+        Then we apply various effects that are separate from
+        the pure optical PSF considerations.
+        We then finish with the centering algorithm to move our created image
+        to fit the input science image, invoking PSFPosition class.
+        The effects we apply are
+        1. scattered light
+            function apply_scattered_light
+        2. convolution with fiber
+            function convolve_with_fiber
+        3. CCD difusion
+            function convolve_with_CCD_diffusion
+        4. grating effects
+            function convolve_with_grating
+        5. centering
+            via class PsfPosition
         """
-
         time_start_single = time.time()
         if self.verbosity == 1:
-            print(' ')
-            print('Entering optPsf_postprocessing')
+            logging.info(' ')
+            logging.info('Entering optPsf_postprocessing')
 
         params = self.params
         shape = self.image.shape
-        # double_sources = self.double_sources
 
         # all of the parameters for the creation of the image
         # very stupidly called ``v'' without any reason whatsoever
-        v = params.valuesdict()
+        param_values = params.valuesdict()
 
         # how much is my generated image oversampled compared to final image
         oversampling_original = (self.pixelScale_effective) / self.scale_ModelImage_PFS_naturalResolution
 
         if self.verbosity == 1:
-            print('optPsf.shape: ' + str(optPsf.shape))
-            print('oversampling_original: ' + str(oversampling_original))
-            # print('type(optPsf) '+str(type(optPsf[0][0])))
+            logging.info('Shape of optPsf: ' + str(optPsf.shape))
+            logging.info('Value of oversampling_original: ' + str(oversampling_original))
 
         # determine the size, so that from the huge generated image we can cut out
         # only the central portion (1.4 times larger than the size of actual
@@ -1865,59 +1671,43 @@ class ZernikeFitter_PFS(object):
             # if larger than size of image, cut the image
             # fail if not enough space
             size_of_central_cut = optPsf.shape[0]
-            # print('size:'+str(int(oversampling_original*self.image.shape[0]*1.0)))
             if self.verbosity == 1:
-                print('size_of_central_cut modified to ' + str(size_of_central_cut))
-
+                logging.info('size_of_central_cut modified to ' + str(size_of_central_cut))
             assert int(oversampling_original * self.image.shape[0] * 1.0) < optPsf.shape[0]
 
         assert size_of_central_cut <= optPsf.shape[0]
         if self.verbosity == 1:
-            print('size_of_central_cut: ' + str(size_of_central_cut))
+            logging.info('size_of_central_cut: ' + str(size_of_central_cut))
 
         # cut part which you need to form the final image
         # set oversampling to 1 so you are not resizing the image, and dx=0 and
         # dy=0 so that you are not moving around, i.e., you are cutting the
         # central region
-        optPsf_cut = Psf_position.cut_Centroid_of_natural_resolution_image(
+        optPsf_cut = PsfPosition.cut_Centroid_of_natural_resolution_image(
             image=optPsf, size_natural_resolution=size_of_central_cut + 1, oversampling=1, dx=0, dy=0)
         if self.verbosity == 1:
-            print('optPsf_cut.shape' + str(optPsf_cut.shape))
+            logging.info('optPsf_cut.shape' + str(optPsf_cut.shape))
 
         # we want to reduce oversampling to be roughly around 10 to make things computationaly easier
         # if oversamplign_original is smaller than 20 (in case of dithered images),
         # make res coarser by factor of 2
-        # otherwise set it to 11 (changed in 0.48)
+        # otherwise set it to 11
         if oversampling_original < 20:
             oversampling = np.round(oversampling_original / 2)
         else:
-            # oversampling=np.round(oversampling_original/4)
             oversampling = 11
         if self.verbosity == 1:
-            print('oversampling:' + str(oversampling))
+            logging.info('oversampling:' + str(oversampling))
 
         # what will be the size of the image after you resize it to the from
         # ``oversampling_original'' to ``oversampling'' ratio
         size_of_optPsf_cut_downsampled = np.int(
             np.round(size_of_central_cut / (oversampling_original / oversampling)))
         if self.verbosity == 1:
-            print('size_of_optPsf_cut_downsampled: ' + str(size_of_optPsf_cut_downsampled))
-            # print('type(optPsf_cut) '+str(type(optPsf_cut[0][0])))
+            logging.info('size_of_optPsf_cut_downsampled: ' + str(size_of_optPsf_cut_downsampled))
 
         # make sure that optPsf_cut_downsampled is an array which has an odd size
         # - increase size by 1 if needed
-
-        # if (size_of_optPsf_cut_downsampled % 2) == 0:
-        #    optPsf_cut_downsampled=skimage.transform.resize(optPsf_cut,(size_of_optPsf_cut_downsampled+1,size_of_optPsf_cut_downsampled+1),mode='constant',order=3)
-        # else:
-        #    optPsf_cut_downsampled=skimage.transform.resize(optPsf_cut,(size_of_optPsf_cut_downsampled,size_of_optPsf_cut_downsampled),mode='constant',order=3)
-
-        # if (size_of_optPsf_cut_downsampled % 2) == 0:
-        #    optPsf_cut_downsampled=resize(optPsf_cut,(size_of_optPsf_cut_downsampled+1,size_of_optPsf_cut_downsampled+1))
-        # else:
-        #    optPsf_cut_downsampled=resize(optPsf_cut,(size_of_optPsf_cut_downsampled,size_of_optPsf_cut_downsampled))
-
-        # change in 0.47a
         if (size_of_optPsf_cut_downsampled % 2) == 0:
             im1 = galsim.Image(optPsf_cut, copy=True, scale=1)
             interpolated_image = galsim._InterpolatedImage(im1, x_interpolant=galsim.Lanczos(5, True))
@@ -1932,263 +1722,96 @@ class ZernikeFitter_PFS(object):
                           scale=(oversampling_original / oversampling), method='no_pixel').array
 
         if self.verbosity == 1:
-            print('optPsf_cut_downsampled.shape: ' + str(optPsf_cut_downsampled.shape))
-            # print('type(optPsf_cut_downsampled) '+str(type(optPsf_cut_downsampled[0][0])))
+            logging.info('optPsf_cut_downsampled.shape: ' + str(optPsf_cut_downsampled.shape))
 
         # gives middle point of the image to used for calculations of scattered light
-        mid_point_of_optPsf_cut_downsampled = int(optPsf_cut_downsampled.shape[0] / 2)
+        # mid_point_of_optPsf_cut_downsampled = int(optPsf_cut_downsampled.shape[0] / 2)
 
         # gives the size of one pixel in optPsf_downsampled in microns
         # one physical pixel is 15 microns
         # effective size is 15 / dithering
-        size_of_pixels_in_optPsf_cut_downsampled = (15 / self.dithering) / oversampling
+        # size_of_pixels_in_optPsf_cut_downsampled = (15 / self.dithering) / oversampling
 
         # size of the created optical PSF images in microns
-        size_of_optPsf_cut_in_Microns = size_of_pixels_in_optPsf_cut_downsampled * \
-            (optPsf_cut_downsampled.shape[0])
-        if self.verbosity == 1:
-            print('size_of_optPsf_cut_in_Microns: ' + str(size_of_optPsf_cut_in_Microns))
-
-        ##########################################
-
-        # we now apply various effects that are separate from pure optical PSF
-        # Those include
-        # 1. scattered light
-        # 2. convolution with fiber
-        # 3. CCD difusion
-        # 4. grating effects
-
-        # We then finish with the centering algorithm to move our created image to fit the input science image
-        # 5. centering
-
-        ##########################################
-        # 1. scattered light
-
-        # I believe this is surface brighntess
-        # create grid to apply scattered light
-
-        pointsx = np.linspace(-(size_of_optPsf_cut_in_Microns - size_of_pixels_in_optPsf_cut_downsampled) / 2,
-                              (size_of_optPsf_cut_in_Microns - size_of_pixels_in_optPsf_cut_downsampled) / 2,
-                              num=optPsf_cut_downsampled.shape[0],
-                              dtype=np.float32)
-        pointsy = np.linspace(-(size_of_optPsf_cut_in_Microns - size_of_pixels_in_optPsf_cut_downsampled) / 2,
-                              (size_of_optPsf_cut_in_Microns - size_of_pixels_in_optPsf_cut_downsampled) / 2,
-                              num=optPsf_cut_downsampled.shape[0]).astype(np.float32)
-        xs, ys = np.meshgrid(pointsx, pointsy)
-        r0 = np.sqrt((xs - 0) ** 2 + (ys - 0) ** 2) + .01
+        # size_of_optPsf_cut_in_Microns = size_of_pixels_in_optPsf_cut_downsampled * \
+        #     (optPsf_cut_downsampled.shape[0])
+        # if self.verbosity == 1:
+        #     logging.info('size_of_optPsf_cut_in_Microns: ' + str(size_of_optPsf_cut_in_Microns))
 
         if self.verbosity == 1:
-            print('postprocessing parameters:')
-            print(str(['grating_lines', 'scattering_slope', 'scattering_amplitude',
+            logging.info('Postprocessing parameters are:')
+            logging.info(str(['grating_lines', 'scattering_slope', 'scattering_amplitude',
                        'pixel_effect', 'fiber_r']))
-            print(str([v['grating_lines'], v['scattering_slope'],
-                  v['scattering_amplitude'], v['pixel_effect'], v['fiber_r']]))
-            print('type(pointsx): ' + str(type(pointsx[0])))
+            logging.info(str([param_values['grating_lines'], param_values['scattering_slope'],
+                  param_values['scattering_amplitude'], param_values['pixel_effect'],
+                  param_values['fiber_r']]))
 
-        # creating scattered light code
-        scattered_light_kernel = (r0**(-v['scattering_slope']))
+        ##########################################
+        # 1. scattered light
+        optPsf_cut_downsampled_scattered = self.apply_scattered_light(optPsf_cut_downsampled,
+                                                                      oversampling,
+                                                                      param_values['scattering_slope'],
+                                                                      param_values['scattering_amplitude'],
+                                                                      dithering=self.dithering)
 
-        # the line below from previous code where I terminated scattering radius dependece below
-        # certain radius which could have change (changed on Oct 04, 2018)
-        # keep for some more time for historic reasons
-        # scattered_light_kernel[r0<v['scattering_radius']]=v['scattering_radius']**(-v['scattering_slope'])
-
-        scattered_light_kernel[r0 < 7.5] = 7.5**(-v['scattering_slope'])
-        scattered_light_kernel[scattered_light_kernel == np.inf] = 0
-        scattered_light_kernel = scattered_light_kernel * \
-            (v['scattering_amplitude']) / (10 * np.max(scattered_light_kernel))
-
-        # convolve the psf with the scattered light kernel to create scattered light component
-        # scattered_light=custom_fftconvolve(optPsf_cut_downsampled,scattered_light_kernel)
-        # scattered_light=scipy.signal.fftconvolve(optPsf_cut_downsampled, scattered_light_kernel
-        # , mode='same')
-        scattered_light = signal.fftconvolve(optPsf_cut_downsampled, scattered_light_kernel, mode='same')
-
-        # print('type(scattered_light[0][0])'+str(type(scattered_light[0][0])))
-        # add back the scattering to the image
-        optPsf_cut_downsampled_scattered = optPsf_cut_downsampled + scattered_light
-
-        if self.verbosity == 1:
-            print('optPsf_cut_downsampled_scattered.shape:' + str(optPsf_cut_downsampled_scattered.shape))
-            # print('type(optPsf_cut_downsampled_scattered[0][0])'+
-            # str(type(optPsf_cut_downsampled_scattered[0][0])))
 
         ##########################################
         # 2. convolution with fiber
-
-        # create tophat2d
-        # physical quantities do not change with dithering, so multiply with self.dithering
-        # (applies also to steps 3 and 4)
-        # fiber = astropy.convolution.Tophat2DKernel(oversampling*v['fiber_r']*self.dithering,
-        # mode='oversample').array
-        # this creates a pixelized image (mode='oversample')
-        fiber = Tophat2DKernel(oversampling * v['fiber_r'] * self.dithering, mode='oversample').array
-
-        # create array with zeros with size of the current image, which we will
-        # fill with fiber array in the middle
-        fiber_padded = np.zeros_like(optPsf_cut_downsampled_scattered, dtype=np.float32)
-        mid_point_of_optPsf_cut_downsampled = int(optPsf_cut_downsampled.shape[0] / 2)
-        fiber_array_size = fiber.shape[0]
-        # fill the zeroes image with fiber here
-        fiber_padded[int(mid_point_of_optPsf_cut_downsampled -
-                         fiber_array_size /
-                         2) +
-                     1:int(mid_point_of_optPsf_cut_downsampled +
-                           fiber_array_size /
-                           2) +
-                     1, int(mid_point_of_optPsf_cut_downsampled -
-                            fiber_array_size /
-                            2) +
-                     1:int(mid_point_of_optPsf_cut_downsampled +
-                           fiber_array_size /
-                           2) +
-                     1] = fiber
-
-        # legacy code for is the line below, followed by the currently used code
-        # optPsf_fiber_convolved=scipy.signal.fftconvolve(optPsf_downsampled_scattered, fiber, mode = 'same')
-
-        # convolve with fiber
-        # optPsf_cut_fiber_convolved=custom_fftconvolve(optPsf_cut_downsampled_scattered,fiber_padded)
-        # optPsf_cut_fiber_convolved=scipy.signal.fftconvolve(optPsf_cut_downsampled_scattered, fiber_padded,
-        # mode='same')
-        optPsf_cut_fiber_convolved = signal.fftconvolve(
-            optPsf_cut_downsampled_scattered, fiber_padded, mode='same')
+        optPsf_cut_fiber_convolved = self.convolve_with_fiber(optPsf_cut_downsampled_scattered,
+                                                              oversampling,
+                                                              param_values['fiber_r'],
+                                                              dithering=self.dithering)
 
         ##########################################
         # 3. CCD difusion
-
-        # pixels are not perfect detectors
-        # charge diffusion in our optical CCDs, can be well described with a Gaussian
-        # sigma is around 7 microns (Jim Gunn - private communication).
-        # This is controled in our code by @param 'pixel_effect'
-        # by default, this creates surface brightness profile
-        pixel_gauss = Gaussian2DKernel(
-            oversampling *
-            v['pixel_effect'] *
-            self.dithering).array.astype(
-            np.float32)
-        pixel_gauss_padded = np.pad(pixel_gauss,
-                                    int((len(optPsf_cut_fiber_convolved) - len(pixel_gauss)) / 2),
-                                    'constant',
-                                    constant_values=0)
-
-        # assert that gauss_padded array did not produce empty array
-        assert np.sum(pixel_gauss_padded) > 0
-
-        # optPsf_cut_pixel_response_convolved=scipy.signal.fftconvolve(optPsf_cut_fiber_convolved,
-        # pixel_gauss_padded, mode='same')
-        optPsf_cut_pixel_response_convolved = signal.fftconvolve(
-            optPsf_cut_fiber_convolved, pixel_gauss_padded, mode='same')
+        optPsf_cut_pixel_response_convolved = self.convolve_with_CCD_diffusion(optPsf_cut_fiber_convolved,
+                                                                               oversampling,
+                                                                               param_values['pixel_effect'],
+                                                                               dithering=self.dithering)
 
         ##########################################
         # 4. grating effects
-
-        # following grating calculation is done
-        # assuming that 15 microns covers wavelength range of 0.07907 nm
-        # (assuming that 4300 pixels in real detector uniformly covers 340 nm)
-        # I belive that this is also covolution by a surface brightness profile
-        grating_kernel = np.ones((optPsf_cut_pixel_response_convolved.shape[0], 1), dtype=np.float32)
-        for i in range(len(grating_kernel)):
-            grating_kernel[i] = Ifun16Ne((i -
-                                          int(optPsf_cut_pixel_response_convolved.shape[0] /
-                                              2)) *
-                                         0.07907 *
-                                         10**-
-                                         9 /
-                                         (self.dithering *
-                                          oversampling) +
-                                         self.wavelength *
-                                         10**-
-                                         9, self.wavelength *
-                                         10**-
-                                         9, v['grating_lines'])
-        grating_kernel = grating_kernel / np.sum(grating_kernel)
-
-        # I should implement custom_fft function (custom_fftconvolve),
-        # as above (old comment, everything moved to signa.fftconvolve)
-        # This is 1D convolution so it would need a bit of work, and I see that behavior is fine
-        # optPsf_cut_grating_convolved=scipy.signal.fftconvolve(optPsf_cut_pixel_response_convolved,
-        # grating_kernel, mode='same')
-        optPsf_cut_grating_convolved = signal.fftconvolve(
-            optPsf_cut_pixel_response_convolved, grating_kernel, mode='same')
+        optPsf_cut_grating_convolved = self.convolve_with_grating(optPsf_cut_pixel_response_convolved,
+                                                                  oversampling,
+                                                                  self.wavelength,
+                                                                  param_values['grating_lines'],
+                                                                  dithering=self.dithering)
 
         ##########################################
         # 5. centering
         # This is the part which creates the final image
-        # if you have requsted a simulated image without movement,
-        # `simulation_00' will not be `None' and the code goes into the small ``if statment'' below
-        # otherwise, if `simulation_00' is `None' the statment is skipped and the
-        # code does not create image with optical center at (0,0)
+
+        # the algorithm  finds the best downsampling combination automatically
         if self.verbosity == 1:
-            print('simulation_00 parameter: ' + str(self.simulation_00))
-        if self.simulation_00 is not None:
-            # needs to be improved and made sure that you take the oversampling into account
-            optPsf_cut_grating_convolved_simulation_cut =\
-                Psf_position.cut_Centroid_of_natural_resolution_image(
-                    optPsf_cut_grating_convolved, 20 * oversampling, 1, +1, +1)
-            optPsf_cut_grating_convolved_simulation_cut = optPsf_cut_grating_convolved_simulation_cut / \
-                np.sum(optPsf_cut_grating_convolved_simulation_cut)
-            np.save(
-                TESTING_FINAL_IMAGES_FOLDER +
-                'optPsf_cut_grating_convolved_simulation_cut',
-                optPsf_cut_grating_convolved_simulation_cut)
-
-            optPsf_cut_grating_convolved_simulation_cut_odd =\
-                Psf_position.cut_Centroid_of_natural_resolution_image(
-                    optPsf_cut_grating_convolved, 21 * oversampling, 1, +1, +1)
-            optPsf_cut_grating_convolved_simulation_cut_odd =\
-                optPsf_cut_grating_convolved_simulation_cut_odd /\
-                np.sum(optPsf_cut_grating_convolved_simulation_cut_odd)
-            np.save(
-                TESTING_FINAL_IMAGES_FOLDER +
-                'optPsf_cut_grating_convolved_simulation_cut_odd',
-                optPsf_cut_grating_convolved_simulation_cut_odd)
-
-            # still create some sort of optPsf_cut_fiber_convolved_downsampled in order to be consistent
-
-        else:
-
-            pass
-
-        # the algorithm  finds (or at least should find) the best downsampling combination automatically
-        if self.verbosity == 1:
-            print('are we invoking double sources (1 or True if yes): ' + str(self.double_sources))
-            print('double source position/ratio is:' + str(self.double_sources_positions_ratios))
+            logging.info('Are we invoking double sources (1 or True if yes): ' + str(self.double_sources))
+            logging.info('Double source position/ratio is:' + str(self.double_sources_positions_ratios))
 
         # initialize the class which does the centering -
-        # the separation between the class and the main function in the class,
+        # TODO: the separation between the class and the main function in the class,
         # ``find_single_realization_min_cut'', is a bit blurry and unsatisfactory
-        single_Psf_position = Psf_position(optPsf_cut_grating_convolved,
-                                           int(round(oversampling)),
-                                           shape[0],
-                                           double_sources=self.double_sources,
-                                           double_sources_positions_ratios= #noqa: E251
-                                           self.double_sources_positions_ratios,
-                                           verbosity=self.verbosity,
-                                           save=self.save)
+        # this needs to be improved
+        single_Psf_position = PsfPosition(optPsf_cut_grating_convolved,
+                                          int(round(oversampling)),
+                                          shape[0],
+                                          simulation_00=self.simulation_00,
+                                          verbosity=self.verbosity,
+                                          save=self.save,
+                                          PSF_DIRECTORY=self.PSF_DIRECTORY)
         time_end_single = time.time()
-
         if self.verbosity == 1:
-            print('self.save paramter is: ' + str(self.save))
-            print('socket.gethostname(): ' + str(socket.gethostname()))
-            print('Time for postprocessing up to single_Psf_position protocol is ' +
+            logging.info('Time for postprocessing up to single_Psf_position protocol is: ' +
                   str(time_end_single - time_start_single))
+
         #  run the code for centering
         time_start_single = time.time()
-        # set simulation_00='None', the simulated at 00 image has been created above
-
-        #np.save('/tigress/ncaplar/Results/' + 'optPsf_cut_grating_convolved', optPsf_cut_grating_convolved)
-
-        # changes to Psf_position introduced in 0.46a
-        optPsf_cut_fiber_convolved_downsampled, psf_position =\
+        optPsf_final, psf_position =\
             single_Psf_position.find_single_realization_min_cut(optPsf_cut_grating_convolved,
                                                                 int(round(oversampling)),
                                                                 shape[0],
                                                                 self.image,
                                                                 self.image_var,
                                                                 self.image_mask,
-                                                                v_flux=v['flux'],
-                                                                simulation_00=self.simulation_00,
+                                                                v_flux=param_values['flux'],
                                                                 double_sources=self.double_sources,
                                                                 double_sources_positions_ratios= #noqa: E251
                                                                 self.double_sources_positions_ratios,
@@ -2197,126 +1820,256 @@ class ZernikeFitter_PFS(object):
                                                                 self.explicit_psf_position,
                                                                 use_only_chi=self.use_only_chi,
                                                                 use_center_of_flux=self.use_center_of_flux)
-
         time_end_single = time.time()
-        if self.verbosity == 1:
-            print('Time for single_Psf_position protocol is ' + str(time_end_single - time_start_single))
-            # print('type(optPsf_cut_fiber_convolved_downsampled[0][0])'+str(type(optPsf_cut_fiber_convolved_downsampled[0][0])))
 
         if self.verbosity == 1:
-            print('Sucesfully created optPsf_cut_fiber_convolved_downsampled')
+            logging.info('Time for single_Psf_position protocol is ' + str(time_end_single - time_start_single))
+
+        if self.verbosity == 1:
+            logging.info('Sucesfully created optPsf_final')
 
         if self.save == 1:
-            if socket.gethostname() == 'IapetusUSA' or socket.gethostname() == 'tiger2-sumire.princeton.edu' \
-                or socket.gethostname() == 'pfsa-usr01-gb.subaru.nao.ac.jp' or \
-                    socket.gethostname() == 'pfsa-usr02-gb.subaru.nao.ac.jp':
-                np.save(TESTING_FINAL_IMAGES_FOLDER + 'pixel_gauss_padded', pixel_gauss_padded)
-
-                np.save(TESTING_FINAL_IMAGES_FOLDER + 'optPsf_cut', optPsf_cut)
-                np.save(TESTING_FINAL_IMAGES_FOLDER + 'optPsf_cut_downsampled', optPsf_cut_downsampled)
-                np.save(
-                    TESTING_FINAL_IMAGES_FOLDER +
-                    'optPsf_cut_downsampled_scattered',
+            np.save(self.TESTING_FINAL_IMAGES_FOLDER + 'optPsf_cut', optPsf_cut)
+            np.save(self.TESTING_FINAL_IMAGES_FOLDER + 'optPsf_cut_downsampled', optPsf_cut_downsampled)
+            np.save(self.TESTING_FINAL_IMAGES_FOLDER + 'optPsf_cut_downsampled_scattered',
                     optPsf_cut_downsampled_scattered)
-                np.save(TESTING_FINAL_IMAGES_FOLDER + 'r0', r0)
-                np.save(TESTING_FINAL_IMAGES_FOLDER + 'scattered_light', scattered_light)
-                np.save(TESTING_FINAL_IMAGES_FOLDER + 'scattered_light_kernel', scattered_light_kernel)
-                np.save(TESTING_FINAL_IMAGES_FOLDER + 'fiber', fiber)
-                np.save(TESTING_FINAL_IMAGES_FOLDER + 'fiber_padded', fiber_padded)
-                np.save(TESTING_FINAL_IMAGES_FOLDER + 'optPsf_cut_downsampled_scattered',
-                        optPsf_cut_downsampled_scattered)
-                np.save(TESTING_FINAL_IMAGES_FOLDER + 'optPsf_cut_fiber_convolved',
-                        optPsf_cut_fiber_convolved)
-                np.save(TESTING_FINAL_IMAGES_FOLDER + 'optPsf_cut_pixel_response_convolved',
-                        optPsf_cut_pixel_response_convolved)
-                np.save(TESTING_FINAL_IMAGES_FOLDER + 'optPsf_cut_grating_convolved',
-                        optPsf_cut_grating_convolved)
-                np.save(TESTING_FINAL_IMAGES_FOLDER + 'grating_kernel', grating_kernel)
+            np.save(self.TESTING_FINAL_IMAGES_FOLDER + 'optPsf_cut_fiber_convolved',
+                    optPsf_cut_fiber_convolved)
+            np.save(self.TESTING_FINAL_IMAGES_FOLDER + 'optPsf_cut_pixel_response_convolved',
+                    optPsf_cut_pixel_response_convolved)
+            np.save(self.TESTING_FINAL_IMAGES_FOLDER + 'optPsf_cut_grating_convolved',
+                    optPsf_cut_grating_convolved)
 
         if self.verbosity == 1:
-            print('Finished with optPsf_postprocessing')
-            print(' ')
+            logging.info('Finished with optPsf_postprocessing')
+            logging.info(' ')
 
-        # at the moment, the output is the same but there is a possibility to add intermediate outputs
+        # TODO: at the moment, the output is the same but there is a possibility to add intermediate outputs
         if not return_intermediate_images:
-            return optPsf_cut_fiber_convolved_downsampled, psf_position
+            return optPsf_final, psf_position
 
         if return_intermediate_images:
-            return optPsf_cut_fiber_convolved_downsampled, psf_position
+            return optPsf_final, psf_position
+        
+    def apply_scattered_light(self, image, oversampling,
+                              scattering_slope, scattering_amplitude, dithering):
+        """Add scattered light to optical psf
+        Parameters
+        ----------
+        image : `np.array`, (N, N)
+            input image
+        oversampling: `int`
+            how oversampled is `image`
+        scattering_slope: `float`
+            slope of the scattered light
+        scattering_amplitude: `float`
+            amplitude of the scattered light
+        dithering: `int`
+            dithering
+        Returns
+        ----------
+        image_scattered : `np.array`, (N, N)
+            image convolved with the fiber image
+        Notes
+        ----------
+        Assumes that one physical pixel is 15 microns
+        so that effective size of the pixels is 15 / dithering
+        """
+        size_of_pixels_in_image = (15 / self.dithering) / oversampling
 
-    @lru_cache(maxsize=3)
-    def _get_Pupil(self, params):
-        """Create image of the pupil
+        # size of the created optical PSF images in microns
+        size_of_image_in_Microns = size_of_pixels_in_image * \
+            (image.shape[0])
 
+        # create grid to apply scattered light
+        pointsx = np.linspace(-(size_of_image_in_Microns - size_of_pixels_in_image) / 2,
+                              (size_of_image_in_Microns - size_of_pixels_in_image) / 2,
+                              num=image.shape[0],
+                              dtype=np.float32)
+        pointsy = np.linspace(-(size_of_image_in_Microns - size_of_pixels_in_image) / 2,
+                              (size_of_image_in_Microns - size_of_pixels_in_image) / 2,
+                              num=image.shape[0]).astype(np.float32)
+        xs, ys = np.meshgrid(pointsx, pointsy)
+        r0 = np.sqrt((xs - 0) ** 2 + (ys - 0) ** 2) + .01
+
+        # creating scattered light
+        scattered_light_kernel = (r0**(-scattering_slope))
+        scattered_light_kernel[r0 < 7.5] = 7.5**(-scattering_slope)
+        scattered_light_kernel[scattered_light_kernel == np.inf] = 0
+        scattered_light_kernel = scattered_light_kernel * \
+            (scattering_amplitude) / (10 * np.max(scattered_light_kernel))
+
+        # convolve the psf with the scattered light kernel to create scattered light component
+        scattered_light = signal.fftconvolve(image, scattered_light_kernel, mode='same')
+
+        # add back the scattering to the image
+        image_scattered = image + scattered_light
+
+        return image_scattered
+
+    def convolve_with_fiber(self, image, oversampling, fiber_r, dithering):
+        """Convolve optical psf with a fiber
+        Parameters
+        ----------
+        image : `np.array`, (N, N)
+            input image
+        oversampling: `int`
+            how oversampled is `image`
+        fiber_r: `float`
+            radius of the fiber in pixel units
+        dithering: `int`
+            dithering
+        Returns
+        ----------
+        image_fiber_convolved : `np.array`, (N, N)
+            image convolved with the fiber image
+        Notes
+        ----------
+        """
+        fiber = Tophat2DKernel(oversampling * fiber_r * dithering,
+                               mode='oversample').array
+        # create array with zeros with size of the current image, which we will
+        # fill with fiber array in the middle
+        fiber_padded = np.zeros_like(image, dtype=np.float32)
+        mid_point_of_image = int(image.shape[0] / 2)
+        fiber_array_size = fiber.shape[0]
+        # fill the zeroes image with fiber here
+        fiber_padded[int(mid_point_of_image - fiber_array_size / 2) + 1:
+                     int(mid_point_of_image + fiber_array_size / 2) + 1,
+                     int(mid_point_of_image - fiber_array_size / 2) + 1:
+                     int(mid_point_of_image + fiber_array_size / 2) + 1] = fiber
+
+        # convolve with the fiber
+        image_fiber_convolved = signal.fftconvolve(image, fiber_padded, mode='same')
+        return image_fiber_convolved
+
+    def convolve_with_CCD_diffusion(self, image, oversampling, pixel_effect, dithering):
+        """Convolve optical psf with a ccd diffusion effect
+        Parameters
+        ----------
+        image : `np.array`, (N, N)
+            input image
+        oversampling: `int`
+            how oversampled is `image`
+        pixel_effect: `float`
+            sigma of gaussian kernel convolving image
+        dithering: `int`
+            dithering
+        Returns
+        ----------
+        image_pixel_response_convolved : `np.array`, (N, N)
+            image convolved with the ccd diffusion kernel
+        Notes
+        ----------
+        Pixels are not perfect detectors
+        Charge diffusion in our optical CCDs, can be well described with a Gaussian
+        sigma that is around 7 microns (Jim Gunn - private communication).
+        This is controled in our code by @param 'pixel_effect'
+        """
+        pixel_gauss = Gaussian2DKernel(oversampling * pixel_effect * dithering).array.astype(np.float32)
+        pixel_gauss_padded = np.pad(pixel_gauss, int((len(image) - len(pixel_gauss)) / 2),
+                                    'constant', constant_values=0)
+
+        # assert that gauss_padded array did not produce empty array
+        assert np.sum(pixel_gauss_padded) > 0
+
+        image_pixel_response_convolved = signal.fftconvolve(image, pixel_gauss_padded, mode='same')
+        return image_pixel_response_convolved
+
+    def convolve_with_grating(self, image, oversampling, wavelength, grating_lines, dithering):
+        """Convolve optical psf with a grating effect
+        Parameters
+        ----------
+        image : `np.array`, (N, N)
+            input image
+        oversampling: `int`
+            how oversampled is `image`
+        wavelength: `float`
+            central wavelength of the spot
+        grating_lines: `int`
+            effective number of grating lines in the spectrograph
+        dithering: `int`
+            dithering
+            
+        Returns
+        ----------
+        image_grating_convolved : `np.array`, (N, N)
+            image convolved with the grating effect
+            
+        Notes
+        ----------
+        This code assumes that 15 microns covers wavelength range of 0.07907 nm
+        (assuming that 4300 pixels in real detector uniformly covers 340 nm)
+        """
+        grating_kernel = np.ones((image.shape[0], 1), dtype=np.float32)
+        for i in range(len(grating_kernel)):
+            grating_kernel[i] = Ifun16Ne((i - int(image.shape[0] / 2)) * 0.07907 * 10**-9 /
+                                         (dithering * oversampling) + wavelength * 10**-9,
+                                         wavelength * 10**-9, grating_lines)
+        grating_kernel = grating_kernel / np.sum(grating_kernel)
+
+        image_grating_convolved = signal.fftconvolve(image, grating_kernel, mode='same')
+        return image_grating_convolved
+
+    def _get_Pupil(self):
+        """Create an image of the pupil
+        
         Parameters
         ----------
         params : `lmfit.Parameters` object or python dictionary
-            Parameters descrubing model
-
-        Return
+            Parameters describing the pupil model
+            
+        Returns
         ----------
         pupil : `pupil`
-            Instance of class pupil
+            Instance of class PFSPupilFactory
+            
+        Notes
+        ----------
+        Calls PFSPupilFactory class
         """
         if self.verbosity == 1:
-            print(' ')
-            print('Entering _get_Pupil (function inside ZernikeFitter_PFS)')
-
-        diam_sic = self.diam_sic
-        npix = self.npix
+            logging.info(' ')
+            logging.info('Entering _get_Pupil (function inside ZernikeFitterPFS)')
 
         if self.verbosity == 1:
-            print('Size of the pupil (npix): ' + str(npix))
-
-        """
-        init of pupil is:
-
-        def __init__(self, pupilSize, npix,input_angle,hscFrac,strutFrac,slitFrac,slitFrac_dy,\
-             x_fiber,y_fiber,effective_ilum_radius,frd_sigma,frd_lorentz_factor,det_vert,slitHolder_frac_dx,verbosity=None,\
-                 wide_0=0,wide_23=0,wide_43=0,misalign=0):
-
-        """
+            logging.info('Size of the pupil (npix): ' + str(self.npix))
 
         Pupil_Image = PFSPupilFactory(
-            diam_sic,
-            npix,
-            np.pi / 2,
-            self.pupil_parameters[0],
-            self.pupil_parameters[1],
-            self.pupil_parameters[4],
-            self.pupil_parameters[5],
-            self.pupil_parameters[6],
-            self.pupil_parameters[7],
-            self.pupil_parameters[8],
-            self.pupil_parameters[9],
-            self.pupil_parameters[10],
-            self.pupil_parameters[11],
-            self.pupil_parameters[12],
-            verbosity=self.verbosity,
-            wide_0=self.pupil_parameters[13],
-            wide_23=self.pupil_parameters[14],
-            wide_43=self.pupil_parameters[15],
-            misalign=self.pupil_parameters[16])
+            pupilSize=self.diam_sic,
+            npix=self.npix,
+            input_angle=np.pi / 2,
+            detFrac=self.params['detFrac'].value,
+            strutFrac=self.params['strutFrac'].value,
+            slitFrac=self.params['slitFrac'].value,
+            slitFrac_dy=self.params['slitFrac_dy'].value,
+            x_fiber=self.params['x_fiber'].value,
+            y_fiber=self.params['y_fiber'].value,
+            effective_ilum_radius=self.params['effective_ilum_radius'].value,
+            frd_sigma=self.params['frd_sigma'].value,#noqa: E
+            frd_lorentz_factor=self.params['frd_lorentz_factor'].value,
+            det_vert=self.params['det_vert'].value,
+            slitHolder_frac_dx=self.params['slitHolder_frac_dx'].value,
+            wide_0=self.params['wide_0'].value,
+            wide_23=self.params['wide_23'].value,
+            wide_43=self.params['wide_43'].value,
+            misalign=self.params['misalign'].value,
+            verbosity=self.verbosity)
 
-        point = [self.pupil_parameters[2], self.pupil_parameters[3]]
+        point = [self.params['dxFocal'].value, self.params['dyFocal'].value]#noqa: E
         pupil = Pupil_Image.getPupil(point)
 
         if self.save == 1:
-            if socket.gethostname() == 'IapetusUSA' or socket.gethostname() == 'tiger2-sumire.princeton.edu' \
-                or socket.gethostname() == 'pfsa-usr01-gb.subaru.nao.ac.jp' or \
-                    socket.gethostname() == 'pfsa-usr02-gb.subaru.nao.ac.jp':
-                np.save(TESTING_PUPIL_IMAGES_FOLDER + 'pupil.illuminated',
-                        pupil.illuminated.astype(np.float32))
+            np.save(self.TESTING_PUPIL_IMAGES_FOLDER + 'pupil.illuminated',
+                    pupil.illuminated.astype(np.float32))
 
         if self.verbosity == 1:
-            print('Finished with _get_Pupil')
+            logging.info('Finished with _get_Pupil')
 
         return pupil
 
     def _getOptPsf_naturalResolution(self, params, return_intermediate_images=False):
         """Returns optical PSF, given the initialized parameters
-
-        called by constructModelImage_PFS_naturalResolution
 
         Parameters
         ----------
@@ -2340,20 +2093,23 @@ class ZernikeFitter_PFS(object):
             Image showing the illumination of the pupil
         wf_grid_rot : `np.array`
             Image showing the wavefront across the pupil
-
+            
+        Notes
+        ----------
+        called by constructModelImage_PFS_naturalResolution
         """
 
         if self.verbosity == 1:
-            print(' ')
-            print('Entering _getOptPsf_naturalResolution')
+            logging.info(' ')
+            logging.info('Entering _getOptPsf_naturalResolution')
 
         ################################################################################
         # pupil and illumination of the pupil
         ################################################################################
         time_start_single_1 = time.time()
         if self.verbosity == 1:
-            print('use_pupil_parameters: ' + str(self.use_pupil_parameters))
-            print('pupil_parameters if you are explicity passing use_pupil_parameters: ' +
+            logging.info('use_pupil_parameters: ' + str(self.use_pupil_parameters))
+            logging.info('pupil_parameters if you are explicity passing use_pupil_parameters: ' +
                   str(self.pupil_parameters))
 
         # parmeters ``i'' just to precision in the construction of ``pupil_parameters'' array
@@ -2361,7 +2117,7 @@ class ZernikeFitter_PFS(object):
         # ('...'.format(...) has unused arguments at position(s): 0)
         i = 4
         if self.use_pupil_parameters is None:
-            pupil_parameters = np.array([params['hscFrac'.format(i)], #noqa: E
+            pupil_parameters = np.array([params['detFrac'.format(i)], #noqa: E
                                          params['strutFrac'.format(i)], #noqa: E
                                          params['dxFocal'.format(i)], #noqa: E
                                          params['dyFocal'.format(i)], #noqa: E
@@ -2385,73 +2141,58 @@ class ZernikeFitter_PFS(object):
         diam_sic = self.diam_sic
 
         if self.verbosity == 1:
-            print(['hscFrac', 'strutFrac', 'dxFocal', 'dyFocal', 'slitFrac', 'slitFrac_dy'])
-            print(['x_fiber', 'y_fiber', 'effective_ilum_radius', 'frd_sigma',
+            logging.info(['detFrac', 'strutFrac', 'dxFocal', 'dyFocal', 'slitFrac', 'slitFrac_dy'])
+            logging.info(['x_fiber', 'y_fiber', 'effective_ilum_radius', 'frd_sigma',
                   'frd_lorentz_factor', 'det_vert', 'slitHolder_frac_dx'])
-            print(['wide_0', 'wide_23', 'wide_43', 'misalign'])
-            print('set of pupil_parameters I. : ' + str(self.pupil_parameters[:6]))
-            print('set of pupil_parameters II. : ' + str(self.pupil_parameters[6:6 + 7]))
-            print('set of pupil_parameters III. : ' + str(self.pupil_parameters[13:]))
+            logging.info(['wide_0', 'wide_23', 'wide_43', 'misalign'])
+            logging.info('set of pupil_parameters I. : ' + str([params['detFrac'], params['strutFrac'],
+                                                         params['dxFocal'], params['dyFocal'],
+                                                         params['slitFrac'],  params['slitFrac_dy']]))
+            logging.info('set of pupil_parameters II. : ' + str([params['x_fiber'], params['y_fiber'],
+                                                         params['effective_ilum_radius'],
+                                                         params['slitHolder_frac_dx'],
+                                                         params['frd_lorentz_factor'],
+                                                         params['det_vert'],
+                                                         params['slitHolder_frac_dx']]))
+            logging.info('set of pupil_parameters III. : ' + str([params['wide_0'], params['wide_23'],
+                                                           params['wide_43'], params['misalign']]))
         time_start_single_2 = time.time()
 
         # initialize galsim.Aperature class
-        # the output will be the size of pupil.illuminated
-        # if you are passing explicit pupil model ...
-        if self.pupilExplicit is None:
-
-            pupil = self._get_Pupil(tuple(pupil_parameters))
-
-            aper = galsim.Aperture(
-                diam=pupil.size,
-                pupil_plane_im=pupil.illuminated.astype(np.float32),
-                pupil_plane_scale=pupil.scale,
-                pupil_plane_size=None)
-        else:
-
-            if self.verbosity == 1:
-                print('Using provided pupil and skipping _get_Pupil function')
-            aper = galsim.Aperture(
-                diam=self.diam_sic,
-                pupil_plane_im=self.pupilExplicit.astype(np.float32),
-                pupil_plane_scale=self.diam_sic / self.npix,
-                pupil_plane_size=None)
+        pupil = self._get_Pupil()
+        aper = galsim.Aperture(
+            diam=pupil.size,
+            pupil_plane_im=pupil.illuminated.astype(np.float32),
+            pupil_plane_scale=pupil.scale,
+            pupil_plane_size=None)
 
         if self.verbosity == 1:
             if self.pupilExplicit is None:
-                print('Requested pupil size is (pupil.size) [m]: ' + str(pupil.size))
-                print('One pixel has size of (pupil.scale) [m]: ' + str(pupil.scale))
-                print('Requested pupil has so many pixels (pupil_plane_im): ' +
+                logging.info('Requested pupil size is (pupil.size) [m]: ' + str(pupil.size))
+                logging.info('One pixel has size of (pupil.scale) [m]: ' + str(pupil.scale))
+                logging.info('Requested pupil has so many pixels (pupil_plane_im): ' +
                       str(pupil.illuminated.astype(np.int16).shape))
             else:
-                print('Supplied pupil size is (diam_sic) [m]: ' + str(self.diam_sic))
-                print('One pixel has size of (diam_sic/npix) [m]: ' + str(self.diam_sic / self.npix))
-                print('Requested pupil has so many pixels (pupilExplicit): ' + str(self.pupilExplicit.shape))
+                logging.info('Supplied pupil size is (diam_sic) [m]: ' + str(self.diam_sic))
+                logging.info('One pixel has size of (diam_sic/npix) [m]: ' + str(self.diam_sic / self.npix))
+                logging.info('Requested pupil has so many pixels (pupilExplicit): ' + str(self.pupilExplicit.shape))
 
         time_end_single_2 = time.time()
         if self.verbosity == 1:
-            print('Time for _get_Pupil function is ' + str(time_end_single_2 - time_start_single_2))
+            logging.info('Time for _get_Pupil function is ' + str(time_end_single_2 - time_start_single_2))
 
         time_start_single_3 = time.time()
         # create array with pixels=1 if the area is illuminated and 0 if it is obscured
         ilum = np.array(aper.illuminated, dtype=np.float32)
         assert np.sum(ilum) > 0, str(self.pupil_parameters)
 
-        # padding to get exact multiple when we are in focus
-        # focus recognized by the fact that ilum is 1024 pixels large
-        # deprecated as I always use same size of the pupil, for all amounts of defocus
-        if len(ilum) == 1024:
-            ilum_padded = np.zeros((1158, 1158))
-            ilum_padded[67:67 + 1024, 67:67 + 1024] = ilum
-            ilum = ilum_padded
-
         # gives size of the illuminated image
         lower_limit_of_ilum = int(ilum.shape[0] / 2 - self.npix / 2)
         higher_limit_of_ilum = int(ilum.shape[0] / 2 + self.npix / 2)
         if self.verbosity == 1:
-            print('lower_limit_of_ilum: ' + str(lower_limit_of_ilum))
-            print('higher_limit_of_ilum: ' + str(higher_limit_of_ilum))
+            logging.info('lower_limit_of_ilum: ' + str(lower_limit_of_ilum))
+            logging.info('higher_limit_of_ilum: ' + str(higher_limit_of_ilum))
 
-        # what am I doing here?
         if self.pupilExplicit is None:
             ilum[lower_limit_of_ilum:higher_limit_of_ilum,
                  lower_limit_of_ilum:higher_limit_of_ilum] = ilum[lower_limit_of_ilum:higher_limit_of_ilum,
@@ -2464,14 +2205,14 @@ class ZernikeFitter_PFS(object):
                                                                   self.pupilExplicit.astype(np.float32)
 
         if self.verbosity == 1:
-            print('Size after padding zeros to 2x size and extra padding to get size suitable for FFT: ' +
+            logging.info('Size after padding zeros to 2x size and extra padding to get size suitable for FFT: ' +
                   str(ilum.shape))
 
         # maximum extent of pupil image in units of radius of the pupil, needed for next step
         size_of_ilum_in_units_of_radius = ilum.shape[0] / self.npix
 
         if self.verbosity == 1:
-            print('size_of_ilum_in_units_of_radius: ' + str(size_of_ilum_in_units_of_radius))
+            logging.info('size_of_ilum_in_units_of_radius: ' + str(size_of_ilum_in_units_of_radius))
 
         # do not caculate the ``radiometric effect (difference between entrance and exit pupil)
         # if paramters are too small to make any difference
@@ -2479,13 +2220,13 @@ class ZernikeFitter_PFS(object):
         # i.e., the illumination of the exit pupil is the same as the illumination of the entrance pupil
         if params['radiometricExponent'] < 0.01 or params['radiometricEffect'] < 0.01:
             if self.verbosity == 1:
-                print('skiping ``radiometric effect\'\' ')
+                logging.info('skiping ``radiometric effect\'\' ')
             ilum_radiometric = ilum
 
         else:
             if self.verbosity == 1:
-                print('radiometric parameters are: ')
-                print('x_ilum,y_ilum,radiometricEffect,radiometricExponent' +
+                logging.info('radiometric parameters are: ')
+                logging.info('x_ilum,y_ilum,radiometricEffect,radiometricExponent' +
                       str([params['x_ilum'], params['y_ilum'],
                            params['radiometricEffect'], params['radiometricExponent']]))
 
@@ -2538,8 +2279,8 @@ class ZernikeFitter_PFS(object):
 
         time_end_single_4 = time.time()
         if self.verbosity == 1:
-            print('Time to apodize the pupil: ' + str(time_end_single_4 - time_start_single_4))
-            print('type(ilum_radiometric_apodized)' + str(type(ilum_radiometric_apodized[0][0])))
+            logging.info('Time to apodize the pupil: ' + str(time_end_single_4 - time_start_single_4))
+            logging.info('type(ilum_radiometric_apodized)' + str(type(ilum_radiometric_apodized[0][0])))
         # put pixels for which amplitude is less than 0.01 to 0
         r_ilum_pre = np.copy(ilum_radiometric_apodized)
         r_ilum_pre[ilum_radiometric_apodized > 0.01] = 1
@@ -2572,12 +2313,12 @@ class ZernikeFitter_PFS(object):
 
         time_end_single_3 = time.time()
         if self.verbosity == 1:
-            print('Time for postprocessing pupil after _get_Pupil ' +
+            logging.info('Time for postprocessing pupil after _get_Pupil ' +
                   str(time_end_single_3 - time_start_single_3))
 
         time_end_single_1 = time.time()
         if self.verbosity == 1:
-            print('Time for pupil and illumination calculation is ' +
+            logging.info('Time for pupil and illumination calculation is ' +
                   str(time_end_single_1 - time_start_single_1))
 
         ################################################################################
@@ -2587,12 +2328,13 @@ class ZernikeFitter_PFS(object):
 
         time_start_single = time.time()
         if self.verbosity == 1:
-            print('')
-            print('Starting creation of wavefront')
+            logging.info('')
+            logging.info('Starting creation of wavefront')
 
         aberrations_init = [0.0, 0, 0.0, 0.0]
         aberrations = aberrations_init
-        # list of aberrations where we set z4, z11, z22 etc. to 0 do study behaviour of non-focus terms
+        # list of aberrations where we set z4, z11, z22 etc...
+        # This is only for testing purposes to study behaviour of non-focus terms
         aberrations_0 = list(np.copy(aberrations_init))
         for i in range(4, self.zmax + 1):
             aberrations.append(params['z{}'.format(i)])
@@ -2601,17 +2343,19 @@ class ZernikeFitter_PFS(object):
             else:
                 aberrations_0.append(params['z{}'.format(i)])
 
+        # if you have passed abberation above Zernike 22, join them with lower
+        # order abberations here
         if self.extraZernike is None:
             pass
         else:
             aberrations_extended = np.concatenate((aberrations, self.extraZernike), axis=0)
 
         if self.verbosity == 1:
-            print('diam_sic [m]: ' + str(diam_sic))
-            print('aberrations: ' + str(aberrations))
-            print('aberrations moved to z4=0: ' + str(aberrations_0))
-            print('aberrations extra: ' + str(self.extraZernike))
-            print('wavelength [nm]: ' + str(self.wavelength))
+            logging.info('diam_sic [m]: ' + str(diam_sic))
+            logging.info('aberrations: ' + str(aberrations))
+            logging.info('aberrations moved to z4=0: ' + str(aberrations_0))
+            logging.info('aberrations extra: ' + str(self.extraZernike))
+            logging.info('wavelength [nm]: ' + str(self.wavelength))
 
         if self.extraZernike is None:
             optics_screen = galsim.phase_screens.OpticalScreen(
@@ -2642,10 +2386,9 @@ class ZernikeFitter_PFS(object):
         ################################################################################
 
         # apply wavefront to the array describing illumination
-        # print(self.use_wf_grid)
+        # logging.info(self.use_wf_grid)
 
         if self.use_wf_grid is None:
-
             wf = screens.wavefront(u, v, None, 0)
             if self.save == 1:
                 wf_full = screens.wavefront(u_manual, v_manual, None, 0)
@@ -2654,17 +2397,14 @@ class ZernikeFitter_PFS(object):
             wf_grid_rot = wf_grid
         else:
             # if you want to pass an explit wavefront, it goes here
-
             wf_grid = self.use_wf_grid
             wf_grid_rot = wf_grid
 
-        # wf_grid_rot[756+1200:756+1215,756+1200:756+1215]=1.1*(wf_grid_rot[756+1200:756+1215,756+1200:756+1215])
-
-        # if self.save==1 and self.extraZernike==None:
         if self.save == 1:
-            # only create fake with abberations 0 if we are going to save i.e., if we presenting the results
+            # only create fake images with abberations set to 0 if we are going to save
+            # i.e., if we are testing the results
             if self.verbosity == 1:
-                print('creating wf_full_fake_0')
+                logging.info('creating wf_full_fake_0')
             wf_full_fake_0 = screens_fake_0.wavefront(u_manual, v_manual, None, 0)
 
         # exponential of the wavefront
@@ -2674,49 +2414,22 @@ class ZernikeFitter_PFS(object):
             np.exp(2j * np.pi * wf_grid_rot[ilum_radiometric_apodized_bool])
 
         if self.verbosity == 1:
-            print('Time for wavefront and wavefront/pupil combining is ' +
+            logging.info('Time for wavefront and wavefront/pupil combining is ' +
                   str(time_end_single - time_start_single))
-            # print('type(expwf_grid)'+str(type(expwf_grid[0][0])))
+            
+            
         ################################################################################
-        # FFT
+        # exectute the FFT
         ################################################################################
-
+        #updated up to here
         ######################################################################
-        # Different implementations of the Fourier code
-
-        # legacy code
-        # do Fourier via galsim and square it to create image
-        # ftexpwf = galsim.fft.fft2(expwf_grid,shift_in=True,shift_out=True)
-
-        # uncoment to get timming
-        # time_start_single=time.time()
-        # ftexpwf =np.fft.fftshift(np.fft.fft2(np.fft.fftshift(expwf_grid)))
-        # img_apod = np.abs(ftexpwf)**2
-        # time_end_single=time.time()
-        # if self.verbosity==1:
-        #    print('Time for FFT is '+str(time_end_single-time_start_single))
-        #    print('type(np.fft.fftshift(expwf_grid)'+str(type(np.fft.fftshift(expwf_grid)[0][0])))
-        #    print('type(np.fft.fft2(np.fft.fftshift(expwf_grid)))'+str(type(np.fft.fft2(np.fft.fftshift(expwf_grid))[0][0])))
-        #    print('type(ftexpwf)'+str(type(ftexpwf[0][0])))
-        #    print('type(img_apod)'+str(type(img_apod[0][0])))
 
         time_start_single = time.time()
         ftexpwf = np.fft.fftshift(scipy.fftpack.fft2(np.fft.fftshift(expwf_grid)))
         img_apod = np.abs(ftexpwf)**2
         time_end_single = time.time()
         if self.verbosity == 1:
-            print('Time for FFT is ' + str(time_end_single - time_start_single))
-            # print('type(np.fft.fftshift(expwf_grid)'+str(type(np.fft.fftshift(expwf_grid)[0][0])))
-            # print('type(np.fft.fft2(np.fft.fftshift(expwf_grid)))'+str(type(scipy.fftpack.fft2(np.fft.fftshift(expwf_grid))[0][0])))
-            # print('type(ftexpwf)'+str(type(ftexpwf[0][0])))
-            # print('type(img_apod)'+str(type(img_apod[0][0])))
-
-        # code if we decide to use pyfftw - does not work with fftshift
-        # time_start_single=time.time()
-        # ftexpwf =np.fft.fftshift(pyfftw.builders.fft2(np.fft.fftshift(expwf_grid)))
-        # img_apod = np.abs(ftexpwf)**2
-        # time_end_single=time.time()
-        # print('Time for FFT is '+str(time_end_single-time_start_single))
+            logging.info('Time for FFT is ' + str(time_end_single - time_start_single))
         ######################################################################
 
         # size in arcseconds of the image generated by the code
@@ -2728,112 +2441,33 @@ class ZernikeFitter_PFS(object):
             if socket.gethostname() == 'IapetusUSA' or socket.gethostname() == 'tiger2-sumire.princeton.edu' \
                 or socket.gethostname() == 'pfsa-usr01-gb.subaru.nao.ac.jp' or \
                     socket.gethostname() == 'pfsa-usr02-gb.subaru.nao.ac.jp':
-                np.save(TESTING_PUPIL_IMAGES_FOLDER + 'aperilluminated', aper.illuminated)
-                # dont save as we do not generate this array in vast majority of cases
-                # (status on July 1, 2020)
-                # np.save(TESTING_PUPIL_IMAGES_FOLDER+'radiometricEffectArray',radiometricEffectArray)
-                np.save(TESTING_PUPIL_IMAGES_FOLDER + 'ilum', ilum)
-                np.save(TESTING_PUPIL_IMAGES_FOLDER + 'ilum_radiometric', ilum_radiometric)
-                np.save(TESTING_PUPIL_IMAGES_FOLDER + 'ilum_radiometric_apodized', ilum_radiometric_apodized)
-                np.save(
-                    TESTING_PUPIL_IMAGES_FOLDER +
-                    'ilum_radiometric_apodized_bool',
+                np.save(self.TESTING_PUPIL_IMAGES_FOLDER + 'aperilluminated', aper.illuminated)
+                np.save(self.TESTING_PUPIL_IMAGES_FOLDER + 'ilum', ilum)
+                np.save(self.TESTING_PUPIL_IMAGES_FOLDER + 'ilum_radiometric', ilum_radiometric)
+                np.save(self.TESTING_PUPIL_IMAGES_FOLDER + 'ilum_radiometric_apodized', ilum_radiometric_apodized)
+                np.save(self.TESTING_PUPIL_IMAGES_FOLDER + 'ilum_radiometric_apodized_bool',
                     ilum_radiometric_apodized_bool)
-
-                np.save(TESTING_WAVEFRONT_IMAGES_FOLDER + 'u_manual', u_manual)
-                np.save(TESTING_WAVEFRONT_IMAGES_FOLDER + 'v_manual', v_manual)
-                np.save(TESTING_WAVEFRONT_IMAGES_FOLDER + 'u', u)
-                np.save(TESTING_WAVEFRONT_IMAGES_FOLDER + 'v', v)
-
-                np.save(TESTING_WAVEFRONT_IMAGES_FOLDER + 'wf_grid', wf_grid)
+                np.save(self.TESTING_WAVEFRONT_IMAGES_FOLDER + 'u_manual', u_manual)
+                np.save(self.TESTING_WAVEFRONT_IMAGES_FOLDER + 'v_manual', v_manual)
+                np.save(self.TESTING_WAVEFRONT_IMAGES_FOLDER + 'u', u)
+                np.save(self.TESTING_WAVEFRONT_IMAGES_FOLDER + 'v', v)
+                np.save(self.TESTING_WAVEFRONT_IMAGES_FOLDER + 'wf_grid', wf_grid)
                 if self.use_wf_grid is None:
-                    np.save(TESTING_WAVEFRONT_IMAGES_FOLDER + 'wf_full', wf_full)
-                # if self.extraZernike==None:
-                #    np.save(TESTING_WAVEFRONT_IMAGES_FOLDER+'wf_full_fake_0',wf_full_fake_0)
-                np.save(TESTING_WAVEFRONT_IMAGES_FOLDER + 'wf_full_fake_0', wf_full_fake_0)
-                np.save(TESTING_WAVEFRONT_IMAGES_FOLDER + 'expwf_grid', expwf_grid)
+                    np.save(self.TESTING_WAVEFRONT_IMAGES_FOLDER + 'wf_full', wf_full)
+                np.save(self.TESTING_WAVEFRONT_IMAGES_FOLDER + 'wf_full_fake_0', wf_full_fake_0)
+                np.save(self.TESTING_WAVEFRONT_IMAGES_FOLDER + 'expwf_grid', expwf_grid)
 
         if self.verbosity == 1:
-            print('Finished with _getOptPsf_naturalResolution')
-            print(' ')
+            logging.info('Finished with _getOptPsf_naturalResolution')
+            logging.info('Finished with _getOptPsf_naturalResolution')
+            logging.info(' ')
+
 
         if not return_intermediate_images:
             return img_apod
         if return_intermediate_images:
-            # return the image, pupil, illumination applied to the pupil
             return img_apod, ilum[lower_limit_of_ilum:higher_limit_of_ilum,
                                   lower_limit_of_ilum:higher_limit_of_ilum], wf_grid_rot
-
-    # TODO : Check if this is used
-    def _chi_PFS(self, params):
-        """Compute 'chi' image: (data - model)/sigma
-        @param params  lmfit.Parameters object.
-        @returns       Unraveled chi vector.
-        """
-        modelImg = self.constructModelImage_PFS(params)
-        sigma = np.sqrt(self.image_var)
-        chi = (self.image - modelImg) / sigma
-        chi_without_nan = []
-        chi_without_nan = chi.ravel()[~np.isnan(chi.ravel())]
-        print("chi**2/d.o.f. is:" + str(np.mean((chi_without_nan)**2)))
-        return chi_without_nan
-
-    # TODO : Check if this is used
-    def best_image_Neven(self, params):
-        """
-        @param params  lmfit.Parameters object.
-        @returns       Unraveled chi vector.
-        """
-        modelImg = self.constructModelImage_Neven(params)
-        return modelImg
-
-    # TODO : Check if this is used
-    def residual_image_Neven(self, params):
-        """
-        @param params  lmfit.Parameters object.
-        @returns       residual
-        """
-        modelImg = self.constructModelImage_Neven(params)
-        return (self.image - modelImg)
-
-    # TODO : Deperecated
-    def fit_emcee(self):
-        """Do the fit using emcee
-        @returns  result as an lmfit.MinimizerResult.
-        """
-        print("Doing fit using emcee")
-        mini = lmfit.Minimizer(self._chi_PFS, self.params)
-        self.result = mini.emcee(nwalkers=64, burn=100, steps=200, thin=1,
-                                 is_weighted=True, ntemps=1, workers=1, **self.kwargs)
-        return self.result
-
-    # TODO : Deperecated
-    def fit_LM(self):
-        """Do the fit using Levenberg-Marquardt
-        @returns  result as an lmfit.MinimizerResult.
-        """
-        print("Doing fit using Levenberg-Marquardt")
-        self.result = lmfit.minimize(self._chi_PFS, self.params, **self.kwargs)
-        return self.result
-
-    # TODO : Deperecated
-    def report(self, *args, **kwargs):
-        """Return a string with fit results."""
-        return lmfit.fit_report(self.result, *args, **kwargs)
-
-    # TODO : Deperecated
-    def Exit_pupil_size(x):
-        return (656.0581848529348 + 0.7485514705882259 * x) * 10**-3
-
-    # TODO : Deperecated
-    def F_number_size(x):
-        return -1.178009972058799 - 0.00328027941176467 * x
-
-    # TODO : Deprecated
-    def Pixel_size(x):
-        return 206265 * np.arctan(0.015 / ((-1.178009972058799 - 0.00328027941176467 * x)
-                                  * (656.0581848529348 + 0.7485514705882259 * x)))
-
 
 class LN_PFS_multi_same_spot(object):
 
@@ -2922,32 +2556,14 @@ class LN_PFS_multi_same_spot(object):
         if use_pupil_parameters is not None:
             assert pupil_parameters is not None
 
-        # print('double_sources in module: ' + str(double_sources))
-        # print('double_sources_positions_ratios in module: ' + str(double_sources_positions_ratios))
-        # print('list_of_psf_positions in LN_PFS_multi_same_spot '+str(list_of_psf_positions))
+        # logging.info('double_sources in module: ' + str(double_sources))
+        # logging.info('double_sources_positions_ratios in module: ' + str(double_sources_positions_ratios))
+        # logging.info('list_of_psf_positions in LN_PFS_multi_same_spot '+str(list_of_psf_positions))
         if double_sources is not None and bool(double_sources) is not False:
             assert np.sum(np.abs(double_sources_positions_ratios)) > 0
 
         if zmax is None:
             zmax = 11
-
-        """
-        if zmax==11:
-            self.columns=['z4','z5','z6','z7','z8','z9','z10','z11',
-                          'hscFrac','strutFrac','dxFocal','dyFocal','slitFrac','slitFrac_dy',
-                          'radiometricEffect','radiometricExponent','x_ilum','y_ilum',
-                          'x_fiber','y_fiber','effective_ilum_radius','frd_sigma','frd_lorentz_factor','det_vert','slitHolder_frac_dx',
-                          'grating_lines','scattering_slope','scattering_amplitude',
-                          'pixel_effect','fiber_r','flux']
-        if zmax==22:
-            self.columns=['z4','z5','z6','z7','z8','z9','z10','z11',
-                          'z12','z13','z14','z15','z16','z17','z18','z19','z20','z21','z22',
-              'hscFrac','strutFrac','dxFocal','dyFocal','slitFrac','slitFrac_dy',
-              'radiometricEffect','radiometricExponent','x_ilum','y_ilum',
-              'x_fiber','y_fiber','effective_ilum_radius','frd_sigma','frd_lorentz_factor','det_vert','slitHolder_frac_dx',
-              'grating_lines','scattering_slope','scattering_amplitude',
-              'pixel_effect','fiber_r','flux']
-        """
 
         if zmax == 11:
             self.columns = [
@@ -2959,7 +2575,7 @@ class LN_PFS_multi_same_spot(object):
                 'z9',
                 'z10',
                 'z11',
-                'hscFrac',
+                'detFrac',
                 'strutFrac',
                 'dxFocal',
                 'dyFocal',
@@ -3003,7 +2619,7 @@ class LN_PFS_multi_same_spot(object):
                 'z20',
                 'z21',
                 'z22',
-                'hscFrac',
+                'detFrac',
                 'strutFrac',
                 'dxFocal',
                 'dyFocal',
@@ -3106,7 +2722,7 @@ class LN_PFS_multi_same_spot(object):
             allparameters_parametrizations_2d = np.vstack(
                 (z_parametrizations, g_parametrizations, z_extra_parametrizations))
 
-        # print('allparameters_parametrizations_2d[41]: '+ str(allparameters_parametrizations_2d[41]))
+        # logging.info('allparameters_parametrizations_2d[41]: '+ str(allparameters_parametrizations_2d[41]))
         # assert allparameters_parametrizations_2d[41][1] >= 0.98
         # assert allparameters_parametrizations_2d[41][1] <= 1.02
 
@@ -3133,15 +2749,15 @@ class LN_PFS_multi_same_spot(object):
             List contaning the parameters for each defocus position
         """
 
-        # print('allparameters_parametrizations '+str(allparameters_parametrizations))
+        # logging.info('allparameters_parametrizations '+str(allparameters_parametrizations))
 
         if zmax is None:
             zmax = self.zmax
 
         # if you have passed parameterization in 1d, move to 2d
-        # print("allparameters_parametrizations.type: "+str(type(allparameters_parametrizations)))
-        # print("allparameters_parametrizations.len: "+str(+len(allparameters_parametrizations)))
-        # print("allparameters_parametrizations.shape: "+str(allparameters_parametrizations.shape))
+        # logging.info("allparameters_parametrizations.type: "+str(type(allparameters_parametrizations)))
+        # logging.info("allparameters_parametrizations.len: "+str(+len(allparameters_parametrizations)))
+        # logging.info("allparameters_parametrizations.shape: "+str(allparameters_parametrizations.shape))
         if len(allparameters_parametrizations.shape) == 1:
             allparameters_parametrizations = self.move_parametrizations_from_1d_to_2d(
                 allparameters_parametrizations)
@@ -3153,7 +2769,7 @@ class LN_PFS_multi_same_spot(object):
             return allparameters_parametrizations
         else:
             list_of_defocuses_int = self.transform_list_of_defocuses_from_str_to_float(list_of_defocuses)
-            # print(list_of_defocuses_int)
+            # logging.info(list_of_defocuses_int)
             # go through the list of defocuses, and create the allparameters array for each defocus
             for i in range(len(list_of_defocuses)):
                 list_of_allparameters.append(
@@ -3162,7 +2778,7 @@ class LN_PFS_multi_same_spot(object):
                         allparameters_parametrizations,
                         zmax))
 
-            # print(list_of_allparameters)
+            # logging.info(list_of_allparameters)
 
             return list_of_allparameters
 
@@ -3244,7 +2860,7 @@ class LN_PFS_multi_same_spot(object):
                 (19 + len(g_parametrizations) + extra_Zernike_parameters_number))
 
             for i in range(0, 19, 1):
-                # print(str([i,mm,z_parametrizations[i]]))
+                # logging.info(str([i,mm,z_parametrizations[i]]))
                 allparameters_proposal_single[i] = self.value_at_defocus(
                     mm, z_parametrizations[i][0], z_parametrizations[i][1])
 
@@ -3252,7 +2868,7 @@ class LN_PFS_multi_same_spot(object):
                 allparameters_proposal_single[19 + i] = g_parametrizations[i][1]
 
             for i in range(0, extra_Zernike_parameters_number, 1):
-                # print(str([i,mm,z_parametrizations[i]]))
+                # logging.info(str([i,mm,z_parametrizations[i]]))
                 allparameters_proposal_single[19 + len(g_parametrizations) + i] = self.value_at_defocus(
                     mm, z_extra_parametrizations[i][0], z_extra_parametrizations[i][1])
 
@@ -3334,17 +2950,17 @@ class LN_PFS_multi_same_spot(object):
 
         list_of_polyfit_1_parameter = []
         for i in range(len_of_iterations):
-            # print([i,array_of_allparameters.shape[1]])
+            # logging.info([i,array_of_allparameters.shape[1]])
             if i < array_of_allparameters.shape[1]:
-                # print('i'+str(i)+' '+str(array_of_allparameters[:,i]))
+                # logging.info('i'+str(i)+' '+str(array_of_allparameters[:,i]))
                 polyfit_1_parameter = np.polyfit(
                     x=list_of_defocuses_int, y=array_of_allparameters[:, i], deg=1)
             else:
-                # print('i'+str(i)+' '+'None')
+                # logging.info('i'+str(i)+' '+'None')
                 # if you have no input for such high level of Zernike, set it at zero
                 polyfit_1_parameter = np.array([0, 0])
 
-            # print('i_polyfit'+str(i)+' '+str(polyfit_1_parameter))
+            # logging.info('i_polyfit'+str(i)+' '+str(polyfit_1_parameter))
             list_of_polyfit_1_parameter.append(polyfit_1_parameter)
 
         array_of_polyfit_1_parameterizations = np.array(list_of_polyfit_1_parameter)
@@ -3410,13 +3026,13 @@ class LN_PFS_multi_same_spot(object):
         else:
             allparametrization = list_of_allparameters_input
 
-            # print('self.list_of_defocuses: ' + str(self.list_of_defocuses))
-            # print('allparametrization.type: ' + str(allparametrization.type))
+            # logging.info('self.list_of_defocuses: ' + str(self.list_of_defocuses))
+            # logging.info('allparametrization.type: ' + str(allparametrization.type))
             list_of_allparameters = self.create_list_of_allparameters(
                 allparametrization, list_of_defocuses=self.list_of_defocuses)
 
             if self.verbosity == 1:
-                print('Starting LN_PFS_multi_same_spot for parameters-hash ' +
+                logging.info('Starting LN_PFS_multi_same_spot for parameters-hash ' +
                       str(hash(str(allparametrization.data))) +
                       ' at ' +
                       str(time.time()) +
@@ -3425,8 +3041,8 @@ class LN_PFS_multi_same_spot(object):
 
         assert len(self.list_of_sci_images) == len(list_of_allparameters)
 
-        # print(len(self.list_of_sci_images))
-        # print(len(list_of_allparameters))
+        # logging.info(len(self.list_of_sci_images))
+        # logging.info(len(list_of_allparameters))
 
         # use same weights, experiment
         # if use_only_chi==True:
@@ -3458,21 +3074,21 @@ class LN_PFS_multi_same_spot(object):
                 if sci_image.shape[0] == 20:
                     multi_background_factor = 3
 
-                # print('var_image.shape: '+str(var_image.shape))
-                # print('multi_background_factor: '+str(multi_background_factor))
-                # print('np.median(var_image[0]): '+str(np.median(var_image[0])))
-                # print('np.median(var_image[-1]): '+str(np.median(var_image[-1])))
-                # print('np.median(var_image[:,0]): '+str(np.median(var_image[:,0])))
-                # print('np.median(var_image[:,-1]): '+str(np.median(var_image[:,-1])))
+                # logging.info('var_image.shape: '+str(var_image.shape))
+                # logging.info('multi_background_factor: '+str(multi_background_factor))
+                # logging.info('np.median(var_image[0]): '+str(np.median(var_image[0])))
+                # logging.info('np.median(var_image[-1]): '+str(np.median(var_image[-1])))
+                # logging.info('np.median(var_image[:,0]): '+str(np.median(var_image[:,0])))
+                # logging.info('np.median(var_image[:,-1]): '+str(np.median(var_image[:,-1])))
                 mean_value_of_background_via_var = np.mean([np.median(var_image[0]), np.median(
                     var_image[-1]), np.median(var_image[:, 0]),
                     np.median(var_image[:, -1])]) * multi_background_factor
-                # print('mean_value_of_background_via_var: '+str(mean_value_of_background_via_var))
+                # logging.info('mean_value_of_background_via_var: '+str(mean_value_of_background_via_var))
 
                 mean_value_of_background_via_sci = np.mean([np.median(sci_image[0]), np.median(
                     sci_image[-1]), np.median(sci_image[:, 0]),
                     np.median(sci_image[:, -1])]) * multi_background_factor
-                # print('mean_value_of_background_via_sci: '+str(mean_value_of_background_via_sci))
+                # logging.info('mean_value_of_background_via_sci: '+str(mean_value_of_background_via_sci))
                 mean_value_of_background = np.max(
                     [mean_value_of_background_via_var, mean_value_of_background_via_sci])
             except BaseException:
@@ -3505,7 +3121,7 @@ class LN_PFS_multi_same_spot(object):
             max_of_array_of_var_sum = np.max(array_of_var_sum)
 
             renormalization_of_var_sum = array_of_var_sum / max_of_array_of_var_sum
-            # print('renormalization_of_var_sum'+str(renormalization_of_var_sum))
+            # logging.info('renormalization_of_var_sum'+str(renormalization_of_var_sum))
         list_of_psf_positions_output = []
 
         for i in range(len(list_of_allparameters)):
@@ -3521,9 +3137,9 @@ class LN_PFS_multi_same_spot(object):
                 use_center_of_flux = False
 
             if self.verbosity == 1:
-                print('################################')
-                print('analyzing image ' + str(i + 1) + ' out of ' + str(len(list_of_allparameters)))
-                print(' ')
+                logging.info('################################')
+                logging.info('analyzing image ' + str(i + 1) + ' out of ' + str(len(list_of_allparameters)))
+                logging.info(' ')
 
             # if this is the first image, do the full analysis, generate new pupil and illumination
             if i == 0:
@@ -3616,7 +3232,7 @@ class LN_PFS_multi_same_spot(object):
 
                     likelihood_result = res_single_without_intermediate_images[0]
                     psf_position = res_single_with_intermediate_images[-1]
-                    # print(likelihood_result)
+                    # logging.info(likelihood_result)
                     list_of_single_res.append(likelihood_result)
                     list_of_psf_positions_output.append(psf_position)
 
@@ -3642,28 +3258,28 @@ class LN_PFS_multi_same_spot(object):
 
         # renormalization
         if self.verbosity == 1:
-            print('################################')
-            print('Likelihoods returned per individual images are: ' + str(array_of_single_res))
-            print('Mean likelihood is ' + str(np.mean(array_of_single_res)))
+            logging.info('################################')
+            logging.info('Likelihoods returned per individual images are: ' + str(array_of_single_res))
+            logging.info('Mean likelihood is ' + str(np.mean(array_of_single_res)))
 
         # mean_res_of_multi_same_spot=np.mean(array_of_single_res)
         mean_res_of_multi_same_spot = np.mean(array_of_single_res / renormalization_of_var_sum)
 
         if self.verbosity == 1:
-            print('################################')
-            print('Renormalized likelihoods returned per individual images are: ' +
+            logging.info('################################')
+            logging.info('Renormalized likelihoods returned per individual images are: ' +
                   str(array_of_single_res / renormalization_of_var_sum))
-            print('Renormalization factors are: ' + str(renormalization_of_var_sum))
-            print('Mean renormalized likelihood is ' + str(mean_res_of_multi_same_spot))
-            print('array_of_psf_positions_output: ' + str(array_of_psf_positions_output))
+            logging.info('Renormalization factors are: ' + str(renormalization_of_var_sum))
+            logging.info('Mean renormalized likelihood is ' + str(mean_res_of_multi_same_spot))
+            logging.info('array_of_psf_positions_output: ' + str(array_of_psf_positions_output))
 
         if self.verbosity == 1:
-            # print('Ending LN_PFS_multi_same_spot for parameters-hash '+
+            # logging.info('Ending LN_PFS_multi_same_spot for parameters-hash '+
             # str(hash(str(allparametrization.data)))+' at '+str(time.time())+
             # ' in thread '+str(threading.get_ident()))
-            print('Ending LN_PFS_multi_same_spot at time ' +
+            logging.info('Ending LN_PFS_multi_same_spot at time ' +
                   str(time.time()) + ' in thread ' + str(threading.get_ident()))
-            print(' ')
+            logging.info(' ')
 
         if not return_Images:
             return mean_res_of_multi_same_spot
@@ -3807,24 +3423,6 @@ class Tokovinin_multi(object):
         if zmax is None:
             zmax = 22
 
-        """
-        if zmax==11:
-            self.columns=['z4','z5','z6','z7','z8','z9','z10','z11',
-                          'hscFrac','strutFrac','dxFocal','dyFocal','slitFrac','slitFrac_dy',
-                          'radiometricEffect','radiometricExponent','x_ilum','y_ilum',
-                          'x_fiber','y_fiber','effective_ilum_radius','frd_sigma','frd_lorentz_factor','det_vert','slitHolder_frac_dx',
-                          'grating_lines','scattering_slope','scattering_amplitude',
-                          'pixel_effect','fiber_r','flux']
-        if zmax==22:
-            self.columns=['z4','z5','z6','z7','z8','z9','z10','z11',
-                          'z12','z13','z14','z15','z16','z17','z18','z19','z20','z21','z22',
-              'hscFrac','strutFrac','dxFocal','dyFocal','slitFrac','slitFrac_dy',
-              'radiometricEffect','radiometricExponent','x_ilum','y_ilum',
-              'x_fiber','y_fiber','effective_ilum_radius','frd_sigma','frd_lorentz_factor','det_vert','slitHolder_frac_dx',
-              'grating_lines','scattering_slope','scattering_amplitude',
-              'pixel_effect','fiber_r','flux']
-        """
-
         if zmax == 11:
             self.columns = [
                 'z4',
@@ -3835,7 +3433,7 @@ class Tokovinin_multi(object):
                 'z9',
                 'z10',
                 'z11',
-                'hscFrac',
+                'detFrac',
                 'strutFrac',
                 'dxFocal',
                 'dyFocal',
@@ -3879,7 +3477,7 @@ class Tokovinin_multi(object):
                 'z20',
                 'z21',
                 'z22',
-                'hscFrac',
+                'detFrac',
                 'strutFrac',
                 'dxFocal',
                 'dyFocal',
@@ -4021,16 +3619,16 @@ class Tokovinin_multi(object):
         """
 
         if self.verbosity >= 1:
-            print('#########################################################################################')
-            print('#########################################################################################')
-            print('Starting Tokovinin_algorithm_chi_multi with num_iter: ' + str(num_iter))
-            print('Tokovinin, return_Images: ' + str(return_Images))
-            print('Tokovinin, num_iter: ' + str(num_iter))
-            print('Tokovinin, use_only_chi: ' + str(use_only_chi))
-            print('Tokovinin, multi_background_factor: ' + str(multi_background_factor))
+            logging.info('#########################################################################################')
+            logging.info('#########################################################################################')
+            logging.info('Starting Tokovinin_algorithm_chi_multi with num_iter: ' + str(num_iter))
+            logging.info('Tokovinin, return_Images: ' + str(return_Images))
+            logging.info('Tokovinin, num_iter: ' + str(num_iter))
+            logging.info('Tokovinin, use_only_chi: ' + str(use_only_chi))
+            logging.info('Tokovinin, multi_background_factor: ' + str(multi_background_factor))
 
-            print('allparameters_parametrization_proposal' + str(allparameters_parametrization_proposal))
-            print('allparameters_parametrization_proposal.shape' +
+            logging.info('allparameters_parametrization_proposal' + str(allparameters_parametrization_proposal))
+            logging.info('allparameters_parametrization_proposal.shape' +
                   str(allparameters_parametrization_proposal.shape))
 
         list_of_sci_images = self.list_of_sci_images
@@ -4055,28 +3653,28 @@ class Tokovinin_multi(object):
             else:
                 self.list_of_psf_positions = previous_best_result[-1][-1]
 
-        # print('self.list_of_psf_positions in start of Tokovinin_multi'+str(self.list_of_psf_positions))
+        # logging.info('self.list_of_psf_positions in start of Tokovinin_multi'+str(self.list_of_psf_positions))
         ##########################################################################
         # Create initial modeling as basis for future effort
         # the outputs of this section are 0. pre_model_result, 1. model_results, 2. pre_images,
         # 3. pre_input_parameters, 4. chi_2_before_iteration_array, 5. list_of_psf_positions
         if self.verbosity >= 1:
-            print('list_of_defocuses analyzed: ' + str(list_of_defocuses_input_long))
+            logging.info('list_of_defocuses analyzed: ' + str(list_of_defocuses_input_long))
             
-        # print('list_of_sci_images'+str(list_of_sci_images))
-        # print('list_of_var_images'+str(list_of_var_images))
-        # print('list_of_mask_images'+str(list_of_mask_images))
-        # print('wavelength'+str(self.wavelength))
-        # print('dithering'+str(self.dithering))
-        # print('self.save'+str(self.save))
-        # print('self.zmax'+str(self.zmax))
-        # print('self.double_sources'+str(self.double_sources))
-        # print('self.double_sources_positions_ratios'+str(self.double_sources_positions_ratios))
-        # print('self.npix'+str(self.npix))
-        # print('self.list_of_defocuses_input_long'+str(list_of_defocuses_input_long))
-        # print('self.fit_for_flux'+str(self.fit_for_flux))
-        # print('self.test_run'+str(self.test_run))
-        # print('self.list_of_psf_positions'+str(self.list_of_psf_positions))
+        # logging.info('list_of_sci_images'+str(list_of_sci_images))
+        # logging.info('list_of_var_images'+str(list_of_var_images))
+        # logging.info('list_of_mask_images'+str(list_of_mask_images))
+        # logging.info('wavelength'+str(self.wavelength))
+        # logging.info('dithering'+str(self.dithering))
+        # logging.info('self.save'+str(self.save))
+        # logging.info('self.zmax'+str(self.zmax))
+        # logging.info('self.double_sources'+str(self.double_sources))
+        # logging.info('self.double_sources_positions_ratios'+str(self.double_sources_positions_ratios))
+        # logging.info('self.npix'+str(self.npix))
+        # logging.info('self.list_of_defocuses_input_long'+str(list_of_defocuses_input_long))
+        # logging.info('self.fit_for_flux'+str(self.fit_for_flux))
+        # logging.info('self.test_run'+str(self.test_run))
+        # logging.info('self.list_of_psf_positions'+str(self.list_of_psf_positions))
 
         model_multi = LN_PFS_multi_same_spot(
             list_of_sci_images,
@@ -4096,9 +3694,9 @@ class Tokovinin_multi(object):
             list_of_psf_positions=self.list_of_psf_positions)
 
         if self.verbosity >= 1:
-            print('****************************')
-            print('Starting Tokovinin procedure with num_iter: ' + str(num_iter))
-            print('Initial testing proposal is: ' + str(allparameters_parametrization_proposal))
+            logging.info('****************************')
+            logging.info('Starting Tokovinin procedure with num_iter: ' + str(num_iter))
+            logging.info('Initial testing proposal is: ' + str(allparameters_parametrization_proposal))
         time_start_single = time.time()
 
         # create list of minchains, one per each image
@@ -4113,7 +3711,7 @@ class Tokovinin_multi(object):
                 allparameters_parametrization_proposal)
 
         if self.verbosity >= 1:
-            print('Starting premodel analysis with num_iter: ' + str(num_iter))
+            logging.info('Starting premodel analysis with num_iter: ' + str(num_iter))
 
         # results from initial run, before running fitting algorithm
         # pre_model_result - mean likelihood across all images, renormalized
@@ -4123,14 +3721,14 @@ class Tokovinin_multi(object):
         # chi_2_before_iteration_array - list of lists describing quality of fitting
         # list_of_psf_positions -?
         try:
-            # print('len(list_of_minchain): '+str(len(list_of_minchain)))
-            # print('list_of_minchain[0] '+str(list_of_minchain[0]))
-            # print('multi_background_factor: '+str(multi_background_factor))
-            # print('type'+str(type(multi_background_factor)))
-            # print('up_to_which_z: '+str(up_to_which_z))
-            # print(str( list_of_minchain))
-            # print('use_only_chi: '+str( use_only_chi))
-            # print('list_of_minchain: '+str( list_of_minchain))
+            # logging.info('len(list_of_minchain): '+str(len(list_of_minchain)))
+            # logging.info('list_of_minchain[0] '+str(list_of_minchain[0]))
+            # logging.info('multi_background_factor: '+str(multi_background_factor))
+            # logging.info('type'+str(type(multi_background_factor)))
+            # logging.info('up_to_which_z: '+str(up_to_which_z))
+            # logging.info(str( list_of_minchain))
+            # logging.info('use_only_chi: '+str( use_only_chi))
+            # logging.info('list_of_minchain: '+str( list_of_minchain))
             
             pre_model_result, model_results, pre_images, pre_input_parameters, chi_2_before_iteration_array,\
                 list_of_psf_positions =\
@@ -4153,11 +3751,11 @@ class Tokovinin_multi(object):
             # self.list_of_var_images = list_of_var_images
 
         except Exception as e:
-            print('Exception is: ' + str(e))
-            print('Exception type is: ' + str(repr(e)))
-            print(traceback.print_exc())
+            logging.info('Exception is: ' + str(e))
+            logging.info('Exception type is: ' + str(repr(e)))
+            logging.info(traceback.logging.info_exc())
             if self.verbosity >= 1:
-                print('Premodel analysis failed')
+                logging.info('Premodel analysis failed')
             # if the modelling failed
             # returning 7 nan values to be consistent with what would be the return if the algorithm passed
             # at position 0 return extremly likelihood to indicate failure
@@ -4168,7 +3766,7 @@ class Tokovinin_multi(object):
             np.nan, np.nan, np.nan, np.nan, np.nan, np.nan
 
         if self.verbosity >= 1:
-            print('list_of_psf_positions at the input stage: ' + str(np.array(list_of_psf_positions)))
+            logging.info('list_of_psf_positions at the input stage: ' + str(np.array(list_of_psf_positions)))
 
         if self.save:
             np.save('/tigress/ncaplar/Results/allparameters_parametrization_proposal_' + str(num_iter),
@@ -4188,12 +3786,12 @@ class Tokovinin_multi(object):
         nonwavefront_par = list_of_minchain[0][19:42]
         time_end_single = time.time()
         if self.verbosity >= 1:
-            print('Total time taken for premodel analysis with num_iter ' + str(num_iter) +
+            logging.info('Total time taken for premodel analysis with num_iter ' + str(num_iter) +
                   ' was  ' + str(time_end_single - time_start_single) + ' seconds')
-            print('chi_2_before_iteration is: ' + str(chi_2_before_iteration_array))
+            logging.info('chi_2_before_iteration is: ' + str(chi_2_before_iteration_array))
 
-            print('Ended premodel analysis ')
-            print('***********************')
+            logging.info('Ended premodel analysis ')
+            logging.info('***********************')
 
         # import science images and determine the flux mask
         list_of_mean_value_of_background = []
@@ -4219,7 +3817,7 @@ class Tokovinin_multi(object):
             mean_value_of_background = np.max(
                 [mean_value_of_background_via_var, mean_value_of_background_via_sci])
             if self.verbosity > 1:
-                print(
+                logging.info(
                     str(multi_background_factor) +
                     'x mean_value_of_background in image with index' +
                     str(i) +
@@ -4464,7 +4062,7 @@ class Tokovinin_multi(object):
             else:
                 # errors in the typechecker for 10 lines below are fine
                 if self.verbosity == 1:
-                    print(
+                    logging.info(
                         'array_of_delta_z in ' +
                         str(iteration_number) +
                         ' ' +
@@ -4478,9 +4076,9 @@ class Tokovinin_multi(object):
                     all_global_parametrization_old = np.copy(all_global_parametrization_new) # noqa
                 if self.verbosity >= 1:
                     if did_chi_2_improve == 1: # noqa
-                        print('did_chi_2_improve: yes')
+                        logging.info('did_chi_2_improve: yes')
                     else:
-                        print('did_chi_2_improve: no')
+                        logging.info('did_chi_2_improve: no')
                 if did_chi_2_improve == 0: # noqa
                     thresh = thresh0
                 else:
@@ -4496,11 +4094,11 @@ class Tokovinin_multi(object):
             global_parametrization_start = all_global_parametrization_old
 
             if self.verbosity >= 1:
-                print('up_to_z22_parametrization_start: ' + str(up_to_z22_parametrization_start))
-                print('nonwavefront_par: ' + str(nonwavefront_par))
-                print('from_z22_parametrization_start' + str(from_z22_parametrization_start))
+                logging.info('up_to_z22_parametrization_start: ' + str(up_to_z22_parametrization_start))
+                logging.info('nonwavefront_par: ' + str(nonwavefront_par))
+                logging.info('from_z22_parametrization_start' + str(from_z22_parametrization_start))
 
-            # print('iteration '+str(iteration_number)+' shape of up_to_z22_parametrization_start is:
+            # logging.info('iteration '+str(iteration_number)+' shape of up_to_z22_parametrization_start is:
             #    '+str(up_to_z22_parametrization_start.shape))
             if move_allparameters:
                 initial_input_parameterization = np.concatenate(
@@ -4511,18 +4109,18 @@ class Tokovinin_multi(object):
                     (up_to_z22_parametrization_start, nonwavefront_par, from_z22_parametrization_start))
 
             if self.verbosity >= 1:
-                print(
+                logging.info(
                     'initial input parameters in iteration ' +
                     str(iteration_number) +
                     ' are: ' +
                     str(initial_input_parameterization))
-                print(
+                logging.info(
                     'moving input wavefront parameters in iteration ' +
                     str(iteration_number) +
                     ' by: ' +
                     str(array_of_delta_z_parametrizations))
             if move_allparameters:
-                print(
+                logging.info(
                     'moving global input parameters in iteration ' +
                     str(iteration_number) +
                     ' by: ' +
@@ -4532,7 +4130,7 @@ class Tokovinin_multi(object):
                 np.save('/tigress/ncaplar/Results/initial_input_parameterization_' +
                         str(num_iter) + '_' + str(iteration_number), initial_input_parameterization)
 
-            # print('len initial_input_parameterization '+str(len(initial_input_parameterization)))
+            # logging.info('len initial_input_parameterization '+str(len(initial_input_parameterization)))
 
             list_of_minchain = model_multi.create_list_of_allparameters(
                 initial_input_parameterization, list_of_defocuses=list_of_defocuses_input_long,
@@ -4677,13 +4275,13 @@ class Tokovinin_multi(object):
             unitary_IM_start = np.mean(IM_start)
             unitary_IM_start_std = np.mean(IM_start_std)
 
-            # print list_of_IM_start_std
+            # logging.info list_of_IM_start_std
             if self.verbosity == 1:
-                print('np.sum(np.abs(I-M0)) before iteration ' + str(num_iter) +
+                logging.info('np.sum(np.abs(I-M0)) before iteration ' + str(num_iter) +
                       '_' + str(iteration_number) + ': ' + str(unitary_IM_start))
-                print('np.sum(np.abs(I_std-M0_std)) before iteration ' + str(num_iter) +
+                logging.info('np.sum(np.abs(I_std-M0_std)) before iteration ' + str(num_iter) +
                       '_' + str(iteration_number) + ': ' + str(unitary_IM_start_std))
-            # print('np.sum(np.abs(I_std-M0_std)) before iteration '+str(iteration_number)+':
+            # logging.info('np.sum(np.abs(I_std-M0_std)) before iteration '+str(iteration_number)+':
             # '+str(unitary_IM_start_std))
 
             ##########################################################################
@@ -4693,7 +4291,7 @@ class Tokovinin_multi(object):
             # create two lists:
             # 1. one contains only wavefront parametrizations
             # 2. second contains the whole parametrizations
-            # print('checkpoint 0')
+            # logging.info('checkpoint 0')
             if move_allparameters:
                 list_of_all_wavefront_z_parameterization = []
                 list_of_input_parameterizations = []
@@ -4711,7 +4309,7 @@ class Tokovinin_multi(object):
                         (up_to_z22_start, nonwavefront_par, from_z22_start))
                     # actually it is parametrization
                     list_of_input_parameterizations.append(parametrization_proposal)
-                    # print('checkpoint 1')
+                    # logging.info('checkpoint 1')
                 for g_par in range(23):
                     all_global_parametrization_list = np.copy(all_global_parametrization_old)
                     all_global_parametrization_list[g_par] = all_global_parametrization_list[g_par] + \
@@ -4725,7 +4323,7 @@ class Tokovinin_multi(object):
                         (up_to_z22_start, all_global_parametrization_list, from_z22_start))
                     # actually it is parametrization
                     list_of_input_parameterizations.append(parametrization_proposal)
-                    # print('checkpoint 2')
+                    # logging.info('checkpoint 2')
                 for z_par in range(19 * 2, len(all_wavefront_z_parametrization_old)):
                     all_wavefront_z_parametrization_list = np.copy(all_wavefront_z_parametrization_old)
                     all_wavefront_z_parametrization_list[z_par] =\
@@ -4740,7 +4338,7 @@ class Tokovinin_multi(object):
                         (up_to_z22_start, nonwavefront_par, from_z22_start))
                     # actually it is parametrization
                     list_of_input_parameterizations.append(parametrization_proposal)
-                    # print('checkpoint 3')
+                    # logging.info('checkpoint 3')
 
             else:
                 list_of_all_wavefront_z_parameterization = []
@@ -4759,7 +4357,7 @@ class Tokovinin_multi(object):
                         (up_to_z22_start, nonwavefront_par, from_z22_start))
                     # actually it is parametrization
                     list_of_input_parameterizations.append(parametrization_proposal)
-                    # print('checkpoint 4')
+                    # logging.info('checkpoint 4')
 
             ##########################################################################
             # Starting testing new set of parameters
@@ -4773,7 +4371,7 @@ class Tokovinin_multi(object):
             out_pfs_positions = []
 
             if self.verbosity >= 1:
-                print(
+                logging.info(
                     'We are now inside of the pool loop number ' +
                     str(iteration_number) +
                     ' with num_iter: ' +
@@ -4834,7 +4432,7 @@ class Tokovinin_multi(object):
             # This is expensive because we have to generate new image for each Zernike term
             if previous_best_result is None:
                 if self.verbosity >= 1:
-                    print('self.pool parameter is: ' + str(self.pool))
+                    logging.info('self.pool parameter is: ' + str(self.pool))
 
                 # generate images
                 if self.pool is None:
@@ -4856,20 +4454,20 @@ class Tokovinin_multi(object):
                 out1 = list(out1)
                 time_end = time.time()
                 if self.verbosity >= 1:
-                    print('time_end-time_start for creating model_multi_out ' + str(time_end - time_start))
+                    logging.info('time_end-time_start for creating model_multi_out ' + str(time_end - time_start))
 
                 # normalization of the preinput run? (what did I mean by that)
                 pre_input_parameters = np.array(pre_input_parameters)
                 if self.verbosity >= 1:
-                    print('pre_input_parameters.shape ' + str(pre_input_parameters.shape))
-                    print('pre_input_parameters[0][0:5] ' + str(pre_input_parameters[0][0:5]))
+                    logging.info('pre_input_parameters.shape ' + str(pre_input_parameters.shape))
+                    logging.info('pre_input_parameters[0][0:5] ' + str(pre_input_parameters[0][0:5]))
 
                 # select the column specifying the flux normalization from the input images
                 array_of_normalizations_pre_input = pre_input_parameters[:, 41]
 
                 # out1=a_pool.map(model,input_parameters,repeat(True))
                 for i in range(len(uber_list_of_input_parameters)):
-                    # print(i)
+                    # logging.info(i)
 
                     #    initial_model_result,list_of_initial_model_result,list_of_image_0,\
                     #                list_of_initial_input_parameters,list_of_pre_chi2
@@ -4891,9 +4489,9 @@ class Tokovinin_multi(object):
 
                     out_ln.append(out1[i][0])
                     out_ln_ind.append(out1[i][1])
-                    # print('out_images_pre_renormalization.shape: '+
+                    # logging.info('out_images_pre_renormalization.shape: '+
                     # str(out_images_pre_renormalization.shape))
-                    # print('out_renormalization_parameters.shape: '+
+                    # logging.info('out_renormalization_parameters.shape: '+
                     # str(out_renormalization_parameters.shape))
                     # np.save('/tigress/ncaplar/Results/out_images_pre_renormalization',
                     # out_images_pre_renormalization)
@@ -4915,7 +4513,7 @@ class Tokovinin_multi(object):
 
                 time_end = time.time()
                 if self.verbosity >= 1:
-                    print('time_end-time_start for whole model_multi_out ' + str(time_end - time_start))
+                    logging.info('time_end-time_start for whole model_multi_out ' + str(time_end - time_start))
 
                 if self.save:
                     np.save(
@@ -5013,8 +4611,8 @@ class Tokovinin_multi(object):
                 # Core Tokovinin algorithm
 
                 if self.verbosity >= 1:
-                    print('images_normalized (uber).shape: ' + str(uber_images_normalized.shape))
-                    print('array_of_delta_z_parametrizations[:,None].shape' +
+                    logging.info('images_normalized (uber).shape: ' + str(uber_images_normalized.shape))
+                    logging.info('array_of_delta_z_parametrizations[:,None].shape' +
                           str(array_of_delta_z_parametrizations[:, None].shape))
                 # equation A1 from Tokovinin 2006
                 # new model minus old model
@@ -5056,16 +4654,16 @@ class Tokovinin_multi(object):
                 H, H_std, uber_I, uber_M0, uber_std, up_to_which_z=up_to_which_z)
 
             """
-            #print('np.mean(H,axis=0).shape)'+str(np.mean(H,axis=0).shape))
+            #logging.info('np.mean(H,axis=0).shape)'+str(np.mean(H,axis=0).shape))
             singlular_parameters=np.arange(H.shape[1])[np.abs((np.mean(H,axis=0)))<0.01]
             non_singlular_parameters=np.arange(H.shape[1])[np.abs((np.mean(H,axis=0)))>0.01]
-            #print('non_singlular_parameters.shape)'+str(non_singlular_parameters.shape))
+            #logging.info('non_singlular_parameters.shape)'+str(non_singlular_parameters.shape))
             H=H[:,non_singlular_parameters]
             H_std=H_std[:,non_singlular_parameters]
 
             HHt=np.matmul(np.transpose(H),H)
             HHt_std=np.matmul(np.transpose(H_std),H_std)
-            #print('svd thresh is '+str(thresh))
+            #logging.info('svd thresh is '+str(thresh))
             #invHHt=svd_invert(HHt,thresh)
             #invHHt_std=svd_invert(HHt_std,thresh)
             invHHt=np.linalg.inv(HHt)
@@ -5089,16 +4687,16 @@ class Tokovinin_multi(object):
                 for i in range(len(singlular_parameters)):
                     first_proposal_Tokovnin=np.insert(first_proposal_Tokovnin,singlular_parameters[i],0)
                     first_proposal_Tokovnin_std=np.insert(first_proposal_Tokovnin_std,singlular_parameters[i],0)
-            #print('first_proposal_Tokovnin_std'+str(first_proposal_Tokovnin_std.shape))
-            #print('invHHtHt_std.shape'+str(invHHtHt_std.shape))
+            #logging.info('first_proposal_Tokovnin_std'+str(first_proposal_Tokovnin_std.shape))
+            #logging.info('invHHtHt_std.shape'+str(invHHtHt_std.shape))
 
             """
 
             if self.verbosity >= 1:
-                print('first_proposal_Tokovnin[:5] is: ' + str(first_proposal_Tokovnin[:8 * 2]))
-                print('first_proposal_Tokovnin_std[:5] is: ' + str(first_proposal_Tokovnin_std[:8 * 2]))
+                logging.info('first_proposal_Tokovnin[:5] is: ' + str(first_proposal_Tokovnin[:8 * 2]))
+                logging.info('first_proposal_Tokovnin_std[:5] is: ' + str(first_proposal_Tokovnin_std[:8 * 2]))
                 try:
-                    print('ratio is of proposed to initial parameters (std) is: ' +
+                    logging.info('ratio is of proposed to initial parameters (std) is: ' +
                           str(first_proposal_Tokovnin_std / array_of_delta_z_parametrizations))
                 except BaseException:
                     pass
@@ -5130,13 +4728,13 @@ class Tokovinin_multi(object):
                 Tokovnin_proposal = 1 * first_proposal_Tokovnin_std
 
             if self.verbosity >= 1:
-                print('Tokovnin_proposal[:5] is: ' + str(Tokovnin_proposal[:5]))
+                logging.info('Tokovnin_proposal[:5] is: ' + str(Tokovnin_proposal[:5]))
                 if self.zmax > 35:
-                    print('Tokovnin_proposal[38:43] is: ' + str(Tokovnin_proposal[38:43]))
-            # print('all_wavefront_z_parametrization_old in '+str(iteration_number)+' '+
+                    logging.info('Tokovnin_proposal[38:43] is: ' + str(Tokovnin_proposal[38:43]))
+            # logging.info('all_wavefront_z_parametrization_old in '+str(iteration_number)+' '+
             # str(all_wavefront_z_parametrization_old[:5]))
-            # print('Tokovnin_proposal[:5] is: '+str(Tokovnin_proposal[:5]))
-            # print('Tokovnin_proposal.shape '+str(Tokovnin_proposal.shape))
+            # logging.info('Tokovnin_proposal[:5] is: '+str(Tokovnin_proposal[:5]))
+            # logging.info('Tokovnin_proposal.shape '+str(Tokovnin_proposal.shape))
 
             # if the Tokovinin proposal is not made, return the initial result
             if len(Tokovnin_proposal) < 10:
@@ -5152,7 +4750,7 @@ class Tokovinin_multi(object):
 
                 break
 
-            # print('std of Tokovnin_proposal is: '+str(np.std(Tokovnin_proposal)))
+            # logging.info('std of Tokovnin_proposal is: '+str(np.std(Tokovnin_proposal)))
             if move_allparameters:
                 # all_wavefront_z_parametrization_new=np.copy(all_wavefront_z_parametrization_old)
                 # all_global_parametrization_new=np.copy(all_global_parametrization_old)
@@ -5210,9 +4808,9 @@ class Tokovinin_multi(object):
                 multi_background_factor=multi_background_factor)
 
             if self.verbosity >= 1:
-                print('allparameters_parametrization_proposal_after_iteration ' +
+                logging.info('allparameters_parametrization_proposal_after_iteration ' +
                       str(allparameters_parametrization_proposal_after_iteration[0:5]))
-                print('list_of_parameters_after_iteration[0][0:5] ' +
+                logging.info('list_of_parameters_after_iteration[0][0:5] ' +
                       str(list_of_parameters_after_iteration[0][0:5]))
 
             final_model_result, list_of_final_model_result, list_of_image_final,\
@@ -5234,7 +4832,7 @@ class Tokovinin_multi(object):
 
             time_end_final = time.time()
             if self.verbosity >= 1:
-                print('Total time taken for final iteration was ' + str(time_end_final -
+                logging.info('Total time taken for final iteration was ' + str(time_end_final -
                       time_start_final) + ' seconds with num_iter: ' + str(num_iter))
 
             if self.save:
@@ -5258,7 +4856,7 @@ class Tokovinin_multi(object):
                         str(num_iter) + '_' + str(iteration_number), list_of_final_psf_positions)
 
             if self.verbosity >= 1:
-                print('list_of_final_psf_positions : ' + str(list_of_psf_positions))
+                logging.info('list_of_final_psf_positions : ' + str(list_of_psf_positions))
 
             ##########################################################################
             # divided model images by their standard deviations
@@ -5359,43 +4957,43 @@ class Tokovinin_multi(object):
                         position_focus_1:position_focus_2])
 
             if self.verbosity >= 1:
-                print('I-M_start before iteration ' + str(iteration_number) +
+                logging.info('I-M_start before iteration ' + str(iteration_number) +
                       ' with num_iter ' + str(num_iter) + ': ' + str(IM_start))
-                print('I-M_final after iteration ' + str(iteration_number) +
+                logging.info('I-M_final after iteration ' + str(iteration_number) +
                       ' with num_iter ' + str(num_iter) + ': ' + str(IM_final))
-                print('IM_final_linear_prediction after iteration ' + str(iteration_number) +
+                logging.info('IM_final_linear_prediction after iteration ' + str(iteration_number) +
                       ' with num_iter ' + str(num_iter) + ': ' + str(IM_final_linear_prediction))
                 if len(list_of_flux_mask) > 1:
-                    print('I-M_start_focus before iteration ' + str(iteration_number) +
+                    logging.info('I-M_start_focus before iteration ' + str(iteration_number) +
                           ' with num_iter ' + str(num_iter) + ': ' + str(IM_start_focus))
-                    print('I-M_final_focus after iteration ' + str(iteration_number) +
+                    logging.info('I-M_final_focus after iteration ' + str(iteration_number) +
                           ' with num_iter ' + str(num_iter) + ': ' + str(IM_final_focus))
 
-                print('I_std-M_start_std after iteration ' + str(iteration_number) +
+                logging.info('I_std-M_start_std after iteration ' + str(iteration_number) +
                       ' with num_iter ' + str(num_iter) + ': ' + str(IM_start_std))
-                print('I_std-M_final_std after iteration ' + str(iteration_number) +
+                logging.info('I_std-M_final_std after iteration ' + str(iteration_number) +
                       ' with num_iter ' + str(num_iter) + ': ' + str(IM_final_std))
-                print('IM_final_std_linear_prediction after iteration ' + str(iteration_number) +
+                logging.info('IM_final_std_linear_prediction after iteration ' + str(iteration_number) +
                       ' with num_iter ' + str(num_iter) + ': ' + str(IM_final_std_linear_prediction))
                 if len(list_of_flux_mask) > 1:
-                    print('I-M_start_focus_std before iteration ' + str(iteration_number) +
+                    logging.info('I-M_start_focus_std before iteration ' + str(iteration_number) +
                           ' with num_iter ' + str(num_iter) + ': ' + str(IM_start_std_focus))
-                    print('I-M_final_focus_std after iteration ' + str(iteration_number) +
+                    logging.info('I-M_final_focus_std after iteration ' + str(iteration_number) +
                           ' with num_iter ' + str(num_iter) + ': ' + str(IM_final_std_focus))
 
-                print('Likelihood before iteration ' + str(iteration_number) +
+                logging.info('Likelihood before iteration ' + str(iteration_number) +
                       ' with num_iter ' + str(num_iter) + ': ' + str(initial_model_result))
-                print('Likelihood after iteration ' + str(iteration_number) +
+                logging.info('Likelihood after iteration ' + str(iteration_number) +
                       ' with num_iter ' + str(num_iter) + ': ' + str(final_model_result))
 
-                print(
+                logging.info(
                     'Likelihood before iteration  ' +
                     str(iteration_number) +
                     ' with num_iter ' +
                     str(num_iter) +
                     ', per image: ' +
                     str(list_of_initial_model_result))
-                print(
+                logging.info(
                     'Likelihood after iteration ' +
                     str(iteration_number) +
                     ' with num_iter ' +
@@ -5403,18 +5001,18 @@ class Tokovinin_multi(object):
                     ', per image: ' +
                     str(list_of_final_model_result))
 
-                # print('chi_2_after_iteration/chi_2_before_iteration '+
+                # logging.info('chi_2_after_iteration/chi_2_before_iteration '+
                 # str(chi_2_after_iteration/chi_2_before_iteration ))
-                print('IM_final/IM_start with num_iter ' + str(num_iter) + ': ' + str(IM_final / IM_start))
-                print('IM_final_std/IM_start_std with num_iter ' +
+                logging.info('IM_final/IM_start with num_iter ' + str(num_iter) + ': ' + str(IM_final / IM_start))
+                logging.info('IM_final_std/IM_start_std with num_iter ' +
                       str(num_iter) + ': ' + str(IM_final_std / IM_start_std))
                 if len(list_of_flux_mask) > 1:
-                    print('IM_final_focus/IM_start_focus with num_iter ' +
+                    logging.info('IM_final_focus/IM_start_focus with num_iter ' +
                           str(num_iter) + ': ' + str(IM_final_focus / IM_start_focus))
-                    print('IM_final_std_focus/IM_start_std_focus with num_iter ' +
+                    logging.info('IM_final_std_focus/IM_start_std_focus with num_iter ' +
                           str(num_iter) + ': ' + str(IM_final_std_focus / IM_start_std_focus))
 
-                print('#########################################################')
+                logging.info('#########################################################')
 
             ##################
             # If improved take new parameters, if not dont
@@ -5432,19 +5030,19 @@ class Tokovinin_multi(object):
                     condition_for_improvment = True
 
             if self.verbosity >= 1:
-                print('condition_for_improvment in iteration ' + str(iteration_number) +
+                logging.info('condition_for_improvment in iteration ' + str(iteration_number) +
                       ' with num_iter ' + str(num_iter) + ': ' + str(condition_for_improvment))
             if condition_for_improvment:
                 # when the quality measure did improve
                 did_chi_2_improve = 1 #noqa
                 number_of_non_decreses.append(0)
                 if self.verbosity >= 1:
-                    print('number_of_non_decreses:' +
+                    logging.info('number_of_non_decreses:' +
                           str(number_of_non_decreses))
-                    print('current value of number_of_non_decreses is: ' +
+                    logging.info('current value of number_of_non_decreses is: ' +
                           str(np.sum(number_of_non_decreses)))
-                    print('#################################################################################')
-                    print('#################################################################################')
+                    logging.info('#################################################################################')
+                    logging.info('#################################################################################')
             else:
                 # when the quality measure did not improve
                 did_chi_2_improve = 0 #noqa
@@ -5463,11 +5061,11 @@ class Tokovinin_multi(object):
                 thresh = thresh0
                 number_of_non_decreses.append(1)
                 if self.verbosity >= 1:
-                    print('number_of_non_decreses:' + str(number_of_non_decreses))
-                    print('current value of number_of_non_decreses is: ' +
+                    logging.info('number_of_non_decreses:' + str(number_of_non_decreses))
+                    logging.info('current value of number_of_non_decreses is: ' +
                           str(np.sum(number_of_non_decreses)))
-                    print('#################################################################################')
-                    print('#################################################################################')
+                    logging.info('#################################################################################')
+                    logging.info('#################################################################################')
 
                 final_model_result = initial_model_result
                 list_of_final_model_result = list_of_initial_model_result
@@ -5662,7 +5260,7 @@ class Tokovinin_multi(object):
                 flux_mask = list_of_flux_mask[i]
                 if j == 0:
 
-                    # print('sum_flux_in images'+str([i,np.sum(flux_mask)]))
+                    # logging.info('sum_flux_in images'+str([i,np.sum(flux_mask)]))
                     pass
                 images_normalized.append((optpsf_list[i][flux_mask]).ravel())
                 # !old double-normalizing code
@@ -5730,9 +5328,9 @@ class Tokovinin_multi(object):
 
         # difference between current model image and previous model image
 
-        # print('uber_images_normalized_previous_best.shape'+str(uber_images_normalized_previous_best.shape))
-        # print('uber_M0_previous_best.shape'+str(uber_M0_previous_best.shape))
-        # print('uber_M0.shape'+str(uber_M0.shape))
+        # logging.info('uber_images_normalized_previous_best.shape'+str(uber_images_normalized_previous_best.shape))
+        # logging.info('uber_M0_previous_best.shape'+str(uber_M0_previous_best.shape))
+        # logging.info('uber_M0.shape'+str(uber_M0.shape))
 
         # change between the initial model in this step and the imported model
         # global_change = uber_M0 - uber_M0_previous_best
@@ -5762,8 +5360,8 @@ class Tokovinin_multi(object):
 
         H_shape = H.shape
 
-        # print('H_shape'+str(H_shape))
-        # print('up_to_which_z:'+str(up_to_which_z))
+        # logging.info('H_shape'+str(H_shape))
+        # logging.info('up_to_which_z:'+str(up_to_which_z))
 
         if up_to_which_z is not None:
             # H=H[:,1:(up_to_which_z-3)*2:2]
@@ -5777,20 +5375,20 @@ class Tokovinin_multi(object):
 
         H = np.nan_to_num(H, 0)
 
-        # print('np.mean(H,axis=0).shape)'+str(np.mean(H,axis=0).shape))
+        # logging.info('np.mean(H,axis=0).shape)'+str(np.mean(H,axis=0).shape))
         singlular_parameters = np.arange(H.shape[1])[np.abs((np.mean(H, axis=0))) < 0.001]
         non_singlular_parameters = np.arange(H.shape[1])[np.abs((np.mean(H, axis=0))) > 0.001]
 
-        # print('np.abs((np.mean(H,axis=0)))'+str(np.abs((np.mean(H,axis=0)))))
-        # print('non_singlular_parameters.shape)'+str(non_singlular_parameters.shape))
-        # print('singlular_parameters)'+str(singlular_parameters))
+        # logging.info('np.abs((np.mean(H,axis=0)))'+str(np.abs((np.mean(H,axis=0)))))
+        # logging.info('non_singlular_parameters.shape)'+str(non_singlular_parameters.shape))
+        # logging.info('singlular_parameters)'+str(singlular_parameters))
 
         H = H[:, non_singlular_parameters]
         H_std = H_std[:, non_singlular_parameters]
 
         HHt = np.matmul(np.transpose(H), H)
         HHt_std = np.matmul(np.transpose(H_std), H_std)
-        # print('svd thresh is '+str(thresh))
+        # logging.info('svd thresh is '+str(thresh))
         # invHHt=svd_invert(HHt,thresh)
         # invHHt_std=svd_invert(HHt_std,thresh)
         invHHt = np.linalg.inv(HHt)
@@ -5805,7 +5403,7 @@ class Tokovinin_multi(object):
         # first_proposal_Tokovnin_std=np.matmul(invHHtHt_std,uber_I_std-uber_M0_std)
         first_proposal_Tokovnin_std = np.matmul(invHHtHt_std, (uber_I - uber_M0) / uber_std.ravel())
 
-        # print('first_proposal_Tokovnin.shape before sing'+str(first_proposal_Tokovnin.shape))
+        # logging.info('first_proposal_Tokovnin.shape before sing'+str(first_proposal_Tokovnin.shape))
 
         # if you have removed certain parameters because of the singularity, return them here, with no change
         if len(singlular_parameters) > 0:
@@ -5814,7 +5412,7 @@ class Tokovinin_multi(object):
                 first_proposal_Tokovnin_std = np.insert(
                     first_proposal_Tokovnin_std, singlular_parameters[i], 0)
 
-        # print('first_proposal_Tokovnin.shape after sing'+str(first_proposal_Tokovnin.shape))
+        # logging.info('first_proposal_Tokovnin.shape after sing'+str(first_proposal_Tokovnin.shape))
 
         if up_to_which_z is not None:
             # H=H[:,1:(up_to_which_z-3)*2:2]
@@ -5822,13 +5420,13 @@ class Tokovinin_multi(object):
 
             first_proposal_Tokovnin_0 = np.zeros((H_shape[1]))
             first_proposal_Tokovnin_0_std = np.zeros((H_shape[1]))
-            # print('first_proposal_Tokovnin_0.shape'+str(first_proposal_Tokovnin_0.shape))
+            # logging.info('first_proposal_Tokovnin_0.shape'+str(first_proposal_Tokovnin_0.shape))
 
-            # print('up_to_which_z: '+str(up_to_which_z))
-            # print('first_proposal_Tokovnin:' +str(first_proposal_Tokovnin))
+            # logging.info('up_to_which_z: '+str(up_to_which_z))
+            # logging.info('first_proposal_Tokovnin:' +str(first_proposal_Tokovnin))
 
-            # print(first_proposal_Tokovnin_0[0:(up_to_which_z-3)*2].shape)
-            # print(first_proposal_Tokovnin.shape)
+            # logging.info(first_proposal_Tokovnin_0[0:(up_to_which_z-3)*2].shape)
+            # logging.info(first_proposal_Tokovnin.shape)
             first_proposal_Tokovnin_0[0:(up_to_which_z - 3) * 2] = first_proposal_Tokovnin
             first_proposal_Tokovnin_0_std[0:(up_to_which_z - 3) * 2] = first_proposal_Tokovnin_std
 
@@ -5868,7 +5466,7 @@ class LN_PFS_single(object):
     def model_return(allparameters_proposal):
         return model(allparameters_proposal,return_Image=True)
 
-    Calls ZernikeFitter_PFS class (constructModelImage_PFS_naturalResolution function)
+    Calls ZernikeFitterPFS class (constructModelImage_PFS_naturalResolution function)
     in order to create images
 
     Called by LN_PFS_multi_same_spot
@@ -5925,32 +5523,14 @@ class LN_PFS_single(object):
         if use_pupil_parameters is not None:
             assert pupil_parameters is not None
 
-        # print('double_sources in ln_pfs_single: '+str(double_sources))
-        # print('double_sources_positions_ratios in ln_pfs_single: '+str(double_sources_positions_ratios))
-        # print('type(double_sources): '+str(type(double_sources)))
+        # logging.info('double_sources in ln_pfs_single: '+str(double_sources))
+        # logging.info('double_sources_positions_ratios in ln_pfs_single: '+str(double_sources_positions_ratios))
+        # logging.info('type(double_sources): '+str(type(double_sources)))
         if double_sources is not None and bool(double_sources) is not False:
             assert np.sum(np.abs(double_sources_positions_ratios)) > 0
 
         if zmax is None:
             zmax = 11
-
-        """
-        if zmax==11:
-            self.columns=['z4','z5','z6','z7','z8','z9','z10','z11',
-                          'hscFrac','strutFrac','dxFocal','dyFocal','slitFrac','slitFrac_dy',
-                          'radiometricEffect','radiometricExponent','x_ilum','y_ilum',
-                          'x_fiber','y_fiber','effective_ilum_radius','frd_sigma','frd_lorentz_factor','det_vert','slitHolder_frac_dx',
-                          'grating_lines','scattering_slope','scattering_amplitude',
-                          'pixel_effect','fiber_r','flux']
-        if zmax>=22:
-            self.columns=['z4','z5','z6','z7','z8','z9','z10','z11',
-                          'z12','z13','z14','z15','z16','z17','z18','z19','z20','z21','z22',
-              'hscFrac','strutFrac','dxFocal','dyFocal','slitFrac','slitFrac_dy',
-              'radiometricEffect','radiometricExponent','x_ilum','y_ilum',
-              'x_fiber','y_fiber','effective_ilum_radius','frd_sigma','frd_lorentz_factor','det_vert','slitHolder_frac_dx',
-              'grating_lines','scattering_slope','scattering_amplitude',
-              'pixel_effect','fiber_r','flux']
-        """
 
         if zmax == 11:
             self.columns = [
@@ -5962,7 +5542,7 @@ class LN_PFS_single(object):
                 'z9',
                 'z10',
                 'z11',
-                'hscFrac',
+                'detFrac',
                 'strutFrac',
                 'dxFocal',
                 'dyFocal',
@@ -6006,7 +5586,7 @@ class LN_PFS_single(object):
                 'z20',
                 'z21',
                 'z22',
-                'hscFrac',
+                'detFrac',
                 'strutFrac',
                 'dxFocal',
                 'dyFocal',
@@ -6072,20 +5652,20 @@ class LN_PFS_single(object):
             self.npix = npix
 
         if verbosity == 1:
-            print('Science image shape is: ' + str(sci_image.shape))
-            print('Top left pixel value of the science image is: ' + str(sci_image[0][0]))
-            print('Variance image shape is: ' + str(sci_image.shape))
-            print('Top left pixel value of the variance image is: ' + str(var_image[0][0]))
-            print('Mask image shape is: ' + str(sci_image.shape))
-            print('Sum of mask image is: ' + str(np.sum(mask_image)))
-            print('Dithering value is: ' + str(dithering))
-            print('')
+            logging.info('Science image shape is: ' + str(sci_image.shape))
+            logging.info('Top left pixel value of the science image is: ' + str(sci_image[0][0]))
+            logging.info('Variance image shape is: ' + str(sci_image.shape))
+            logging.info('Top left pixel value of the variance image is: ' + str(var_image[0][0]))
+            logging.info('Mask image shape is: ' + str(sci_image.shape))
+            logging.info('Sum of mask image is: ' + str(np.sum(mask_image)))
+            logging.info('Dithering value is: ' + str(dithering))
+            logging.info('')
 
-            print('explicit_psf_position in LN_PFS_single: '+str(explicit_psf_position))
-            print('supplied extra Zernike parameters (beyond zmax): ' + str(extraZernike))
+            logging.info('explicit_psf_position in LN_PFS_single: '+str(explicit_psf_position))
+            logging.info('supplied extra Zernike parameters (beyond zmax): ' + str(extraZernike))
 
         """
-        parameters that go into ZernikeFitter_PFS
+        parameters that go into ZernikeFitterPFS
         def __init__(self,image=None,image_var=None,image_mask=None,pixelScale=None,wavelength=None,
              diam_sic=None,npix=None,pupilExplicit=None,
              wf_full_Image=None,radiometricEffectArray_Image=None,
@@ -6099,17 +5679,14 @@ class LN_PFS_single(object):
 
         # how are these two approaches different?
         if pupil_parameters is None:
-            single_image_analysis = ZernikeFitter_PFS(
+            single_image_analysis = ZernikeFitterPFS(
                 sci_image,
                 var_image,
                 image_mask=mask_image,
-                pixelScale=None,
                 wavelength=wavelength,
-                diam_sic=None,
                 npix=npix,
                 pupilExplicit=pupilExplicit,
                 wf_full_Image=None,
-                radiometricEffectArray_Image=None,
                 ilum_Image=None,
                 dithering=dithering,
                 save=save,
@@ -6130,8 +5707,7 @@ class LN_PFS_single(object):
             single_image_analysis.initParams(zmax)
             self.single_image_analysis = single_image_analysis
         else:
-
-            single_image_analysis = ZernikeFitter_PFS(
+            single_image_analysis = ZernikeFitterPFS(
                 sci_image,
                 var_image,
                 image_mask=mask_image,
@@ -6152,7 +5728,7 @@ class LN_PFS_single(object):
 
             single_image_analysis.initParams(
                 zmax,
-                hscFracInit=pupil_parameters[0],
+                detFracInit=pupil_parameters[0],
                 strutFracInit=pupil_parameters[1],
                 focalPlanePositionInit=(
                     pupil_parameters[2],
@@ -6324,17 +5900,17 @@ class LN_PFS_single(object):
 
         use_custom_var = True
         if use_custom_var:
-            # print('Test checkpoint 1')
-            # print('modelImg.shape'+str(modelImg.shape))
-            # print('modelImg[0][0:5]'+str(modelImg[0][0:5]))
-            # print('sci_image.shape'+str(sci_image.shape))
-            # print('sci_image[0][0:5]'+str(sci_image[0][0:5]))
-            # print('var_image.shape'+str(var_image.shape))
-            # print('var_image[0][0:5]'+str(var_image[0][0:5]))
-            # print('mask_image.shape'+str(mask_image.shape))
-            # print('mask_image[0][0:5]'+str(mask_image[0][0:5]))
+            # logging.info('Test checkpoint 1')
+            # logging.info('modelImg.shape'+str(modelImg.shape))
+            # logging.info('modelImg[0][0:5]'+str(modelImg[0][0:5]))
+            # logging.info('sci_image.shape'+str(sci_image.shape))
+            # logging.info('sci_image[0][0:5]'+str(sci_image[0][0:5]))
+            # logging.info('var_image.shape'+str(var_image.shape))
+            # logging.info('var_image[0][0:5]'+str(var_image[0][0:5]))
+            # logging.info('mask_image.shape'+str(mask_image.shape))
+            # logging.info('mask_image[0][0:5]'+str(mask_image[0][0:5]))
             custom_var_image = self.create_custom_var_from_popt(modelImg, self.popt_for_custom_var_image)
-            # print('custom_var_image[0][0:5]'+str(custom_var_image[0][0:5]))
+            # logging.info('custom_var_image[0][0:5]'+str(custom_var_image[0][0:5]))
             # overload var_image with newly created image
             var_image = custom_var_image
 
@@ -6343,7 +5919,7 @@ class LN_PFS_single(object):
         sci_image_masked = sci_image * inverted_mask
         modelImg_masked = modelImg * inverted_mask
 
-        # print('First 5 values are: '+str(var_image_masked[0:5]))
+        # logging.info('First 5 values are: '+str(var_image_masked[0:5]))
 
         # sigma values
         sigma_masked = np.sqrt(var_image_masked)
@@ -6367,9 +5943,9 @@ class LN_PFS_single(object):
             chi2_res = np.abs(chi_without_nan)**1
             chi2_intrinsic_res = np.abs(chi_intrinsic_without_nan)**1
 
-        # print('use_only_chi variable in create_chi_2_almost is: '+str(use_only_chi))
-        # print('chi2_res '+str(np.sum(chi2_res)))
-        # print('chi2_intrinsic_res '+str(np.sum(chi2_intrinsic_res)))
+        # logging.info('use_only_chi variable in create_chi_2_almost is: '+str(use_only_chi))
+        # logging.info('chi2_res '+str(np.sum(chi2_res)))
+        # logging.info('chi2_intrinsic_res '+str(np.sum(chi2_intrinsic_res)))
 
         # calculates 'Q' values
         Qlist = np.abs((sci_image_masked - modelImg_masked))
@@ -6462,9 +6038,9 @@ class LN_PFS_single(object):
         time_lnlike_start = time.time()
 
         if self.verbosity == 1:
-            print('')
-            print('Entering lnlike_Neven')
-            print('allparameters ' + str(allparameters))
+            logging.info('')
+            logging.info('Entering lnlike_Neven')
+            logging.info('allparameters ' + str(allparameters))
 
         if self.pupil_parameters is not None:
             if len(allparameters) < 25:
@@ -6491,182 +6067,182 @@ class LN_PFS_single(object):
 
         # When running big fits these are limits which ensure
         # that the code does not wander off in totally non physical region
-        # hsc frac
+        # det frac
         if globalparameters[0] < 0.6 or globalparameters[0] > 0.8:
-            print('globalparameters[0] outside limits; value: ' +
+            logging.info('globalparameters[0] outside limits; value: ' +
                   str(globalparameters[0])) if test_print == 1 else False
             return -np.inf
 
         # strut frac
         if globalparameters[1] < 0.07 or globalparameters[1] > 0.13:
-            print('globalparameters[1] outside limits') if test_print == 1 else False
+            logging.info('globalparameters[1] outside limits') if test_print == 1 else False
             return -np.inf
 
         # slit_frac < strut frac
         # if globalparameters[4]<globalparameters[1]:
-            # print('globalparameters[1] not smaller than 4 outside limits')
+            # logging.info('globalparameters[1] not smaller than 4 outside limits')
             # return -np.inf
 
         # dx Focal
         if globalparameters[2] > 0.4:
-            print('globalparameters[2] outside limits') if test_print == 1 else False
+            logging.info('globalparameters[2] outside limits') if test_print == 1 else False
             return -np.inf
         if globalparameters[2] < -0.4:
-            print('globalparameters[2] outside limits') if test_print == 1 else False
+            logging.info('globalparameters[2] outside limits') if test_print == 1 else False
             return -np.inf
 
         # dy Focal
         if globalparameters[3] > 0.4:
-            print('globalparameters[3] outside limits') if test_print == 1 else False
+            logging.info('globalparameters[3] outside limits') if test_print == 1 else False
             return -np.inf
         if globalparameters[3] < -0.4:
-            print('globalparameters[3] outside limits') if test_print == 1 else False
+            logging.info('globalparameters[3] outside limits') if test_print == 1 else False
             return -np.inf
 
         # slitFrac
         if globalparameters[4] < 0.05:
-            print('globalparameters[4] outside limits') if test_print == 1 else False
+            logging.info('globalparameters[4] outside limits') if test_print == 1 else False
             return -np.inf
         if globalparameters[4] > 0.09:
-            print('globalparameters[4] outside limits') if test_print == 1 else False
+            logging.info('globalparameters[4] outside limits') if test_print == 1 else False
             return -np.inf
 
         # slitFrac_dy
         if globalparameters[5] < -0.5:
-            print('globalparameters[5] outside limits') if test_print == 1 else False
+            logging.info('globalparameters[5] outside limits') if test_print == 1 else False
             return -np.inf
         if globalparameters[5] > 0.5:
-            print('globalparameters[5] outside limits') if test_print == 1 else False
+            logging.info('globalparameters[5] outside limits') if test_print == 1 else False
             return -np.inf
 
         # wide_0
         if globalparameters[6] < 0:
-            print('globalparameters[6] outside limits') if test_print == 1 else False
+            logging.info('globalparameters[6] outside limits') if test_print == 1 else False
             return -np.inf
         if globalparameters[6] > 1:
-            print('globalparameters[6] outside limits') if test_print == 1 else False
+            logging.info('globalparameters[6] outside limits') if test_print == 1 else False
             return -np.inf
 
         # wide_23
         if globalparameters[7] < 0:
-            print('globalparameters[7] outside limits') if test_print == 1 else False
+            logging.info('globalparameters[7] outside limits') if test_print == 1 else False
             return -np.inf
         # changed in w_23
         if globalparameters[7] > 1:
-            print('globalparameters[7] outside limits') if test_print == 1 else False
+            logging.info('globalparameters[7] outside limits') if test_print == 1 else False
             return -np.inf
 
         # wide_43
         if globalparameters[8] < 0:
-            print('globalparameters[8] outside limits') if test_print == 1 else False
+            logging.info('globalparameters[8] outside limits') if test_print == 1 else False
             return -np.inf
         if globalparameters[8] > 1:
-            print('globalparameters[8] outside limits') if test_print == 1 else False
+            logging.info('globalparameters[8] outside limits') if test_print == 1 else False
             return -np.inf
 
         # misalign
         if globalparameters[9] < 0:
-            print('globalparameters[9] outside limits') if test_print == 1 else False
+            logging.info('globalparameters[9] outside limits') if test_print == 1 else False
             return -np.inf
         if globalparameters[9] > 12:
-            print('globalparameters[9] outside limits') if test_print == 1 else False
+            logging.info('globalparameters[9] outside limits') if test_print == 1 else False
             return -np.inf
 
         # x_fiber
         if globalparameters[10] < -0.4:
-            print('globalparameters[10] outside limits') if test_print == 1 else False
+            logging.info('globalparameters[10] outside limits') if test_print == 1 else False
             return -np.inf
         if globalparameters[10] > 0.4:
-            print('globalparameters[10] outside limits') if test_print == 1 else False
+            logging.info('globalparameters[10] outside limits') if test_print == 1 else False
             return -np.inf
 
         # y_fiber
         if globalparameters[11] < -0.4:
-            print('globalparameters[11] outside limits') if test_print == 1 else False
+            logging.info('globalparameters[11] outside limits') if test_print == 1 else False
             return -np.inf
         if globalparameters[11] > 0.4:
-            print('globalparameters[11] outside limits') if test_print == 1 else False
+            logging.info('globalparameters[11] outside limits') if test_print == 1 else False
             return -np.inf
 
         # effective_radius_illumination
         if globalparameters[12] < 0.7:
-            print('globalparameters[12] outside limits') if test_print == 1 else False
+            logging.info('globalparameters[12] outside limits') if test_print == 1 else False
             return -np.inf
         if globalparameters[12] > 1.0:
-            print('globalparameters[12] outside limits with value ' +
+            logging.info('globalparameters[12] outside limits with value ' +
                   str(globalparameters[12])) if test_print == 1 else False
             return -np.inf
 
         # frd_sigma
         if globalparameters[13] < 0.01:
-            print('globalparameters[13] outside limits') if test_print == 1 else False
+            logging.info('globalparameters[13] outside limits') if test_print == 1 else False
             return -np.inf
         if globalparameters[13] > .4:
-            print('globalparameters[13] outside limits') if test_print == 1 else False
+            logging.info('globalparameters[13] outside limits') if test_print == 1 else False
             return -np.inf
 
         # frd_lorentz_factor
         if globalparameters[14] < 0.01:
-            print('globalparameters[14] outside limits') if test_print == 1 else False
+            logging.info('globalparameters[14] outside limits') if test_print == 1 else False
             return -np.inf
         if globalparameters[14] > 1:
-            print('globalparameters[14] outside limits') if test_print == 1 else False
+            logging.info('globalparameters[14] outside limits') if test_print == 1 else False
             return -np.inf
 
         # det_vert
         if globalparameters[15] < 0.85:
-            print('globalparameters[15] outside limits') if test_print == 1 else False
+            logging.info('globalparameters[15] outside limits') if test_print == 1 else False
             return -np.inf
         if globalparameters[15] > 1.15:
-            print('globalparameters[15] outside limits') if test_print == 1 else False
+            logging.info('globalparameters[15] outside limits') if test_print == 1 else False
             return -np.inf
 
         # slitHolder_frac_dx
         if globalparameters[16] < -0.8:
-            print('globalparameters[16] outside limits') if test_print == 1 else False
+            logging.info('globalparameters[16] outside limits') if test_print == 1 else False
             return -np.inf
         if globalparameters[16] > 0.8:
-            print('globalparameters[16] outside limits') if test_print == 1 else False
+            logging.info('globalparameters[16] outside limits') if test_print == 1 else False
             return -np.inf
 
         # grating_lines
         if globalparameters[17] < 1200:
-            print('globalparameters[17] outside limits') if test_print == 1 else False
+            logging.info('globalparameters[17] outside limits') if test_print == 1 else False
             return -np.inf
         if globalparameters[17] > 120000:
-            print('globalparameters[17] outside limits') if test_print == 1 else False
+            logging.info('globalparameters[17] outside limits') if test_print == 1 else False
             return -np.inf
 
         # scattering_slope
         if globalparameters[18] < 1.5:
-            print('globalparameters[18] outside limits') if test_print == 1 else False
+            logging.info('globalparameters[18] outside limits') if test_print == 1 else False
             return -np.inf
         if globalparameters[18] > +3.0:
-            print('globalparameters[18] outside limits') if test_print == 1 else False
+            logging.info('globalparameters[18] outside limits') if test_print == 1 else False
             return -np.inf
 
         # scattering_amplitude
         if globalparameters[19] < 0:
-            print('globalparameters[19] outside limits') if test_print == 1 else False
+            logging.info('globalparameters[19] outside limits') if test_print == 1 else False
             return -np.inf
         if globalparameters[19] > +0.4:
-            print('globalparameters[19] outside limits') if test_print == 1 else False
+            logging.info('globalparameters[19] outside limits') if test_print == 1 else False
             return -np.inf
 
         # pixel_effect
         if globalparameters[20] < 0.15:
-            print('globalparameters[20] outside limits') if test_print == 1 else False
+            logging.info('globalparameters[20] outside limits') if test_print == 1 else False
             return -np.inf
         if globalparameters[20] > +0.8:
-            print('globalparameters[20] outside limits') if test_print == 1 else False
+            logging.info('globalparameters[20] outside limits') if test_print == 1 else False
             return -np.inf
 
         # fiber_r
         if globalparameters[21] < 1.74:
-            print('globalparameters[21] outside limits') if test_print == 1 else False
+            logging.info('globalparameters[21] outside limits') if test_print == 1 else False
             return -np.inf
         if globalparameters[21] > +1.98:
-            print('globalparameters[21] outside limits') if test_print == 1 else False
+            logging.info('globalparameters[21] outside limits') if test_print == 1 else False
             return -np.inf
 
         # flux
@@ -6674,26 +6250,27 @@ class LN_PFS_single(object):
             globalparameters[22] = 1
         else:
             if globalparameters[22] < 0.98:
-                print('globalparameters[22] outside limits') if test_print == 1 else False
+                logging.info('globalparameters[22] outside limits') if test_print == 1 else False
                 return -np.inf
             if globalparameters[22] > 1.02:
-                print('globalparameters[22] outside limits') if test_print == 1 else False
+                logging.info('globalparameters[22] outside limits') if test_print == 1 else False
                 return -np.inf
 
         x = self.create_x(zparameters, globalparameters)
+
         for i in range(len(self.columns)):
             self.single_image_analysis.params[self.columns[i]].set(x[i])
 
         if len(allparameters) > len(self.columns):
             if self.verbosity == 1:
-                print('We are going higher than Zernike 22!')
+                logging.info('We are going higher than Zernike 22!')
             extra_Zernike_parameters = allparameters[len(self.columns):]
             if self.verbosity == 1:
-                print('extra_Zernike_parameters ' + str(extra_Zernike_parameters))
+                logging.info('extra_Zernike_parameters ' + str(extra_Zernike_parameters))
         else:
             extra_Zernike_parameters = None
             if self.verbosity == 1:
-                print('No extra Zernike (beyond zmax)')
+                logging.info('No extra Zernike (beyond zmax)')
 
         # if it is not a test run, run the actual code
         if not self.test_run:
@@ -6720,7 +6297,7 @@ class LN_PFS_single(object):
                 psf_position = [0, 0]
 
                 if self.verbosity == 1:
-                    print('Careful - the model image is created in a test_run')
+                    logging.info('Careful - the model image is created in a test_run')
             else:
                 # ilum_test=np.ones((3072,3072))
                 ilum_test = np.ones((30, 30))
@@ -6733,11 +6310,11 @@ class LN_PFS_single(object):
                 modelImg, ilum, wf_grid_rot, psf_position = self.sci_image * \
                     randomizer_array, ilum_test, wf_grid_rot_test, psf_position_test
                 if self.verbosity == 1:
-                    print('Careful - the model image is created in a test_run')
-                    print('test run with return_intermediate_images==True!')
+                    logging.info('Careful - the model image is created in a test_run')
+                    logging.info('test run with return_intermediate_images==True!')
 
         # if image is in focus, which at the moment is size of post stamp image of 20 by 20
-        # print('self.sci_image.shape[0]'+str(self.sci_image.shape[0]))
+        # logging.info('self.sci_image.shape[0]'+str(self.sci_image.shape[0]))
         if self.sci_image.shape[0] == 20:
             # apply the procedure from
             # https://github.com/Subaru-PFS/drp_stella/blob/master/python/pfs/drp/stella/subtractSky2d.py
@@ -6756,14 +6333,14 @@ class LN_PFS_single(object):
 
             modelImg = modelImg * flux
             if self.verbosity == 1:
-                print('Image in focus, using pipeline normalization;\
+                logging.info('Image in focus, using pipeline normalization;\
                       multiplying all values in the model by ' + str(flux))
 
         else:
 
             if self.fit_for_flux:
                 if self.verbosity == 1:
-                    print('Internally fitting for flux; disregarding passed value for flux')
+                    logging.info('Internally fitting for flux; disregarding passed value for flux')
 
                 def find_flux_fit(flux_fit):
                     return self.create_chi_2_almost(
@@ -6780,19 +6357,19 @@ class LN_PFS_single(object):
                 if len(allparameters) == 41:
                     allparameters = np.concatenate((allparameters, np.array([flux])))
                 else:
-                    # print('here')
-                    # print(allparameters[41])
+                    # logging.info('here')
+                    # logging.info(allparameters[41])
                     if (allparameters[41] < 1.1) and (allparameters[41] > 0.9):
                         allparameters[41] = flux
                     else:
                         pass
-                # print('flux: '+str(flux))
-                # print(len(allparameters))
-                # print(allparameters)
+                # logging.info('flux: '+str(flux))
+                # logging.info(len(allparameters))
+                # logging.info(allparameters)
 
                 modelImg = modelImg * flux
                 if self.verbosity == 1:
-                    print('Internally fitting for flux; multiplying all values in the model by ' + str(flux))
+                    logging.info('Internally fitting for flux; multiplying all values in the model by ' + str(flux))
             else:
                 pass
 
@@ -6819,9 +6396,9 @@ class LN_PFS_single(object):
 
         time_lnlike_end = time.time()
         if self.verbosity:
-            print('Finished with lnlike_Neven')
+            logging.info('Finished with lnlike_Neven')
             if not use_only_chi:
-                print('chi_2_almost/d.o.f is ' +
+                logging.info('chi_2_almost/d.o.f is ' +
                       str(chi_2_almost_dof) +
                       '; chi_2_almost_max_dof is ' +
                       str(chi_2_almost_max_dof) +
@@ -6829,7 +6406,7 @@ class LN_PFS_single(object):
                       str(np.log10(chi_2_almost_dof /
                                    chi_2_almost_max_dof)))
             else:
-                print('chi_almost/d.o.f is ' +
+                logging.info('chi_almost/d.o.f is ' +
                       str(chi_2_almost_dof) +
                       '; chi_almost_max_dof is ' +
                       str(chi_2_almost_max_dof) +
@@ -6837,13 +6414,13 @@ class LN_PFS_single(object):
                       str(np.log10(chi_2_almost_dof /
                                    chi_2_almost_max_dof)))
 
-            print('The `likelihood` reported is: ' + str(res))
-            # print('multiprocessing.current_process() ' +
+            logging.info('The `likelihood` reported is: ' + str(res))
+            # logging.info('multiprocessing.current_process() ' +
             #       str(current_process()) + ' thread ' + str(threading.get_ident()))
-            # print(str(platform.uname()))
-            print('Time for lnlike_Neven function in thread ' + str(threading.get_ident()) +
+            # logging.info(str(platform.uname()))
+            logging.info('Time for lnlike_Neven function in thread ' + str(threading.get_ident()) +
                   ' is: ' + str(time_lnlike_end - time_lnlike_start) + str(' seconds'))
-            print(' ')
+            logging.info(' ')
 
         if not return_Image:
             return res, psf_position
@@ -6913,14 +6490,14 @@ class PFSLikelihoodModule(object):
         params = ctx.getParams()[0]
         return_Images_value = ctx.getParams()[1]
 
-        print('params' + str(params))
+        logging.info('params' + str(params))
 
         # Calculate a likelihood up to normalization
         lnprob = self.model(params, return_Images=return_Images_value)
 
-        # print('current_process is: '+str(current_process())+str(lnprob))
-        # print(params)
-        # print('within computeLikelihood: parameters-hash '+\
+        # logging.info('current_process is: '+str(current_process())+str(lnprob))
+        # logging.info(params)
+        # logging.info('within computeLikelihood: parameters-hash '+\
         #   str(hash(str(params.data)))+'/threading: '+str(threading.get_ident()))
 
         # sys.stdout.flush()
@@ -6934,67 +6511,67 @@ class PFSLikelihoodModule(object):
         """
         # e.g. load data from files
 
-        print("PFSLikelihoodModule setup done")
+        logging.info("PFSLikelihoodModule setup done")
 
 
-class Psf_position(object):
+class PsfPosition(object):
     """
     Class that deals with positioning the PSF model in respect to the data
-
-    inputs are:
-
-        image                                       oversampled model image (numpy array)
-        oversampling                                by how much is the the oversampled image oversampled
-        size_natural_resolution                     size of the final image
-        simulation_00                               True if simulate at optical center at 0,0
-        double_sources
-        double_sources_positions_ratios
-        verbosity
-        save
-
+    
+    Function find_single_realization_min_cut enables the fit to the data
     """
 
     def __init__(self, image, oversampling, size_natural_resolution, simulation_00=False,
-                 double_sources=False, double_sources_positions_ratios=[0, 0], verbosity=0, save=None):
+                verbosity=0, save=None, PSF_DIRECTORY=None):
+        """
+        Parameters
+        -----------------
+        image: `np.array`, (N, N)
+            oversampled model image
+        oversampling: `int`
+            by how much is the the oversampled image oversampled
+        simulation_00: `bool`
+            if True, put optical center of the model image in
+            the center of the final image
+        verbosity: `int`
+            how verbose the procedure is (1 for full verbosity)
+        save: `int`
+            save intermediate images on hard drive (1 for save)
+        PSF_DIRECTORY: `str`
 
+        """
         self.image = image
         self.oversampling = oversampling
         self.size_natural_resolution = size_natural_resolution
         self.simulation_00 = simulation_00
-        self.double_sources = double_sources
-        self.double_sources_positions_ratios = double_sources_positions_ratios
         self.verbosity = verbosity
         if save is None:
             save = 0
-            self.save = save
-        else:
-            save = 1
-            self.save = save
+        self.save = save
+        self.PSF_DIRECTORY = PSF_DIRECTORY
+        
+        if self.PSF_DIRECTORY is not None:
+            self.TESTING_FOLDER = self.PSF_DIRECTORY + 'Testing/'
+            self.TESTING_PUPIL_IMAGES_FOLDER = self.TESTING_FOLDER + 'Pupil_Images/'
+            self.TESTING_WAVEFRONT_IMAGES_FOLDER = self.TESTING_FOLDER + 'Wavefront_Images/'
+            self.TESTING_FINAL_IMAGES_FOLDER = self.TESTING_FOLDER + 'Final_Images/'
 
+    @staticmethod
     def cut_Centroid_of_natural_resolution_image(image, size_natural_resolution, oversampling, dx, dy):
-        """
-        function which takes central part of a larger oversampled image
-
-        @param image                          array contaning suggested starting values for a model
+        """Cut the central part from a larger oversampled image
+        
+        @param image                          input image
         @param size_natural_resolution        size of new image in natural units
         @param oversampling                   oversampling
-        @param dx                             how much to move in dx direction (fix)
-        @param dy                             how much to move in dy direction (fix)
+        
+        @returns                              central part of the input image
         """
-
-        positions_from_where_to_start_cut = [int(len(image) /
-                                                 2 -
-                                                 size_natural_resolution /
-                                                 2 -
-                                                 dx *
-                                                 oversampling +
-                                                 1), int(len(image) /
-                                                         2 -
-                                                         size_natural_resolution /
-                                                         2 -
-                                                         dy *
-                                                         oversampling +
-                                                         1)]
+        positions_from_where_to_start_cut = [int(len(image) / 2 -
+                                                 size_natural_resolution / 2 -
+                                                 dx * oversampling + 1),
+                                             int(len(image) / 2 -
+                                                 size_natural_resolution / 2 -
+                                                 dy * oversampling + 1)]
 
         res = image[positions_from_where_to_start_cut[1]:positions_from_where_to_start_cut[1] +
                     int(size_natural_resolution),
@@ -7014,47 +6591,63 @@ class Psf_position(object):
             v_flux,
             simulation_00=False,
             double_sources=None,
-            double_sources_positions_ratios=[
-                0,
-                0],
+            double_sources_positions_ratios=[0, 0],
             verbosity=0,
             explicit_psf_position=None,
             use_only_chi=False,
             use_center_of_flux=False):
+        """Move the image to find best position to downsample
+        the oversampled image
+        Parameters
+        -----------------
+        image: `np.array`, (N, N)
+            model image to be analyzed
+            (in our case this will be image of the
+             optical psf convolved with fiber)
+        oversampling: `int`
+            oversampling
+        size_natural_resolution: `int`
+           size of final image (in the ``natural'' units, i.e., physical pixels
+                                on the detector)
+        sci_image_0: `np.array`, (N, N)
+            science image
+        var_image_0: `np.array`, (N, N)
+            variance image
+        v_flux: `float`
+            flux normalization
+        simulation_00: `bool`
+            if True,do not move the center, for making fair comparisons between
+            models - optical center in places in the center of the image
+            if use_center_of_flux==True the behaviour changes
+            and the result is the image with center of flux
+            in the center of the image
+        double_sources: `bool`
+            if True, fit for two sources seen in the data
+        double_sources_positions_ratios: `np.array`, (2,)
+            2 values describing init guess for the relation between
+            secondary and primary souces (offset, ratio)
+        verbosity: `int`
+            verbosity of the algorithm (1 for full verbosity)
+        explicit_psf_position: `np.array`, (2,)
+             x and y offset
+        use_only_chi: `bool`
+            quality of the centering is measured using chi, not chi**2
+        use_center_of_flux: `bool`
+                fit so that the center of flux of the model and
+                the science image is as similar as possible
+        Returns
+        ----------
+        model_image: `np.array`, (2,)
+            returns model image in the size of the science image and
+            centered to the science image
+            (unless simulation_00=True or
+             explicit_psf_position has been passed)
+        Notes
+        ----------
+        Called by create_optPSF_natural in ZernikeFitterPFS
+        Calls function create_complete_realization
+        (many times in order to fit the best solution)
         """
-        function called by create_optPSF_natural in ZernikeFitter_PFS
-        find what is the best starting point to downsample the oversampled image
-
-        @param image                             image to be analyzed
-                                                 (in our case this will be image of the optical psf
-                                                 convolved with fiber)
-        @param oversampling                      oversampling
-        @param size_natural_resolution           size of final image
-                                                 (in the ``natural'', i.e., physical resolution)
-        @param sci_image_0                       scientific image
-        @param var_image_0                       variance image
-        @param v_flux                            flux normalization
-        @param simulation_00                     do not move the center, for making fair comparisons between
-                                                 models - optical center in the center of the image
-                                                 if use_center_of_flux==True the behaviour changes
-                                                 and the result is the image with center of flux
-                                                 in the center of the image
-        @param double_sources                    are there double sources in the image
-        @param double_sources_positions_ratios   tuple describing init guess for the relation between
-                                                 secondary and primary souces (offset, ratio)
-        @param verbosity                         verbosity of the algorithm
-        @param explicit_psf_position             x and y offset
-        @param use_only_chi                      quality of the centering is measured using chi, not chi**2
-        @param use_center_of_flux                fit so that the center of flux of the model and science image
-                                                 is as similar as possible
-
-        calls function create_complete_realization (many times in order to fit the best solution)
-
-
-        returns model image in the size of the science image and centered to the science image
-        (unless simulation_00=True or explicit_psf_position has been passed)
-        """
-        
         self.sci_image = sci_image
         self.var_image = var_image
         self.mask_image = mask_image
@@ -7069,29 +6662,22 @@ class Psf_position(object):
 
         shape_of_input_img = input_image.shape[0]
         shape_of_sci_image = sci_image.shape[0]
-        # max_possible_value_to_analyze = int(shape_of_input_img - oversampling)
-        # min_possible_value_to_analyze = int(oversampling)
-        # center_point = int(shape_of_input_img / 2)
 
         self.shape_of_input_img = shape_of_input_img
         self.shape_of_sci_image = shape_of_sci_image
 
         if verbosity == 1:
-            print('parameter use_only_chi in Psf_postion is set to: ' + str(use_only_chi))
-            print('parameter use_center_of_flux in Psf_postion is set to: ' + str(use_center_of_flux))
-            print('parameter simulation_00 in Psf_postion is set to: ' + str(simulation_00))
+            logging.info('Parameter use_only_chi in Psf_postion is set to: ' + str(use_only_chi))
+            logging.info('Parameter use_center_of_flux in Psf_postion is set to: ' + str(use_center_of_flux))
+            logging.info('Parameter simulation_00 in Psf_postion is set to: ' + str(simulation_00))
 
         # depending on if there is a second source in the image split here
         # double_sources should always be None when when creating centered images (simulation_00 = True)
         if double_sources is None or bool(double_sources) is False:
-            # print('simulation_00: ' +str(simulation_00))
-            # print('use_center_of_flux: '+str(use_center_of_flux))
-
             # if simulation_00 AND using optical center just run the realization that is set at 0,0
             if simulation_00 == 1 and use_center_of_flux is False:
                 if verbosity == 1:
-                    print(
-                        'simulation_00 is set to 1 and use_center_of_flux==False -\
+                    logging.info('simulation_00 is set to 1 and use_center_of_flux==False -\
                         I am just returning the image at (0,0) coordinates ')
 
                 # return the solution with x and y is zero, i.e., with optical center in
@@ -7105,16 +6691,14 @@ class Psf_position(object):
 
             # if you are fitting an actual image go through the full process
             else:
-
                 # if you did not pass explict position search for the best position
                 if explicit_psf_position is None:
-
                     # if creating the model so that the model is centered so
                     # that center of light of the model matches the center of the light
                     # of the scientific image, manually change values for centroid_of_sci_image here
                     if simulation_00 == 1 and use_center_of_flux:
                         if self.verbosity == 1:
-                            print('creating simulated image, center of light in center of the image')
+                            logging.info('creating simulated image, center of light in center of the image')
                         shape_of_sci_image = 21
                         centroid_of_sci_image = [10.5, 10.5]
                     else:
@@ -7122,24 +6706,17 @@ class Psf_position(object):
                         # centorids and use that knowledge to put fitting limits in the next step
                         centroid_of_sci_image = find_centroid_of_flux(sci_image)
 
-                    # changed in 0.47a from
-                    # -double_sources_positions_ratios[0]*self.oversampling to
-                    # double_sources_positions_ratios[0]*self.oversampling,
                     time_1 = time.time()
                     initial_complete_realization = self.create_complete_realization(
-                        [
-                            0,
-                            0,
-                            double_sources_positions_ratios[0] * self.oversampling,
+                        [0, 0, double_sources_positions_ratios[0] * self.oversampling,
                             double_sources_positions_ratios[1]],
                         return_full_result=True,
                         use_only_chi=use_only_chi,
                         use_center_of_light=use_center_of_flux,
-                        simulation_00=simulation_00)[
-                        -1]
+                        simulation_00=simulation_00)[-1]
                     time_2 = time.time()
                     if self.verbosity == 1:
-                        print('time_2-time_1 for initial_complete_realization: ' + str(time_2 - time_1))
+                        logging.info('time_2-time_1 for initial_complete_realization: ' + str(time_2 - time_1))
 
                     # center of the light for the first realization, set at optical center
                     centroid_of_initial_complete_realization = find_centroid_of_flux(
@@ -7151,16 +6728,14 @@ class Psf_position(object):
                           np.array(find_centroid_of_flux(sci_image))))
 
                     if verbosity == 1:
-                        print('centroid_of_initial_complete_realization ' +
+                        logging.info('centroid_of_initial_complete_realization ' +
                               str(find_centroid_of_flux(initial_complete_realization)))
-                        print('centroid_of_sci_image '+str(find_centroid_of_flux(sci_image)))
-                        print('offset_initial_and_sci: ' + str(offset_initial_and_sci))
-                        print('[x_primary, y_primary, y_secondary,ratio_secondary] / chi2 output')
+                        logging.info('centroid_of_sci_image '+str(find_centroid_of_flux(sci_image)))
+                        logging.info('offset_initial_and_sci: ' + str(offset_initial_and_sci))
+                        logging.info('[x_primary, y_primary, y_secondary,ratio_secondary] / chi2 output')
                     if self.save == 1:
-                        np.save(
-                            TESTING_FINAL_IMAGES_FOLDER +
-                            'initial_complete_realization',
-                            initial_complete_realization)
+                        np.save(self.TESTING_FINAL_IMAGES_FOLDER +
+                            'initial_complete_realization', initial_complete_realization)
 
                     # search for the best center using scipy ``shgo'' algorithm
                     # set the limits for the fitting procedure
@@ -7177,7 +6752,7 @@ class Psf_position(object):
                     if use_center_of_flux:
                         for i in range(5):
                             if verbosity == 1:
-                                print("###")
+                                logging.info("###")
 
                             if i == 0:
 
@@ -7197,9 +6772,9 @@ class Psf_position(object):
                             offset_initial_and_sci = -((np.array(find_centroid_of_flux(complete_realization))
                                                         - np.array(find_centroid_of_flux(sci_image))))
                             if verbosity == 1:
-                                print('offset_initial_and_sci in step ' +
+                                logging.info('offset_initial_and_sci in step ' +
                                       str(i) + ' ' + str(offset_initial_and_sci))
-                                print("###")
+                                logging.info("###")
                             x_i, y_i = offset_initial_and_sci * oversampling
 
                         primary_position_and_ratio_x = [x_offset, y_offset]
@@ -7207,11 +6782,11 @@ class Psf_position(object):
                     else:
                         # implement try syntax for secondary too
                         try:
-                            # print('simulation_00 here is: '+str(simulation_00))
-                            # print('(False, use_only_chi,use_center_of_flux)' +
+                            # logging.info('simulation_00 here is: '+str(simulation_00))
+                            # logging.info('(False, use_only_chi,use_center_of_flux)' +
                             #       str((False, use_only_chi, use_center_of_flux)))
-                            # print('x_2sources_limits' + str(x_2sources_limits))
-                            # print('y_2sources_limits' + str(y_2sources_limits))
+                            # logging.info('x_2sources_limits' + str(x_2sources_limits))
+                            # logging.info('y_2sources_limits' + str(y_2sources_limits))
                             primary_position_and_ratio_shgo = scipy.optimize.shgo(
                                 self.create_complete_realization,
                                 args=(
@@ -7246,8 +6821,8 @@ class Psf_position(object):
 
                             primary_position_and_ratio_x = primary_position_and_ratio.x
                         except BaseException as e:
-                            print(e)
-                            print('search for primary position failed')
+                            logging.info(e)
+                            logging.info('search for primary position failed')
                             primary_position_and_ratio_x = [0, 0]
 
                     # return the best result, based on the result of the conducted search
@@ -7261,23 +6836,23 @@ class Psf_position(object):
 
                     if self.save == 1:
                         np.save(
-                            TESTING_FINAL_IMAGES_FOLDER +
+                            self.TESTING_FINAL_IMAGES_FOLDER +
                             'single_realization_primary_renormalized',
                             single_realization_primary_renormalized)
                         np.save(
-                            TESTING_FINAL_IMAGES_FOLDER +
+                            self.TESTING_FINAL_IMAGES_FOLDER +
                             'single_realization_secondary_renormalized',
                             single_realization_secondary_renormalized)
                         np.save(
-                            TESTING_FINAL_IMAGES_FOLDER +
+                            self.TESTING_FINAL_IMAGES_FOLDER +
                             'complete_realization_renormalized',
                             complete_realization_renormalized)
 
                     if self.verbosity == 1:
                         if simulation_00 != 1:
-                            print('We are fitting for only one source')
-                            print('One source fitting result is ' + str(primary_position_and_ratio_x))
-                            print('type(complete_realization_renormalized)' +
+                            logging.info('We are fitting for only one source')
+                            logging.info('One source fitting result is ' + str(primary_position_and_ratio_x))
+                            logging.info('type(complete_realization_renormalized)' +
                                   str(type(complete_realization_renormalized[0][0])))
 
                             centroid_of_complete_realization_renormalized = find_centroid_of_flux(
@@ -7288,7 +6863,7 @@ class Psf_position(object):
                                 (np.array(centroid_of_complete_realization_renormalized) -
                                  np.array(centroid_of_sci_image))
 
-                            print('offset_final_and_sci: ' + str(offset_final_and_sci))
+                            logging.info('offset_final_and_sci: ' + str(offset_final_and_sci))
 
                     return complete_realization_renormalized, primary_position_and_ratio_x
 
@@ -7304,23 +6879,23 @@ class Psf_position(object):
 
                     if self.save == 1:
                         np.save(
-                            TESTING_FINAL_IMAGES_FOLDER +
+                            self.TESTING_FINAL_IMAGES_FOLDER +
                             'single_realization_primary_renormalized',
                             single_realization_primary_renormalized)
                         np.save(
-                            TESTING_FINAL_IMAGES_FOLDER +
+                            self.TESTING_FINAL_IMAGES_FOLDER +
                             'single_realization_secondary_renormalized',
                             single_realization_secondary_renormalized)
                         np.save(
-                            TESTING_FINAL_IMAGES_FOLDER +
+                            self.TESTING_FINAL_IMAGES_FOLDER +
                             'complete_realization_renormalized',
                             complete_realization_renormalized)
 
                     if self.verbosity == 1:
                         if simulation_00 != 1:
-                            print('We are passing value for only one source')
-                            print('One source fitting result is ' + str(explicit_psf_position))
-                            print('type(complete_realization_renormalized)' +
+                            logging.info('We are passing value for only one source')
+                            logging.info('One source fitting result is ' + str(explicit_psf_position))
+                            logging.info('type(complete_realization_renormalized)' +
                                   str(type(complete_realization_renormalized[0][0])))
 
                     return complete_realization_renormalized, explicit_psf_position
@@ -7331,7 +6906,7 @@ class Psf_position(object):
             # create one complete realization with default parameters - estimate
             # centroids and use that knowledge to put fitting limits in the next step
             centroid_of_sci_image = find_centroid_of_flux(sci_image)
-            # print('initial double_sources_positions_ratios is: '+str(double_sources_positions_ratios))
+            # logging.info('initial double_sources_positions_ratios is: '+str(double_sources_positions_ratios))
             initial_complete_realization = self.create_complete_realization([0,
                                                                              0,
                                                                              double_sources_positions_ratios[0] #noqa: E501
@@ -7350,20 +6925,20 @@ class Psf_position(object):
 
             if verbosity == 1:
 
-                print('Evaulating double source psf positioning loop')
-                print('offset_initial_and_sci: ' + str(offset_initial_and_sci))
-                print('[x_primary, y_primary, y_secondary,ratio_secondary] / chi2 output')
+                logging.info('Evaulating double source psf positioning loop')
+                logging.info('offset_initial_and_sci: ' + str(offset_initial_and_sci))
+                logging.info('[x_primary, y_primary, y_secondary,ratio_secondary] / chi2 output')
 
             if self.save == 1:
-                np.save(TESTING_FINAL_IMAGES_FOLDER + 'sci_image', sci_image)
-                np.save(TESTING_FINAL_IMAGES_FOLDER + 'initial_complete_realization',
+                np.save(self.TESTING_FINAL_IMAGES_FOLDER + 'sci_image', sci_image)
+                np.save(self.TESTING_FINAL_IMAGES_FOLDER + 'initial_complete_realization',
                         initial_complete_realization)
 
             # implement that it does not search if second object far away while in focus
             # focus size is 20
             if shape_of_sci_image == 20 and np.abs(self.double_sources_positions_ratios[0]) > 15:
                 if verbosity == 1:
-                    print('fitting second source, but assuming that second source is too far')
+                    logging.info('fitting second source, but assuming that second source is too far')
 
                 # if the second spot is more than 15 pixels away
                 # copying code from the non-double source part
@@ -7378,7 +6953,7 @@ class Psf_position(object):
                 # search for best positioning
                 # implement try for secondary too
                 try:
-                    # print('(False,use_only_chi,use_center_of_flux)'+str((False,use_only_chi,use_center_of_flux)))
+                    # logging.info('(False,use_only_chi,use_center_of_flux)'+str((False,use_only_chi,use_center_of_flux)))
                     primary_position_and_ratio_shgo = scipy.optimize.shgo(
                         self.create_complete_realization,
                         args=(
@@ -7398,7 +6973,7 @@ class Psf_position(object):
                             'maxev': 10})
 
                     if verbosity == 1:
-                        print('starting finer positioning')
+                        logging.info('starting finer positioning')
 
                     # primary_position_and_ratio=primary_position_and_ratio_shgo
                     primary_position_and_ratio = scipy.optimize.minimize(
@@ -7416,7 +6991,7 @@ class Psf_position(object):
 
                     primary_position_and_ratio_x = primary_position_and_ratio.x
                 except BaseException:
-                    print('search for primary position failed')
+                    logging.info('search for primary position failed')
                     primary_position_and_ratio_x = [0, 0]
 
                 primary_secondary_position_and_ratio_x = np.array([0., 0., 0., 0.])
@@ -7480,22 +7055,22 @@ class Psf_position(object):
 
             if self.save == 1:
                 np.save(
-                    TESTING_FINAL_IMAGES_FOLDER +
+                    self.TESTING_FINAL_IMAGES_FOLDER +
                     'single_realization_primary_renormalized',
                     single_realization_primary_renormalized)
                 np.save(
-                    TESTING_FINAL_IMAGES_FOLDER +
+                    self.TESTING_FINAL_IMAGES_FOLDER +
                     'single_realization_secondary_renormalized',
                     single_realization_secondary_renormalized)
                 np.save(
-                    TESTING_FINAL_IMAGES_FOLDER +
+                    self.TESTING_FINAL_IMAGES_FOLDER +
                     'complete_realization_renormalized',
                     complete_realization_renormalized)
 
             if self.verbosity == 1:
-                print('We are fitting for two sources')
-                print('Two source fitting result is ' + str(primary_secondary_position_and_ratio_x))
-                print('type(complete_realization_renormalized)' +
+                logging.info('We are fitting for two sources')
+                logging.info('Two source fitting result is ' + str(primary_secondary_position_and_ratio_x))
+                logging.info('type(complete_realization_renormalized)' +
                       str(type(complete_realization_renormalized[0][0])))
 
         return complete_realization_renormalized, primary_secondary_position_and_ratio_x
@@ -7507,25 +7082,50 @@ class Psf_position(object):
             use_only_chi=False,
             use_center_of_light=False,
             simulation_00=False):
-        # need to include masking
+        """Create one complete downsampled realization of the image,
+        from the full oversampled image
+        Parameters
+        ----------
+        x: `np.array`, (4,)
+            array contaning x_primary, y_primary,
+            offset in y to secondary source, \
+            ratio in flux from secondary to primary;
+            the units are oversampled pixels
+        return_full_result: `bool`
+            if True, returns the images itself (not just chi**2)
+        use_only_chi: `bool`
+                if True, minimize chi; if False, minimize chi^2
+        use_center_of_light: `bool`
+          if True, minimize distance to center of light, in focus
+        simulation_00: `bool`
+            if True,do not move the center, for making fair comparisons between
+            models - optical center in places in the center of the image
+            if use_center_of_light==True the behaviour changes
+            and the result is the image with center of flux
+            in the center of the image
+        Returns
+        ----------
+        chi_2_almost_multi_values: `float`
+            returns the measure of quality
+            (chi**2, chi, or distance of center
+             of light between science and model image)
+            distance of center of light between science
+            and model image is given in units of pixels
+        single_primary_realization_renormalized: `np.array`, (N, N)
+            image containg the model corresponding
+            to the primary source in the science image
+         single_secondary_realization_renormalized: `np.array`, (N, N)
+            image containg the model corresponding
+            to the secondary source in the science image
+        complete_realization_renormalized: `np.array`, (N, N)
+            image combining the primary
+            and secondary source (if secondary source is needed)
+        Notes
+        ----------
+        TODO: implement that you are able to call outside find_single_realization_min_cut
+        Called by find_single_realization_min_cut
+        Calls create_chi_2_almost_Psf_position
         """
-        create one complete downsampled realization of the image, from the full oversampled image
-
-        @param     x                            array contaning x_primary, y_primary,
-                                                offset in y to secondary source, \
-                                                ratio in flux from secondary to primary;
-                                                the units are oversampled pixels(?)
-        @bol       return_full_result           if True, returns the images iteself (not just chi**2)
-        @bol       use_only_chi                 if True, minimize chi; if False, minimize chi^2
-        @bol       use_center_of_light          if True, minimize distance to center of light,
-        in focus (if size==20)
-
-        called by find_single_realization_min_cut - has to be done via that function,
-        to supply self.sci_image etc...
-
-        calls create_chi_2_almost_Psf_position
-        """
-
         # oversampled input image
         image = self.image
 
@@ -7546,7 +7146,6 @@ class Psf_position(object):
         if simulation_00 == 1:
             simulation_00 = True
 
-        # print('simulation_00 in create_complete_realization:' +str(simulation_00))
         # if you are only fitting for primary image
         # add zero values for secondary image
         if len(x) == 2:
@@ -7561,35 +7160,6 @@ class Psf_position(object):
             secondary_offset_axis_1 = primary_offset_axis_1
             secondary_offset_axis_0 = x[2] + primary_offset_axis_0
 
-        ###################
-        # time_1=time.time()
-        # print(image.shape)
-        # im1=  galsim.Image(image, copy=True,scale=1)
-        # time_2=time.time()
-        # interpolated_image = galsim._InterpolatedImage(im1,\
-        #                     x_interpolant=galsim.Lanczos(5, True))
-        # time_3=time.time()
-        # single_primary_realization_oversampled = interpolated_image.shift(primary_offset_axis_1,\
-        #    primary_offset_axis_0 ).\
-        #    drawImage(nx=shape_of_sci_image*oversampling, ny=shape_of_sci_image*oversampling, scale=1,\
-        #    method='no_pixel').array
-        # time_4=time.time()
-        # single_primary_realization = resize(single_primary_realization_oversampled,
-        # (shape_of_sci_image,shape_of_sci_image),())
-        # time_5=time.time()
-        # if self.verbosity==1:
-        #    print('time_2-time_1 for shift and resize '+str(time_2-time_1))
-        #    print('time_3-time_2 for shift and resize '+str(time_3-time_2))
-        #    print('time_4-time_3 for shift and resize '+str(time_4-time_3))
-        #    print('time_5-time_4 for shift and resize '+str(time_5-time_4))
-        #    print('time_5-time_1 for shift and resize '+str(time_5-time_1))
-
-        # time_1 = time.time()
-        # print('simulation_00: '+str(simulation_00))
-        # print('image.shape in create_complete_realization: '+str(image.shape))
-        # print('primary_offset in create_complete_realization (oversampled units)'+
-        # str([primary_offset_axis_1,primary_offset_axis_0 ]))
-
         shape_of_oversampled_image = int(shape_of_sci_image * oversampling / 2)
 
         # from https://github.com/Subaru-PFS/drp_stella/blob/\
@@ -7600,57 +7170,44 @@ class Psf_position(object):
         # the definitions used in primary image
         # we separate if the image shape is odd or even, but at the moment there is no difference
         if np.modf(shape_of_oversampled_image / 2)[0] == 0.0:
-            # print('shape is an even number')
-
+            # logging.info('shape is an even number')
             shift_x_mod = np.array(
                 [-(np.round(primary_offset_axis_1) - primary_offset_axis_1),
                  -np.round(primary_offset_axis_1)])
             shift_y_mod = np.array(
                 [-(np.round(primary_offset_axis_0) - primary_offset_axis_0),
                  -np.round(primary_offset_axis_0)])
-
         else:
-            # print('shape is an odd number')
+            # logging.info('shape is an odd number')
             shift_x_mod = np.array(
                 [-(np.round(primary_offset_axis_1) - primary_offset_axis_1),
                  -np.round(primary_offset_axis_1)])
             shift_y_mod = np.array(
                 [-(np.round(primary_offset_axis_0) - primary_offset_axis_0),
                  -np.round(primary_offset_axis_0)])
-
-        # print('shift_x_mod (oversampled units): '+str(shift_x_mod))
-        # print('shift_y_mod (oversampled units): '+str(shift_y_mod))
 
         image_integer_offset = image[center_position +
-                                     int(shift_y_mod[1]) -
-                                     1 -
+                                     int(shift_y_mod[1]) - 1 -
                                      shape_of_oversampled_image:center_position +
                                      int(shift_y_mod[1]) +
-                                     shape_of_oversampled_image +
-                                     1, center_position +
-                                     int(shift_x_mod[1]) -
-                                     1 -
+                                     shape_of_oversampled_image + 1,
+                                     center_position +
+                                     int(shift_x_mod[1]) - 1 -
                                      shape_of_oversampled_image: center_position +
                                      int(shift_x_mod[1]) +
-                                     shape_of_oversampled_image +
-                                     1]
+                                     shape_of_oversampled_image + 1]
         if simulation_00:
             image_integer_offset = image[center_position +
-                                         int(shift_y_mod[1]) -
-                                         1 -
+                                         int(shift_y_mod[1]) - 1 -
                                          shape_of_oversampled_image:center_position +
                                          int(shift_y_mod[1]) +
-                                         shape_of_oversampled_image +
-                                         1 +
-                                         1, center_position +
-                                         int(shift_x_mod[1]) -
-                                         1 -
+                                         shape_of_oversampled_image + 1 + 1,
+                                         center_position +
+                                         int(shift_x_mod[1]) - 1 -
                                          shape_of_oversampled_image: center_position +
                                          int(shift_x_mod[1]) +
-                                         shape_of_oversampled_image +
-                                         1 +
-                                         1]
-            print('image_integer_offset shape: ' + str(image_integer_offset.shape))
+                                         shape_of_oversampled_image + 1 + 1]
+            logging.info('image_integer_offset shape: ' + str(image_integer_offset.shape))
 
         image_integer_offset_lsst = lsst.afw.image.image.ImageD(image_integer_offset.astype('float64'))
 
@@ -7659,10 +7216,10 @@ class Psf_position(object):
 
         single_primary_realization_oversampled = oversampled_Image_LSST_apply_frac_offset.array[1:-1, 1:-1]
 
-        # print('single_primary_realization_oversampled.shape[0]: '+
+        # logging.info('single_primary_realization_oversampled.shape[0]: '+
         # str(single_primary_realization_oversampled.shape[0]))
-        # print('shape_of_sci_image: '+str(shape_of_sci_image))
-        # print('oversampling: '+str(oversampling))
+        # logging.info('shape_of_sci_image: '+str(shape_of_sci_image))
+        # logging.info('oversampling: '+str(oversampling))
 
         assert single_primary_realization_oversampled.shape[0] == shape_of_sci_image * oversampling
 
@@ -7687,15 +7244,15 @@ class Psf_position(object):
         # (shape_of_sci_image,shape_of_sci_image),())
         # time_5=time.time()
         # if self.verbosity==1:
-        #    print('time_2-time_1 for shift and resize '+str(time_2-time_1))
-        #    print('time_3-time_2 for shift and resize '+str(time_3-time_2))
-        #    print('time_3_1-time_3 for shift and resize '+str(time_3_1-time_3))
-        #    print('time_3_2-time_3_1 for shift and resize '+str(time_3_2-time_3_1))
-        #    print('time_3_3-time_3_2 for shift and resize '+str(time_3_3-time_3_2))
-        #    print('time_4-time_3_3 for shift and resize '+str(time_4-time_3_3))
-        #    print('time_4-time_3 for shift and resize '+str(time_4-time_3))
-        #    print('time_5-time_4 for shift and resize '+str(time_5-time_4))
-        #    print('time_5-time_1 for shift and resize '+str(time_5-time_1))
+        #    logging.info('time_2-time_1 for shift and resize '+str(time_2-time_1))
+        #    logging.info('time_3-time_2 for shift and resize '+str(time_3-time_2))
+        #    logging.info('time_3_1-time_3 for shift and resize '+str(time_3_1-time_3))
+        #    logging.info('time_3_2-time_3_1 for shift and resize '+str(time_3_2-time_3_1))
+        #    logging.info('time_3_3-time_3_2 for shift and resize '+str(time_3_3-time_3_2))
+        #    logging.info('time_4-time_3_3 for shift and resize '+str(time_4-time_3_3))
+        #    logging.info('time_4-time_3 for shift and resize '+str(time_4-time_3))
+        #    logging.info('time_5-time_4 for shift and resize '+str(time_5-time_4))
+        #    logging.info('time_5-time_1 for shift and resize '+str(time_5-time_1))
 
         ###################
         # skip this part if only doing primary
@@ -7705,7 +7262,7 @@ class Psf_position(object):
 
             # overloading the definitions used in primary image
             if np.modf(shape_of_oversampled_image / 2)[0] == 0.0:
-                # print('shape is an even number')
+                # logging.info('shape is an even number')
 
                 shift_x_mod = np.array(
                     [-(np.round(secondary_offset_axis_1) - secondary_offset_axis_1),
@@ -7715,7 +7272,7 @@ class Psf_position(object):
                      -np.round(secondary_offset_axis_0)])
 
             else:
-                # print('shape is an odd number')
+                # logging.info('shape is an odd number')
                 shift_x_mod = np.array(
                     [-(np.round(secondary_offset_axis_1) - secondary_offset_axis_1),
                      -np.round(secondary_offset_axis_1)])
@@ -7765,7 +7322,7 @@ class Psf_position(object):
 
         ###################
         # find chi values and save the results
-        # print('checkpoint in create_complete_realization')
+        # logging.info('checkpoint in create_complete_realization')
         if not return_full_result:
             # time_1 = time.time()
             chi_2_almost_multi_values = self.create_chi_2_almost_Psf_position(
@@ -7778,7 +7335,7 @@ class Psf_position(object):
                 simulation_00=simulation_00)
             # time_2 = time.time()
             if self.verbosity == 1:
-                print(
+                logging.info(
                     'chi2 within shgo with use_only_chi ' +
                     str(use_only_chi) +
                     ' and use_center_of_light ' +
@@ -7787,44 +7344,37 @@ class Psf_position(object):
                     str(x) +
                     ' / ' +
                     str(chi_2_almost_multi_values))
-                # print('time_2-time_1 for create_chi_2_almost_Psf_position: '+str(time_2-time_1))
+                # logging.info('time_2-time_1 for create_chi_2_almost_Psf_position: '+str(time_2-time_1))
             return chi_2_almost_multi_values
         else:
             if ratio_secondary != 0:
-                # print('ratio_secondary 2nd loop: '+str(ratio_secondary))
+                # logging.info('ratio_secondary 2nd loop: '+str(ratio_secondary))
                 single_primary_realization_renormalized = single_primary_realization * \
                     (np.sum(sci_image[inverted_mask]) * v_flux / np.sum(complete_realization[inverted_mask]))
                 single_secondary_realization_renormalized = ratio_secondary * single_secondary_realization * \
                     (np.sum(sci_image[inverted_mask]) * v_flux / np.sum(complete_realization[inverted_mask]))
             else:
-                # print('ratio_secondary 2nd loop 0: '+str(ratio_secondary))
+                # logging.info('ratio_secondary 2nd loop 0: '+str(ratio_secondary))
                 single_primary_realization_renormalized = single_primary_realization * \
                     (np.sum(sci_image[inverted_mask]) * v_flux / np.sum(complete_realization[inverted_mask]))
                 single_secondary_realization_renormalized = np.zeros(
                     single_primary_realization_renormalized.shape)
 
             if self.save == 1:
-                np.save(TESTING_FINAL_IMAGES_FOLDER + 'image', image)
+                np.save(self.TESTING_FINAL_IMAGES_FOLDER + 'image', image)
                 if ratio_secondary != 0:
-                    np.save(TESTING_FINAL_IMAGES_FOLDER + 'image_full_for_secondary', image)
-                    np.save(
-                        TESTING_FINAL_IMAGES_FOLDER +
-                        'single_secondary_realization',
-                        single_secondary_realization)
-                np.save(
-                    TESTING_FINAL_IMAGES_FOLDER +
-                    'single_primary_realization',
-                    single_primary_realization)
-                np.save(
-                    TESTING_FINAL_IMAGES_FOLDER +
+                    np.save(self.TESTING_FINAL_IMAGES_FOLDER + 'image_full_for_secondary', image)
+                    np.save(self.TESTING_FINAL_IMAGES_FOLDER +
+                        'single_secondary_realization', single_secondary_realization)
+                np.save(self.TESTING_FINAL_IMAGES_FOLDER +
+                    'single_primary_realization', single_primary_realization)
+                np.save(self.TESTING_FINAL_IMAGES_FOLDER +
                     'single_primary_realization_renormalized_within_create_complete_realization',
                     single_primary_realization_renormalized)
-                np.save(
-                    TESTING_FINAL_IMAGES_FOLDER +
+                np.save(self.TESTING_FINAL_IMAGES_FOLDER +
                     'single_secondary_realization_renormalized_within_create_complete_realization',
                     single_secondary_realization_renormalized)
-                np.save(
-                    TESTING_FINAL_IMAGES_FOLDER +
+                np.save(self.TESTING_FINAL_IMAGES_FOLDER +
                     'complete_realization_renormalized_within_create_complete_realization',
                     complete_realization_renormalized)
 
@@ -7842,18 +7392,15 @@ class Psf_position(object):
             # if best, save oversampled image
             if simulation_00:
                 if self.verbosity == 1:
-                    print('saving oversampled simulation_00 image')
-                    # print('I have to implement that again')
-                    print(
-                        'saving at ' +
-                        TESTING_FINAL_IMAGES_FOLDER +
+                    logging.info('saving oversampled simulation_00 image')
+                    # logging.info('I have to implement that again')
+                    logging.info('saving at ' +
+                        self.TESTING_FINAL_IMAGES_FOLDER +
                         'single_primary_realization_oversampled')
-                    np.save(
-                        TESTING_FINAL_IMAGES_FOLDER +
+                    np.save(self.TESTING_FINAL_IMAGES_FOLDER +
                         'single_primary_realization_oversampled_to_save',
                         single_primary_realization_oversampled)
-                    np.save(
-                        TESTING_FINAL_IMAGES_FOLDER +
+                    np.save(self.TESTING_FINAL_IMAGES_FOLDER +
                         'complete_realization_renormalized_to_save',
                         single_primary_realization_oversampled)
 
@@ -7861,61 +7408,65 @@ class Psf_position(object):
                 single_primary_realization_renormalized, single_secondary_realization_renormalized,\
                 complete_realization_renormalized
 
-            # old code that did not include mask...
-            # return np.mean((sci_image-complete_realization_renormalized)**2/var_image),\
-            # single_primary_realization_renormalized,single_secondary_realization_renormalized,
-            # complete_realization_renormalized
 
     def create_chi_2_almost_Psf_position(self, modelImg, sci_image, var_image, mask_image,
                                          use_only_chi=False, use_center_of_light=False, simulation_00=False):
+        """Returns quality of the model's fit compared to the science image
+        Parameters
+        ----------
+        modelImg: `np.array`, (N, N)
+            model image
+        sci_image: `np.array`, (N, N)
+            science image
+        var_image: `np.array`, (N, N)
+            variance image
+        mask_image: `np.array`, (N, N)
+            mask image
+        use_only_chi: `bool`
+            if True, minimize chi; if False, minimize chi^2
+        use_center_of_light: `bool`
+            if True, minimizes distance of center of light between science
+            and model image
+        simulation_00: `bool`
+            if True,do not move the center, for making fair comparisons between
+            models - optical center in places in the center of the image
+            if use_center_of_light==True the behaviour changes
+            and the result is the image with center of flux
+            in the center of the image
+        Returns
+        ----------
+        measure_of_quality: `float`
+            returns the measure of quality
+            (chi**2, chi, or distance of center
+             of light between science and model image)
+            distance of center of light between science
+            and model image is given in units of pixels
+        Notes
+        ----------
+        Called by create_complete_realization
         """
-        called by create_complete_realization
-
-        takes the model image and the data
-
-        @param modelImg     model
-        @param sci_image    scientific image
-        @param var_image    variance image
-        @param mask_image   mask image
-
-        return the measure of quality
-        (chi**2, chi or distance of center of light between science and model image)
-        distance of center of light between science and model image is given in units of pixels
-
-        """
-
-        # print('use_only_chi in create_chi_2_almost_Psf_position '+str(use_only_chi) )
-
         inverted_mask = ~mask_image.astype(bool)
 
         var_image_masked = var_image * inverted_mask
         sci_image_masked = sci_image * inverted_mask
         modelImg_masked = modelImg * inverted_mask
 
-        # print('modelImg_masked.shape in create_chi_2_almost_Psf_position: '+str(modelImg_masked.shape ))
-
+        # if you are minimizing chi or chi**2
         if not use_center_of_light:
-
-            # print('scenter of light=false')
-
             if not use_only_chi:
                 chi2 = (sci_image_masked - modelImg_masked)**2 / var_image_masked
                 chi2nontnan = chi2[~np.isnan(chi2)]
             if use_only_chi:
                 chi2 = np.abs((sci_image_masked - modelImg_masked))**1 / np.sqrt(var_image_masked)
                 chi2nontnan = chi2[~np.isnan(chi2)]
-
-            # print('np.mean(chi2nontnan): '+str(np.mean(chi2nontnan)))
             return np.mean(chi2nontnan)
         else:
-
             if simulation_00 is False or simulation_00 is None:
                 if self.verbosity == 1:
-                    print('sim00=False and center of light =true')
+                    logging.info('sim00=False and center of light =true')
 
                 distance_of_flux_center = np.sqrt(
-                    np.sum(
-                        (np.array(
+                    np.sum((np.array(
                             find_centroid_of_flux(modelImg_masked)) -
                             np.array(
                             find_centroid_of_flux(sci_image_masked)))**2))
@@ -7924,20 +7475,13 @@ class Psf_position(object):
                 # center of light will be centered
                 # in the downsampled image
                 if self.verbosity == 1:
-                    print('sim00=True and center of light =true')
+                    logging.info('sim00=True and center of light =true')
 
                 distance_of_flux_center = np.sqrt(
-                    np.sum(
-                        (np.array(
-                            find_centroid_of_flux(modelImg_masked)) -
-                            np.array(
-                            np.array(
-                                np.ones(
-                                    (21,
-                                     21)).shape) /
-                            2 -
-                            0.5))**2))
-            # print('distance_of_flux_center: '+str(distance_of_flux_center))
+                    np.sum((np.array(find_centroid_of_flux(modelImg_masked)) -
+                            np.array(np.array(np.ones((21, 21)).shape) /
+                            2 - 0.5))**2))
+            # logging.info('distance_of_flux_center: '+str(distance_of_flux_center))
             return distance_of_flux_center
 
     def fill_crop(self, img, pos, crop):
@@ -7945,6 +7489,7 @@ class Psf_position(object):
         Fills `crop` with values from `img` at `pos`,
         while accounting for the crop being off the edge of `img`.
         *Note:* negative values in `pos` are interpreted as-is, not as "from the end".
+        Taken from https://stackoverflow.com/questions/41153803/zero-padding-slice-past-end-of-array-in-numpy #noqa:E501
         '''
         img_shape, pos, crop_shape = np.array(
             img.shape, dtype=int), np.array(
@@ -7962,104 +7507,8 @@ class Psf_position(object):
         try:
             crop[tuple(crop_slices)] = img[tuple(img_slices)]
         except TypeError:
-            print('TypeError in fill_crop function')
-            # np.save('/home/ncaplar/img',img)
-            # np.save('/home/ncaplar/pos',pos)
-            # np.save('/home/ncaplar/crop',crop)
+            logging.info('TypeError in fill_crop function')
             pass
-
-    def bilinear_interpolation(
-            self,
-            y,
-            x,
-            img_floor_floor,
-            img_floor_ceiling,
-            img_ceiling_floor,
-            img_ceiling_ceiling):
-        '''
-        creates bilinear interpolation given y and x subpixel coordinate and 4 images
-
-        input
-
-        y - y offset from floor_floor image
-        x - x offset from floor_floor image
-
-        img_floor_floor -
-        img_floor_ceiling - image offset from img_floor_floor by 1 pixel in x direction
-        img_ceiling_floor - image offset from img_floor_floor by 1 pixel in y direction
-        img_ceiling_ceiling - image offset from img_floor_floor by 1 pixel in both x and y direction
-
-        '''
-
-        # have to check if floor and ceiling definition are ok
-        # https://en.wikipedia.org/wiki/Bilinear_interpolation
-        # x2=1
-        # x1=0
-        # y2=1
-        # y1=0
-
-        # img_floor_floor in top right corner
-        # img_ceiling_ceiling in bottom left corner
-        # img_floor_ceiling in top left corner
-        # img_ceiling_floor in the bottom right corner
-
-        return img_floor_floor * (1 - x) * (1 - y) + img_floor_ceiling * (x) * (1 - y) + \
-            img_ceiling_floor * (1 - x) * (y) + img_ceiling_ceiling * (x) * (y)
-
-    """
-    def create_trace(self, best_img,norm_of_trace,norm_of_serial_trace):
-        if norm_of_trace==0:
-            return best_img
-        else:
-            data_shifted_left_right=np.zeros(np.shape(best_img))
-            data_shifted_left_right[:, :] =np.sum(best_img,axis=0)*norm_of_trace
-
-            data_shifted_up_down=np.transpose(np.zeros(np.shape(best_img)))
-            data_shifted_up_down[:, :] =np.sum(best_img,axis=1)*norm_of_serial_trace
-            data_shifted_up_down=np.transpose(data_shifted_up_down)
-
-            return best_img+data_shifted_up_down+data_shifted_left_right
-
-    def estimate_trace_and_serial(self, sci_image,model_image):
-
-        model_image=np.sum(sci_image)/np.sum(model_image)*model_image
-
-        flux_sci_all_columns_sum_rows=np.sum(sci_image,axis=1)
-        flux_sci_all_rows_sum_columns=np.sum(sci_image,axis=0)
-        flux_model_all_columns_sum_rows=np.sum(model_image,axis=1)
-        flux_model_all_rows_sum_columns=np.sum(model_image,axis=0)
-
-        selection_of_faint_rows=flux_sci_all_columns_sum_rows<(np.sort(flux_sci_all_columns_sum_rows)[4]+1)
-        selection_of_faint_columns=flux_sci_all_rows_sum_columns<(np.sort(flux_sci_all_rows_sum_columns)[4]+1)
-
-        #to determine median value
-        #median_rows=int(len(flux_sci_all_columns_sum_rows)/2)
-
-        flux_sci_selected_faint_rows_sum_columns=np.sum(sci_image[selection_of_faint_rows],axis=0)
-        flux_model_selected_faint_rows_sum_columns=np.sum(model_image[selection_of_faint_rows],axis=0)
-        flux_sci_selected_faint_columns_sum_rows=np.sum(sci_image[:,selection_of_faint_columns],axis=1)
-        flux_model_selected_faint_columns_sum_rows=np.sum(model_image[:,selection_of_faint_columns],axis=1)
-
-
-        proposed_trace=((flux_sci_selected_faint_rows_sum_columns-flux_model_selected_faint_rows_sum_columns)/flux_model_all_rows_sum_columns)[flux_model_all_rows_sum_columns>np.max(flux_model_all_rows_sum_columns)*0.10]
-        proposed_trace=np.sort(proposed_trace)[int(len(proposed_trace)/2)]
-
-        proposed_serial=((flux_sci_selected_faint_columns_sum_rows-flux_model_selected_faint_columns_sum_rows)/flux_model_all_columns_sum_rows)[flux_model_all_columns_sum_rows>np.max(flux_model_all_columns_sum_rows)*0.10]
-        proposed_serial=np.sort(proposed_serial)[int(len(proposed_serial)/2)]
-        if proposed_trace<0:
-            proposed_trace=0
-        else:
-            #divided by 5 because this is derived from 5 rows/columns
-            proposed_trace=proposed_trace/5
-
-        if proposed_serial<0:
-            proposed_serial=0
-        else:
-            proposed_serial=proposed_serial/5
-
-        return [proposed_trace,proposed_serial]
-        """
-
 
 class Zernike_estimation_preparation(object):
     """
@@ -8094,7 +7543,7 @@ class Zernike_estimation_preparation(object):
     """
 
     def __init__(self, list_of_labelInput, list_of_spots, dataset,
-                 list_of_arc, eps, nsteps, analysis_type=analysis_type,
+                 list_of_arc, eps, nsteps, analysis_type = 'defocus',
                  analysis_type_fiber=None):
 
         self.list_of_labelInput = list_of_labelInput
@@ -8103,14 +7552,15 @@ class Zernike_estimation_preparation(object):
         self.list_of_arc = list_of_arc
         self.eps = eps
         self.nsteps = nsteps
+        self.analysis_type = analysis_type
         self.analysis_type_fiber = analysis_type_fiber
 
         # TODO : make this as input or deduce from the data
         self.multi_var = True
 
-        print('Dataset analyzed is: ' + str(dataset))
+        logging.info('Dataset analyzed is: ' + str(dataset))
         if dataset == 0 or dataset == 1:
-            print('ehm.... old data, not analyzed')
+            logging.info('ehm.... old data, not analyzed')
 
         # folder contaning the data from February 2019
         # dataset 1
@@ -8213,7 +7663,7 @@ class Zernike_estimation_preparation(object):
             'z20',
             'z21',
             'z22',
-            'hscFrac',
+            'detFrac',
             'strutFrac',
             'dxFocal',
             'dyFocal',
@@ -8273,7 +7723,7 @@ class Zernike_estimation_preparation(object):
         list_of_labelInput = self.list_of_labelInput
         #arc = self.list_of_arc[0]
 
-        print('self.list_of_arc: '+str(self.list_of_arc))
+        logging.info('self.list_of_arc: '+str(self.list_of_arc))
         ################################################
         # (3.) import obs_pos & connect
         ################################################
@@ -8291,7 +7741,7 @@ class Zernike_estimation_preparation(object):
                 obs_possibilites = np.array([8552, 8555, 8558, 8561, 8564, 8567, 8570, 8573,
                                              8603, 8600, 8606, 8609, 8612, 8615, 8618, 8621, 8624, 8627])
             elif arc == 'Ne':
-                print('Neon?????')
+                logging.info('Neon?????')
                 obs_possibilites = np.array([8552, 8555, 8558, 8561, 8564, 8567, 8570, 8573,
                                              8603, 8600, 8606, 8609, 8612, 8615, 8618, 8621, 8624, 8627])+90
             """
@@ -8661,11 +8111,11 @@ class Zernike_estimation_preparation(object):
                                                  52085 + 16 * 12,
                                                  52085 + 8 * 12])
 
-            print('arc: '+str(arc))
-            print('obs_possibilites: '+str(obs_possibilites))
+            logging.info('arc: '+str(arc))
+            logging.info('obs_possibilites: '+str(obs_possibilites))
             list_of_obs_possibilites.append(obs_possibilites)
 
-        print('list_of_obs_possibilites: '+str(list_of_obs_possibilites))
+        logging.info('list_of_obs_possibilites: '+str(list_of_obs_possibilites))
         ##############################################
 
         # associates each observation with the label describing movement of the hexapod and rough estimate of z4
@@ -8691,8 +8141,8 @@ class Zernike_estimation_preparation(object):
         list_of_obs = list_of_obs_cleaned
         self.list_of_obs = list_of_obs
         self.list_of_obs_cleaned = list_of_obs_cleaned
-        print('self.list_of_obs:'+str(self.list_of_obs))
-        print('list_of_obs_cleaned:'+str(list_of_obs_cleaned))
+        logging.info('self.list_of_obs:'+str(self.list_of_obs))
+        logging.info('list_of_obs_cleaned:'+str(list_of_obs_cleaned))
         return list_of_obs_cleaned
 
 
@@ -8720,7 +8170,7 @@ class Zernike_estimation_preparation(object):
 
         self.create_list_of_obs_from_list_of_label()
 
-        print('list_of_obs_cleaned'+str(self.list_of_obs_cleaned))
+        logging.info('list_of_obs_cleaned'+str(self.list_of_obs_cleaned))
         for s in range(len(self.list_of_spots)):
             arc = self.list_of_arc[s]
             single_number = self.list_of_spots[s]
@@ -8755,7 +8205,7 @@ class Zernike_estimation_preparation(object):
                         str(single_number) +
                         str(arc) +
                         '_Stacked.npy')
-                    print(
+                    logging.info(
                         'sci_image loaded from: ' +
                         STAMPS_FOLDER +
                         'sci' +
@@ -8767,27 +8217,27 @@ class Zernike_estimation_preparation(object):
                     # change to that code does not fail and hang if the image is not found
                     # this will lead to pass statment in next step because
                     # np.sum(sci_image) = 0
-                    print('sci_image not found')
+                    logging.info('sci_image not found')
                     sci_image = np.zeros((20, 20))
                     var_image = np.zeros((20, 20))
                     mask_image = np.zeros((20, 20))
-                    print('not able to load image at: ' + str(STAMPS_FOLDER + 'sci' +
+                    logging.info('not able to load image at: ' + str(STAMPS_FOLDER + 'sci' +
                           str(obs) + str(single_number) + str(arc) + '_Stacked.npy'))
 
                 # If there is no science image, do not add images
                 if int(np.sum(sci_image)) == 0:
-                    print('No science image - passing')
+                    logging.info('No science image - passing')
                     pass
                 else:
                     # do not analyze images where a large fraction of the image is masked
                     if np.mean(mask_image) > 0.1:
-                        print(str(np.mean(mask_image) * 100) +
+                        logging.info(str(np.mean(mask_image) * 100) +
                               '% of image is masked... \
                               when it is more than 10% - exiting')
                         pass
                     else:
                         # the images ahs been found successfully
-                        print('adding images for obs: ' + str(obs))
+                        logging.info('adding images for obs: ' + str(obs))
                         list_of_sci_images.append(sci_image)
                         list_of_mask_images.append(mask_image)
                         list_of_var_images.append(var_image)
@@ -8795,20 +8245,20 @@ class Zernike_estimation_preparation(object):
                         # observation which are of good enough quality to be analyzed get added here
                         list_of_obs_cleaned.append(obs)
 
-            print('for spot ' + str(self.list_of_spots[s]) + ' len of list_of_sci_images: ' +
+            logging.info('for spot ' + str(self.list_of_spots[s]) + ' len of list_of_sci_images: ' +
                   str(len(list_of_sci_images)))
-            print('len of accepted images ' + str(len(list_of_obs_cleaned)) +
+            logging.info('len of accepted images ' + str(len(list_of_obs_cleaned)) +
                   ' / len of asked images ' + str(len(self.list_of_obs_cleaned[s])))
 
             # If there is no valid images imported, exit
             if list_of_sci_images == []:
-                print('No valid images - exiting')
+                logging.info('No valid images - exiting')
                 sys.exit(0)
 
             # if you were able only to import only a fraction of images
             # if this fraction is too low - exit
             if (len(list_of_obs_cleaned) / len(self.list_of_obs_cleaned[s])) < 0.6:
-                print('Fraction of images imported is too low - exiting')
+                logging.info('Fraction of images imported is too low - exiting')
                 sys.exit(0)
 
             list_of_sci_images_multi_spot.append(list_of_sci_images)
@@ -8885,7 +8335,7 @@ class Zernike_estimation_preparation(object):
             with open(DATAFRAMES_FOLDER + 'results_of_fit_many_' + str(direct_or_interpolation) +
                       '_Ar_from_' + str(date_of_input) + '.pkl', 'rb') as f:
                 results_of_fit_input_HgAr = pickle.load(f)
-                print('results_of_fit_input_Ar is taken from: ' + str(f))
+                logging.info('results_of_fit_input_Ar is taken from: ' + str(f))
             # if before considering all fibers
             if dataset < 8:
                 with open(DATAFRAMES_FOLDER + 'finalAr_Feb2020', 'rb') as f:
@@ -8899,7 +8349,7 @@ class Zernike_estimation_preparation(object):
             with open(DATAFRAMES_FOLDER + 'results_of_fit_many_' + str(direct_or_interpolation) +
                       '_Ne_from_' + str(date_of_input) + '.pkl', 'rb') as f:
                 results_of_fit_input_Ne = pickle.load(f)
-            print('results_of_fit_input_Ne is taken from: ' + str(f))
+            logging.info('results_of_fit_input_Ne is taken from: ' + str(f))
             if dataset < 8:
                 with open(DATAFRAMES_FOLDER + 'finalNe_Feb2020', 'rb') as f:
                     finalNe_Feb2020_dataset = pickle.load(f)
@@ -8912,7 +8362,7 @@ class Zernike_estimation_preparation(object):
             with open(DATAFRAMES_FOLDER + 'results_of_fit_many_' + str(direct_or_interpolation) +
                       '_Kr_from_' + str(date_of_input) + '.pkl', 'rb') as f:
                 results_of_fit_input_Kr = pickle.load(f)
-            print('results_of_fit_input_Kr is taken from: ' + str(f))
+            logging.info('results_of_fit_input_Kr is taken from: ' + str(f))
             if dataset < 8:
                 with open(DATAFRAMES_FOLDER + 'finalKr_Feb2020', 'rb') as f:
                     finalKr_Feb2020_dataset = pickle.load(f)
@@ -8950,7 +8400,7 @@ class Zernike_estimation_preparation(object):
             finalArc = self.get_finalArc(arc)
             single_number = list_of_spots[s]
             wavelength = float(finalArc.iloc[int(single_number)]['wavelength'])
-            print("wavelength used for spot "+str(s)+" [nm] is: " + str(wavelength))
+            logging.info("wavelength used for spot "+str(s)+" [nm] is: " + str(wavelength))
             list_of_wavelengths.append(wavelength)
         array_of_wavelengths = np.array(list_of_wavelengths)
 
@@ -9007,30 +8457,30 @@ class Zernike_estimation_preparation(object):
 
                 # check if your single_number is avaliable
 
-                print('adding label ' +
+                logging.info('adding label ' +
                       str(label) +
                       ' with single_number ' +
                       str(int(single_number)) +
                       ' for creation of array_of_allparameters')
                 try:
                     if int(single_number) < 999:
-                        print(results_of_fit_input[label].index.astype(int))
+                        logging.info(results_of_fit_input[label].index.astype(int))
                         # if your single_number is avaliable go ahead
                         if int(single_number) in results_of_fit_input[label].index.astype(
                                 int):
-                            print('Solution for this spot is avaliable')
+                            logging.info('Solution for this spot is avaliable')
                             if isinstance(results_of_fit_input[label].index[0], str) or str(
                                     type(results_of_fit_input[label].index[0])) == "<class 'numpy.str_'>":
                                 list_of_allparameters.append(
                                     results_of_fit_input[label].loc[str(single_number)].values)
-                                print('results_of_fit_input[' + str(label) + '].loc[' +
+                                logging.info('results_of_fit_input[' + str(label) + '].loc[' +
                                       str(int(single_number)) + '].values' + str(
                                     results_of_fit_input[label].loc[str(single_number)].values))
                             else:
-                                # print('results_of_fit_input[label]'+str(results_of_fit_input[label]))
+                                # logging.info('results_of_fit_input[label]'+str(results_of_fit_input[label]))
                                 list_of_allparameters.append(
                                     results_of_fit_input[label].loc[int(single_number)].values)
-                                print('results_of_fit_input[' + str(label) + '].loc[' +
+                                logging.info('results_of_fit_input[' + str(label) + '].loc[' +
                                       str(int(single_number)) + '].values' + str(
                                     results_of_fit_input[label].loc[int(single_number)].values))
                             list_of_defocuses.append(label)
@@ -9038,7 +8488,7 @@ class Zernike_estimation_preparation(object):
                         else:
                             # if the previous solution is not avaliable,
                             # find the closest avaliable, right?
-                            print(
+                            logging.info(
                                 'Solution for this spot is not avaliable, reconstructing from nearby spot')
 
                             # positions of all avaliable spots
@@ -9046,23 +8496,23 @@ class Zernike_estimation_preparation(object):
                                 int)]['xc_effective']
                             y_positions = finalArc.loc[results_of_fit_input[label].index.astype(
                                 int)]['yc']
-                            print('checkpoint 1')
-                            print(label)
-                            # print(results_of_fit_input[labelInput].index)
+                            logging.info('checkpoint 1')
+                            logging.info(label)
+                            # logging.info(results_of_fit_input[labelInput].index)
                             # position of the input spot
                             position_x_single_number = finalArc['xc_effective'].loc[int(
                                 single_number)]
                             position_y_single_number = finalArc['yc'].loc[int(
                                 single_number)]
-                            print('checkpoint 2')
-                            print(position_x_single_number)
+                            logging.info('checkpoint 2')
+                            logging.info(position_x_single_number)
                             distance_of_avaliable_spots = np.abs(
                                 (x_positions - position_x_single_number)**2 +
                                 (y_positions - position_y_single_number)**2)
                             single_number_input =\
                                 distance_of_avaliable_spots[distance_of_avaliable_spots ==
                                                             np.min(distance_of_avaliable_spots)].index[0]
-                            print(
+                            logging.info(
                                 'Nearest spot avaliable is: ' +
                                 str(single_number_input))
                             if isinstance(results_of_fit_input[label].index[0], str) or str(
@@ -9073,14 +8523,14 @@ class Zernike_estimation_preparation(object):
                                 list_of_allparameters.append(
                                     results_of_fit_input[label].loc[int(single_number_input)].values)
                             list_of_defocuses.append(label)
-                            print('results_of_fit_input[' + str(label) + '].loc[' +
+                            logging.info('results_of_fit_input[' + str(label) + '].loc[' +
                                   str(int(single_number_input)) + '].values' + str(
                                 results_of_fit_input[label].loc[int(single_number_input)].values))
 
                             pass
 
                 except BaseException:
-                    print('not able to add label ' + str(label))
+                    logging.info('not able to add label ' + str(label))
                     pass
 
             array_of_allparameters = np.array(list_of_allparameters)
@@ -9088,10 +8538,10 @@ class Zernike_estimation_preparation(object):
             # based on the information from the previous step (results at list_of_defocuses),
             # generate singular array_of_allparameters at list_of_labelInput positions
             # has shape 2xN, N = number of parameters
-            print('Variable twentytwo_or_extra: ' + str(twentytwo_or_extra))
+            logging.info('Variable twentytwo_or_extra: ' + str(twentytwo_or_extra))
             analysis_type = 'defocus'
             if analysis_type == 'defocus':
-                print('Variable array_of_allparameters.shape: ' +
+                logging.info('Variable array_of_allparameters.shape: ' +
                       str(array_of_allparameters.shape))
 
                 # model_multi is only needed to create reasonable parametrizations and
@@ -9134,7 +8584,8 @@ class Zernike_estimation_preparation(object):
 
         return array_of_array_of_polyfit_1_parameterizations_proposal_shape_2d
 
-    def create_init_parameters_for_particles(self,zmax_input=56,analysis_type_fiber=None):
+    def create_init_parameters_for_particles(self,zmax_input=56,analysis_type = 'defocus',
+                                             analysis_type_fiber=None):
         """
         Create initial parameters for all particles
 
@@ -9155,15 +8606,19 @@ class Zernike_estimation_preparation(object):
 
 
         """
-        print('analysis_type '+str(analysis_type))
+        logging.info('analysis_type '+str(analysis_type))
         options = self.options
 
         array_of_array_of_polyfit_1_parameterizations_proposal_shape_2d = \
             self.array_of_array_of_polyfit_1_parameterizations_proposal_shape_2d
         list_of_spots = self.list_of_spots
         multi_var = self.multi_var
-
-        if analysis_type_fiber is "fiber_par":
+        logging.info('analysis_type_fiber: ' + str(analysis_type_fiber))
+        logging.info(type(analysis_type_fiber))
+        logging.info(analysis_type_fiber is "fixed_fiber_par")
+        logging.info(analysis_type_fiber == "fixed_fiber_par")
+        logging.info(analysis_type_fiber is "fiber_par" or analysis_type_fiber is "fixed_fiber_par")
+        if analysis_type_fiber == "fiber_par" or analysis_type_fiber == "fixed_fiber_par":
             # x_fiber, y_fiber, effective_radius_illumination, frd_sigma, frd_lorentz_factor
             unified_index = [ 10, 11, 12, 13, 14]
 
@@ -9180,14 +8635,14 @@ class Zernike_estimation_preparation(object):
         # if working with defocus, but many images
         # z4, z5, z6, z7, z8, z9, , z11
         # z12, z13, z14, z15, z16, z17, z18, z19, z20, z21, z22
-        # hscFrac, strutFrac, dxFocal, dyFocal, slitFrac, slitFrac_dy
+        # detFrac, strutFrac, dxFocal, dyFocal, slitFrac, slitFrac_dy
         # wide_0, wide_23, wide_43, misalign
         # x_fiber, y_fiber, effective_radius_illumination, frd_sigma, frd_lorentz_factor, 
         # det_vert, slitHolder_frac_dx, grating_lines,
         # scattering_slope, scattering_amplitude
         # pixel_effect, fiber_r
-
-        if analysis_type_fiber is "fiber_par":
+        logging.info('analysis_type_fiber is: '+str(analysis_type_fiber))
+        if analysis_type_fiber == "fiber_par":
             # dont vary global illumination paramters or Zernike
             stronger_array_01 = np.array([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                                         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -9197,9 +8652,10 @@ class Zernike_estimation_preparation(object):
                                         0,0, 1,
                                         1, 1,
                                         1, 0.6, 1])
-        elif analysis_type_fiber is "fixed_fiber_par":
-            stronger_array_01 = np.array([1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-                                        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+        elif analysis_type_fiber == "fixed_fiber_par":
+            logging.info('inside analysis_type_fiber')
+            stronger_array_01 = np.array([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                                        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                                         1, 1, 1, 1, 1, 1,
                                         1, 1, 1, 1,
                                         0, 0, 0, 0, 0,
@@ -9254,7 +8710,7 @@ class Zernike_estimation_preparation(object):
 
             array_of_polyfit_1_parameterizations_proposal_shape_2d =\
                 array_of_array_of_polyfit_1_parameterizations_proposal_shape_2d[s]
-            print(
+            logging.info(
                 'array_of_polyfit_1_parameterizations_proposal_shape_2d: ' +
                 str(array_of_polyfit_1_parameterizations_proposal_shape_2d))
             parInit1 = create_parInit(
@@ -9289,7 +8745,7 @@ class Zernike_estimation_preparation(object):
         for i in range(parInit1.shape[1]):
             parInit1_std.append(np.std(parInit1[:, i]))
         parInit1_std = np.array(parInit1_std)
-        print('parInit1_std: ' + str(parInit1_std))
+        logging.info('parInit1_std: ' + str(parInit1_std))
 
         # Number of particles and number of parameters
         particleCount = options[0]
@@ -9402,7 +8858,7 @@ def svd_invert(matrix, threshold):
     :param threshold:
     :return:SCD-inverted matrix
     '''
-    # print 'MATRIX:',matrix
+    # logging.info 'MATRIX:',matrix
     u, ws, v = svd(matrix, full_matrices=True)
 
     # invw = inv(np.identity(len(ws))*ws)
@@ -9419,7 +8875,7 @@ def svd_invert(matrix, threshold):
             invw[i][i] = 0.
             ncount += 1
         else:
-            # print 'WS[%4i] %15.9f'%(i,ws[i])
+            # logging.info 'WS[%4i] %15.9f'%(i,ws[i])
             invw[i][i] = 1. / ws[i]
 
     # log.info('%i singular values rejected in inversion'%ncount)
@@ -9496,8 +8952,8 @@ def create_parInit(allparameters_proposal, multi=None, pupil_parameters=None, al
                 # not implemented
                 pass
             if zmax == 22:
-                # print('zmax is 22, right: ' +str(zmax))
-                # print('len(array_of_polyfit_1_parameterizations[19:]) ' +
+                # logging.info('zmax is 22, right: ' +str(zmax))
+                # logging.info('len(array_of_polyfit_1_parameterizations[19:]) ' +
                 # str(len(array_of_polyfit_1_parameterizations[19:]) ))
 
                 # if you have passed the parametrization that goes to the zmax=22,
@@ -9608,14 +9064,14 @@ def create_parInit(allparameters_proposal, multi=None, pupil_parameters=None, al
     if zmax >= 22:
 
         extra_Zernike_parameters_number = zmax - 22
-        # print('extra_Zernike_parameters_number in parInit:' +str(extra_Zernike_parameters_number))
+        # logging.info('extra_Zernike_parameters_number in parInit:' +str(extra_Zernike_parameters_number))
         if allparameters_proposal_err is None:
             if multi is None or multi is False:
                 # 19 values describing z4-z22
                 # smaller values for z12-z22
                 # ['z4','z5','z6','z7','z8','z9','z10','z11',
                 #          'z12','z13','z14','z15','z16','z17','z18','z19','z20','z21','z22',
-                # 'hscFrac','strutFrac','dxFocal','dyFocal','slitFrac','slitFrac_dy',
+                # 'detFrac','strutFrac','dxFocal','dyFocal','slitFrac','slitFrac_dy',
                 # 'wide_0','wide_23','wide_43','misalign',
                 # 'x_fiber','y_fiber','effective_ilum_radius',
                 # 'frd_sigma','frd_lorentz_factor','det_vert','slitHolder_frac_dx',
@@ -9779,7 +9235,7 @@ def create_parInit(allparameters_proposal, multi=None, pupil_parameters=None, al
             globalparameters_flatten_err = allparameters_proposal_err[(8 + 11) * 2:(8 + 11) * 2 + 23]
             zparameters_extra_flatten = allparameters_proposal[(8 + 11) * 2 + 23:]
             zparameters_extra_flatten_err = allparameters_proposal_err[(8 + 11) * 2 + 23:]
-            # print('zparameters_flatten '+str(zparameters_flatten))
+            # logging.info('zparameters_flatten '+str(zparameters_flatten))
 
     if zmax == 11:
         if multi is None:
@@ -9798,7 +9254,7 @@ def create_parInit(allparameters_proposal, multi=None, pupil_parameters=None, al
                     else:
                         zparameters_flat = np.column_stack((zparameters_flat, zparameters_flat_single_par))
             except NameError:
-                print('NameError!')
+                logging.info('NameError!')
         else:
             try:
                 for i in range(8 * 2):
@@ -9809,7 +9265,7 @@ def create_parInit(allparameters_proposal, multi=None, pupil_parameters=None, al
                     else:
                         zparameters_flat = np.column_stack((zparameters_flat, zparameters_flat_single_par))
             except NameError:
-                print('NameError!')
+                logging.info('NameError!')
 
     # if we have 22 or more
     if zmax >= 22:
@@ -9839,7 +9295,7 @@ def create_parInit(allparameters_proposal, multi=None, pupil_parameters=None, al
                         zparameters_extra_flatten[i], zparameters_extra_flatten_err[i], nwalkers - 1)))
 
                     # zparameters_extra_flat_single_par=np.random.normal(0,0.05,nwalkers)
-                    # print(zparameters_extra_flat_single_par.shape)
+                    # logging.info(zparameters_extra_flat_single_par.shape)
                     if i == 0:
                         zparameters_extra_flat = zparameters_extra_flat_single_par
                     else:
@@ -9847,17 +9303,17 @@ def create_parInit(allparameters_proposal, multi=None, pupil_parameters=None, al
                             (zparameters_extra_flat, zparameters_extra_flat_single_par))
 
             except NameError:
-                print('NameError!')
+                logging.info('NameError!')
 
         # in case that multi variable is turned on:
         else:
             try:
                 for i in range((8 + 11) * 2):
-                    # print('i'+str(i))
-                    # print('zparameters_flatten[i]: '+str(zparameters_flatten[i]))
-                    # print('zparameters_flatten_err[i]: '+str(zparameters_flatten_err[i]))
-                    # print('nwalkers-1: '+str(nwalkers-1))
-                    # print(np.random.normal(zparameters_flatten[i],zparameters_flatten_err[i],nwalkers-1))
+                    # logging.info('i'+str(i))
+                    # logging.info('zparameters_flatten[i]: '+str(zparameters_flatten[i]))
+                    # logging.info('zparameters_flatten_err[i]: '+str(zparameters_flatten_err[i]))
+                    # logging.info('nwalkers-1: '+str(nwalkers-1))
+                    # logging.info(np.random.normal(zparameters_flatten[i],zparameters_flatten_err[i],nwalkers-1))
                     zparameters_flat_single_par = np.concatenate(([zparameters_flatten[i]], np.random.normal(
                         zparameters_flatten[i], zparameters_flatten_err[i], nwalkers - 1)))
 
@@ -9874,21 +9330,21 @@ def create_parInit(allparameters_proposal, multi=None, pupil_parameters=None, al
                             zparameters_extra_flatten[i], zparameters_extra_flatten_err[i], nwalkers - 1)))
 
                         # zparameters_extra_flat_single_par=np.random.normal(0,0.05,nwalkers)
-                        # print(zparameters_extra_flat_single_par.shape)
+                        # logging.info(zparameters_extra_flat_single_par.shape)
                         if i == 0:
                             zparameters_extra_flat = zparameters_extra_flat_single_par
                         else:
                             zparameters_extra_flat = np.column_stack(
                                 (zparameters_extra_flat, zparameters_extra_flat_single_par))
-                        # print(zparameters_extra_flat.shape)
+                        # logging.info(zparameters_extra_flat.shape)
 
             except NameError:
-                print('NameError!')
+                logging.info('NameError!')
 
     try:
         div_same = 10 
 
-        # hscFrac always positive
+        # detFrac always positive
         globalparameters_flat_0 = np.abs(
             np.random.normal(
                 globalparameters_flatten[0],
@@ -9949,7 +9405,7 @@ def create_parInit(allparameters_proposal, multi=None, pupil_parameters=None, al
                 globalparameters_flatten[4],
                 globalparameters_flatten_err[4],
                 nwalkers * 20))
-        # print(globalparameters_flatten_err[4])
+        # logging.info(globalparameters_flatten_err[4])
         globalparameters_flat_4[np.random.choice(len(globalparameters_flat_4),
                                                  size=int(len(globalparameters_flat_4)/div_same),
                                                  replace=False)] = globalparameters_flatten[4]
@@ -10225,20 +9681,20 @@ def create_parInit(allparameters_proposal, multi=None, pupil_parameters=None, al
                                                    globalparameters_flat_19,
                                                    globalparameters_flat_20,globalparameters_flat_21,
                                                    globalparameters_flat_22]:
-            print(str(i[0])+': '+str(len(i)))
+            logging.info(str(i[0])+': '+str(len(i)))
         """
         if pupil_parameters is None:
             if len(globalparameters_flatten) == 23:
-                # print('considering globalparameters_flatten 23 ')
-                # print(globalparameters_flat_0.shape)
-                # print(globalparameters_flat_3.shape)
-                # print(globalparameters_flat_6.shape)
-                # print(globalparameters_flat_9.shape)
-                # print(globalparameters_flat_12.shape)
-                # print(globalparameters_flat_15.shape)
-                # print(globalparameters_flat_18.shape)
-                # print(globalparameters_flat_21.shape)
-                # print(globalparameters_flat_22.shape)
+                # logging.info('considering globalparameters_flatten 23 ')
+                # logging.info(globalparameters_flat_0.shape)
+                # logging.info(globalparameters_flat_3.shape)
+                # logging.info(globalparameters_flat_6.shape)
+                # logging.info(globalparameters_flat_9.shape)
+                # logging.info(globalparameters_flat_12.shape)
+                # logging.info(globalparameters_flat_15.shape)
+                # logging.info(globalparameters_flat_18.shape)
+                # logging.info(globalparameters_flat_21.shape)
+                # logging.info(globalparameters_flat_22.shape)
                 globalparameters_flat = np.column_stack(
                     (globalparameters_flat_0,
                      globalparameters_flat_1,
@@ -10264,7 +9720,7 @@ def create_parInit(allparameters_proposal, multi=None, pupil_parameters=None, al
                      globalparameters_flat_21,
                      globalparameters_flat_22))
             else:
-                print('not considering globalparameters_flatten 23 !!! ')
+                logging.info('not considering globalparameters_flatten 23 !!! ')
                 globalparameters_flat = np.column_stack(
                     (globalparameters_flat_0,
                      globalparameters_flat_1,
@@ -10304,15 +9760,15 @@ def create_parInit(allparameters_proposal, multi=None, pupil_parameters=None, al
                  globalparameters_flat_22))
 
     except NameError:
-        print("NameError")
+        logging.info("NameError")
 
-    # print('globalparameters_flat.shape'+str(zparameters_flat.shape) )
-    # print('globalparameters_flat.shape'+str(globalparameters_flat.shape) )
+    # logging.info('globalparameters_flat.shape'+str(zparameters_flat.shape) )
+    # logging.info('globalparameters_flat.shape'+str(globalparameters_flat.shape) )
 
     if zmax <= 22:
         allparameters = np.column_stack((zparameters_flat, globalparameters_flat))
     if zmax > 22:
-        # print('globalparameters_flat.shape'+str(zparameters_extra_flat.shape) )
+        # logging.info('globalparameters_flat.shape'+str(zparameters_extra_flat.shape) )
         allparameters = np.column_stack((zparameters_flat, globalparameters_flat, zparameters_extra_flat))
 
     parInit = allparameters.reshape(nwalkers, number_of_par)
@@ -10336,13 +9792,20 @@ def create_parInit(allparameters_proposal, multi=None, pupil_parameters=None, al
 
 
 def Ifun16Ne(lambdaV, lambda0, Ne):
-    """Construct Lorentizan scattering
-        @param lambdaV
-        @param lambda0
-        @param Ne                                 number of effective lines
-        @returns
+    """Construct Lorentizan scattering kernel
+        Parameters
+        ----------
+        lambdaV: `float`
+           wavelength at which compute the grating effect
+        lambda0: `float`
+           reference wavelength
+        Ne: `int`
+                number of effective grating lines of the spectrograph
+        Returns
+        ----------
+        value_of_scatter: `float`
+            strenth of the kernel at lambdaV wavelength
     """
-
     return (lambda0 / (Ne * np.pi * np.sqrt(2)))**2 / \
         ((lambdaV - lambda0)**2 + (lambda0 / (Ne * np.pi * np.sqrt(2)))**2)
 
@@ -10405,7 +9868,8 @@ def maxK(pupil_plane_size, lam, scale_unit=galsim.arcsec):
 
 
 def sky_scale(pupil_plane_size, lam, scale_unit=galsim.arcsec):
-    """Return the image scale for this aperture at given wavelength.
+    """Return the image scale for this aperture at given wavelength
+    
     @param lam         Wavelength in nanometers.
     @param scale_unit  Units in which to return result [default: galsim.arcsec]
     @returns           Image scale.
@@ -10559,9 +10023,9 @@ def check_global_parameters(globalparameters, test_print=None, fit_for_flux=None
 
     globalparameters_output = np.copy(globalparameters)
 
-    # hsc frac
+    # det frac
     if globalparameters[0] <= 0.6 or globalparameters[0] >= 0.8:
-        print('globalparameters[0] outside limits; value: ' +
+        logging.info('globalparameters[0] outside limits; value: ' +
               str(globalparameters[0])) if test_print == 1 else False
     if globalparameters[0] <= 0.6:
         globalparameters_output[0] = 0.6
@@ -10570,7 +10034,7 @@ def check_global_parameters(globalparameters, test_print=None, fit_for_flux=None
 
     # strut frac
     if globalparameters[1] < 0.07 or globalparameters[1] > 0.13:
-        print('globalparameters[1] outside limits') if test_print == 1 else False
+        logging.info('globalparameters[1] outside limits') if test_print == 1 else False
     if globalparameters[1] <= 0.07:
         globalparameters_output[1] = 0.07
     if globalparameters[1] > 0.13:
@@ -10578,12 +10042,12 @@ def check_global_parameters(globalparameters, test_print=None, fit_for_flux=None
 
     # slit_frac < strut frac
     # if globalparameters[4]<globalparameters[1]:
-        # print('globalparameters[1] not smaller than 4 outside limits')
+        # logging.info('globalparameters[1] not smaller than 4 outside limits')
         # return -np.inf
 
     # dx Focal
     if globalparameters[2] < -0.4 or globalparameters[2] > 0.4:
-        print('globalparameters[2] outside limits') if test_print == 1 else False
+        logging.info('globalparameters[2] outside limits') if test_print == 1 else False
     if globalparameters[2] < -0.4:
         globalparameters_output[2] = -0.4
     if globalparameters[2] > 0.4:
@@ -10591,156 +10055,156 @@ def check_global_parameters(globalparameters, test_print=None, fit_for_flux=None
 
     # dy Focal
     if globalparameters[3] > 0.4:
-        print('globalparameters[3] outside limits') if test_print == 1 else False
+        logging.info('globalparameters[3] outside limits') if test_print == 1 else False
         globalparameters_output[3] = 0.4
     if globalparameters[3] < -0.4:
-        print('globalparameters[3] outside limits') if test_print == 1 else False
+        logging.info('globalparameters[3] outside limits') if test_print == 1 else False
         globalparameters_output[3] = -0.4
 
     # slitFrac
     if globalparameters[4] < 0.05:
-        print('globalparameters[4] outside limits') if test_print == 1 else False
+        logging.info('globalparameters[4] outside limits') if test_print == 1 else False
         globalparameters_output[4] = 0.05
     if globalparameters[4] > 0.09:
-        print('globalparameters[4] outside limits') if test_print == 1 else False
+        logging.info('globalparameters[4] outside limits') if test_print == 1 else False
         globalparameters_output[4] = 0.09
 
     # slitFrac_dy
     if globalparameters[5] < -0.5:
-        print('globalparameters[5] outside limits') if test_print == 1 else False
+        logging.info('globalparameters[5] outside limits') if test_print == 1 else False
         globalparameters_output[5] = -0.5
     if globalparameters[5] > 0.5:
-        print('globalparameters[5] outside limits') if test_print == 1 else False
+        logging.info('globalparameters[5] outside limits') if test_print == 1 else False
         globalparameters_output[5] = +0.5
 
     # radiometricEffect / wide_0
     if globalparameters[6] < 0:
-        print('globalparameters[6] outside limits') if test_print == 1 else False
+        logging.info('globalparameters[6] outside limits') if test_print == 1 else False
         globalparameters_output[6] = 0
     if globalparameters[6] > 1:
-        print('globalparameters[6] outside limits') if test_print == 1 else False
+        logging.info('globalparameters[6] outside limits') if test_print == 1 else False
         globalparameters_output[6] = 1
 
     # radiometricExponent / wide_23
     if globalparameters[7] < 0:
-        print('globalparameters[7] outside limits') if test_print == 1 else False
+        logging.info('globalparameters[7] outside limits') if test_print == 1 else False
         globalparameters_output[7] = 0
     # changed in v0.42
     if globalparameters[7] > 1:
-        print('globalparameters[7] outside limits') if test_print == 1 else False
+        logging.info('globalparameters[7] outside limits') if test_print == 1 else False
         globalparameters_output[7] = 1
 
     # x_ilum /wide_43
     if globalparameters[8] < 0:
-        print('globalparameters[8] outside limits') if test_print == 1 else False
+        logging.info('globalparameters[8] outside limits') if test_print == 1 else False
         globalparameters_output[8] = 0
     # changed in v0.42
     if globalparameters[8] > 1:
-        print('globalparameters[8] outside limits') if test_print == 1 else False
+        logging.info('globalparameters[8] outside limits') if test_print == 1 else False
         globalparameters_output[8] = 1
 
     # y_ilum / misalign
     if globalparameters[9] < 0:
-        print('globalparameters[9] outside limits') if test_print == 1 else False
+        logging.info('globalparameters[9] outside limits') if test_print == 1 else False
         globalparameters_output[9] = 0
     if globalparameters[9] > 12:
-        print('globalparameters[9] outside limits') if test_print == 1 else False
+        logging.info('globalparameters[9] outside limits') if test_print == 1 else False
         globalparameters_output[9] = 12
 
     # x_fiber
     if globalparameters[10] < -0.4:
-        print('globalparameters[10] outside limits') if test_print == 1 else False
+        logging.info('globalparameters[10] outside limits') if test_print == 1 else False
         globalparameters_output[10] = -0.4
     if globalparameters[10] > 0.4:
-        print('globalparameters[10] outside limits') if test_print == 1 else False
+        logging.info('globalparameters[10] outside limits') if test_print == 1 else False
         globalparameters_output[10] = 0.4
 
     # y_fiber
     if globalparameters[11] < -0.4:
-        print('globalparameters[11] outside limits') if test_print == 1 else False
+        logging.info('globalparameters[11] outside limits') if test_print == 1 else False
         globalparameters_output[11] = -0.4
     if globalparameters[11] > 0.4:
-        print('globalparameters[11] outside limits') if test_print == 1 else False
+        logging.info('globalparameters[11] outside limits') if test_print == 1 else False
         globalparameters_output[11] = 0.4
 
     # effective_radius_illumination
     if globalparameters[12] < 0.7:
-        print('globalparameters[12] outside limits') if test_print == 1 else False
+        logging.info('globalparameters[12] outside limits') if test_print == 1 else False
         globalparameters_output[12] = 0.7
     if globalparameters[12] > 1.0:
-        print('globalparameters[12] outside limits') if test_print == 1 else False
+        logging.info('globalparameters[12] outside limits') if test_print == 1 else False
         globalparameters_output[12] = 1
 
     # frd_sigma
     if globalparameters[13] < 0.01:
-        print('globalparameters[13] outside limits') if test_print == 1 else False
+        logging.info('globalparameters[13] outside limits') if test_print == 1 else False
         globalparameters_output[13] = 0.01
     if globalparameters[13] > .4:
-        print('globalparameters[13] outside limits') if test_print == 1 else False
+        logging.info('globalparameters[13] outside limits') if test_print == 1 else False
         globalparameters_output[13] = 0.4
 
     # frd_lorentz_factor
     if globalparameters[14] < 0.01:
-        print('globalparameters[14] outside limits') if test_print == 1 else False
+        logging.info('globalparameters[14] outside limits') if test_print == 1 else False
         globalparameters_output[14] = 0.01
     if globalparameters[14] > 1:
-        print('globalparameters[14] outside limits') if test_print == 1 else False
+        logging.info('globalparameters[14] outside limits') if test_print == 1 else False
         globalparameters_output[14] = 1
 
     # det_vert
     if globalparameters[15] < 0.85:
-        print('globalparameters[15] outside limits') if test_print == 1 else False
+        logging.info('globalparameters[15] outside limits') if test_print == 1 else False
         globalparameters_output[15] = 0.85
     if globalparameters[15] > 1.15:
-        print('globalparameters[15] outside limits') if test_print == 1 else False
+        logging.info('globalparameters[15] outside limits') if test_print == 1 else False
         globalparameters_output[15] = 1.15
 
     # slitHolder_frac_dx
     if globalparameters[16] < -0.8:
-        print('globalparameters[16] outside limits') if test_print == 1 else False
+        logging.info('globalparameters[16] outside limits') if test_print == 1 else False
         globalparameters_output[16] = -0.8
     if globalparameters[16] > 0.8:
-        print('globalparameters[16] outside limits') if test_print == 1 else False
+        logging.info('globalparameters[16] outside limits') if test_print == 1 else False
         globalparameters_output[16] = 0.8
 
     # grating_lines
     if globalparameters[17] < 1200:
-        print('globalparameters[17] outside limits') if test_print == 1 else False
+        logging.info('globalparameters[17] outside limits') if test_print == 1 else False
         globalparameters_output[17] = 1200
     if globalparameters[17] > 120000:
-        print('globalparameters[17] outside limits') if test_print == 1 else False
+        logging.info('globalparameters[17] outside limits') if test_print == 1 else False
         globalparameters_output[17] = 120000
 
     # scattering_slope
     if globalparameters[18] < 1.5:
-        print('globalparameters[18] outside limits') if test_print == 1 else False
+        logging.info('globalparameters[18] outside limits') if test_print == 1 else False
         globalparameters_output[18] = 1.5
     if globalparameters[18] > +3.0:
-        print('globalparameters[18] outside limits') if test_print == 1 else False
+        logging.info('globalparameters[18] outside limits') if test_print == 1 else False
         globalparameters_output[18] = 3
 
     # scattering_amplitude
     if globalparameters[19] < 0:
-        print('globalparameters[19] outside limits') if test_print == 1 else False
+        logging.info('globalparameters[19] outside limits') if test_print == 1 else False
         globalparameters_output[19] = 0
     if globalparameters[19] > +0.4:
-        print('globalparameters[19] outside limits') if test_print == 1 else False
+        logging.info('globalparameters[19] outside limits') if test_print == 1 else False
         globalparameters_output[19] = 0.4
 
     # pixel_effect
     if globalparameters[20] < 0.15:
-        print('globalparameters[20] outside limits') if test_print == 1 else False
+        logging.info('globalparameters[20] outside limits') if test_print == 1 else False
         globalparameters_output[20] = 0.15
     if globalparameters[20] > +0.8:
-        print('globalparameters[20] outside limits') if test_print == 1 else False
+        logging.info('globalparameters[20] outside limits') if test_print == 1 else False
         globalparameters_output[20] = 0.8
 
     # fiber_r
     if globalparameters[21] < 1.74:
-        print('globalparameters[21] outside limits') if test_print == 1 else False
+        logging.info('globalparameters[21] outside limits') if test_print == 1 else False
         globalparameters_output[21] = 1.74
     if globalparameters[21] > +1.98:
-        print('globalparameters[21] outside limits') if test_print == 1 else False
+        logging.info('globalparameters[21] outside limits') if test_print == 1 else False
         globalparameters_output[21] = 1.98
 
     # flux
@@ -10748,10 +10212,10 @@ def check_global_parameters(globalparameters, test_print=None, fit_for_flux=None
         globalparameters_output[22] = 1
     else:
         if globalparameters[22] < 0.98:
-            print('globalparameters[22] outside limits') if test_print == 1 else False
+            logging.info('globalparameters[22] outside limits') if test_print == 1 else False
             globalparameters_output[22] = 0.98
         if globalparameters[22] > 1.02:
-            print('globalparameters[22] outside limits') if test_print == 1 else False
+            logging.info('globalparameters[22] outside limits') if test_print == 1 else False
             globalparameters_output[22] = 1.02
 
     return globalparameters_output
@@ -10767,14 +10231,14 @@ def move_parametrizations_from_2d_shape_to_1d_shape(allparameters_best_parametri
 
     if allparameters_best_parametrization_shape_2d.shape[0] > 42:
         #  if you are using above Zernike above 22
-        # print('we are creating new result with Zernike above 22')
+        # logging.info('we are creating new result with Zernike above 22')
         allparameters_best_parametrization_shape_1d = np.concatenate((
             allparameters_best_parametrization_shape_2d[:19].ravel(),
             allparameters_best_parametrization_shape_2d[19:19 + 23][:, 1],
             allparameters_best_parametrization_shape_2d[19 + 23:].ravel()))
 
     else:
-        # print('we are creating new result with Zernike at 22')
+        # logging.info('we are creating new result with Zernike at 22')
         allparameters_best_parametrization_shape_1d = np.concatenate((
             allparameters_best_parametrization_shape_2d[:19].ravel(),
             allparameters_best_parametrization_shape_2d[19:-1][:, 1]))
