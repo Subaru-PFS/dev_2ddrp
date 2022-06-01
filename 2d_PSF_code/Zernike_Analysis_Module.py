@@ -20,32 +20,34 @@ Mar 10, 2021: 0.26e -> 0.26f added mask options for create_basic_comparison_plot
 Mar 24, 2021: 0.26f -> 0.26g updated create_res_data and find_centroid
 Apr 02, 2021: 0.26g -> 0.26h added option to save in create_basic_comparison_plot
 Apr 21, 2021: 0.26h -> 0.26i expanded support for Tiger
+Jul 26, 2021: 0.26i -> 0.26j changed default directory on loca, to point to Saturn_USA
+Sep 28. 2021: 0.26j -> 0.26k modified parameters in plot_1D_residual
+Nov 20. 2021: 0.26k -> 0.26l Hilo modifications
 
 @author: Neven Caplar
 @contact: ncaplar@princeton.edu
 @web: www.ncaplar.com
 """
 ########################################
-#standard library imports
+# standard library imports
 from __future__ import absolute_import, division, print_function
 import os
-import time
-import sys
-import math
+# import time
+# import sys
+# import math
 import socket
-os.environ["MKL_NUM_THREADS"] = "1" 
-os.environ["NUMEXPR_NUM_THREADS"] = "1" 
-os.environ["OMP_NUM_THREADS"] = "1" 
+# os.environ["MKL_NUM_THREADS"] = "1"
+# os.environ["NUMEXPR_NUM_THREADS"] = "1"
+# os.environ["OMP_NUM_THREADS"] = "1"
 import numpy as np
-np.set_printoptions(suppress=True)
-np.seterr(divide='ignore', invalid='ignore')
-#print(np.__config__)
-from multiprocessing import current_process
-from functools import lru_cache
 
-#from tqdm import tqdm
-#import pyfftw
-#import pandas as pd
+# print(np.__config__)
+# from multiprocessing import current_process
+# from functools import lru_cache
+
+# from tqdm import tqdm
+# import pyfftw
+# import pandas as pd
 
 ########################################
 # Related third party imports
@@ -55,26 +57,26 @@ from functools import lru_cache
 # Local application/library specific imports
 # galsim
 import galsim
-galsim.GSParams.maximum_fft_size=12000
+
 
 # astropy
-import astropy
-import astropy.convolution
-from astropy.convolution import Gaussian2DKernel
-
+# import astropy
+# import astropy.convolution
+# from astropy.convolution import Gaussian2DKernel
+from astropy.stats import bootstrap
 # scipy and skimage
 import scipy.misc
-#import skimage.transform
+# import skimage.transform
 import scipy.optimize as optimize
-from scipy.ndimage.filters import gaussian_filter
+# from scipy.ndimage.filters import gaussian_filter
 
 # pickle
 import pickle
 
-#lmfit
-import lmfit
+# lmfit
+# import lmfit
 
-#matplotlib
+# matplotlib
 import matplotlib
 import matplotlib.pyplot as plt
 from matplotlib.colors import LogNorm
@@ -84,272 +86,383 @@ import pandas as pd
 
 # needed for resizing routines
 from typing import Tuple, Iterable
+
+np.set_printoptions(suppress=True)
+np.seterr(divide='ignore', invalid='ignore')
+galsim.GSParams.maximum_fft_size = 12000
 ########################################
 
-__all__ = ['Zernike_Analysis','Zernike_result_analysis','create_mask','resize']
+__all__ = ['Zernike_Analysis', 'Zernike_result_analysis', 'create_mask', 'resize', 'create_res_data']
 
-__version__ = "0.26g"
+__version__ = "0.26l"
 
 ############################################################
 # name your directory where you want to have files!
-if socket.gethostname()=='IapetusUSA':
-    PSF_DIRECTORY='/Users/nevencaplar/Documents/PFS/'
+if socket.gethostname() == 'IapetusUSA':
+    PSF_DIRECTORY = '/Volumes/Saturn_USA/PFS/'
+elif socket.gethostname() == 'pfsa-usr01-gb.subaru.nao.ac.jp' or \
+        socket.gethostname() == 'pfsa-usr02-gb.subaru.nao.ac.jp':
+    PSF_DIRECTORY = '/work/ncaplar/'
 else:
-    PSF_DIRECTORY='/tigress/ncaplar/'
+    PSF_DIRECTORY = '/tigress/ncaplar/'
 
-  
 
-############################################################   
+############################################################
 
-TESTING_FOLDER=PSF_DIRECTORY+'Testing/'
-TESTING_PUPIL_IMAGES_FOLDER=TESTING_FOLDER+'Pupil_Images/'
-TESTING_WAVEFRONT_IMAGES_FOLDER=TESTING_FOLDER+'Wavefront_Images/'
-TESTING_FINAL_IMAGES_FOLDER=TESTING_FOLDER+'Final_Images/'
-   
+TESTING_FOLDER = PSF_DIRECTORY + 'Testing/'
+TESTING_PUPIL_IMAGES_FOLDER = TESTING_FOLDER + 'Pupil_Images/'
+TESTING_WAVEFRONT_IMAGES_FOLDER = TESTING_FOLDER + 'Wavefront_Images/'
+TESTING_FINAL_IMAGES_FOLDER = TESTING_FOLDER + 'Final_Images/'
+
+
 class Zernike_Analysis(object):
-    """!
-    Class for analysing results of the cluster run
+    """Class for analysing results of the cluster run
     """
 
-    def __init__(self, date,obs,single_number,eps,arc=None,dataset=None,multi_var=False,list_of_defocuses=None,verbosity=1):
+    def __init__(self, date, obs, single_number, eps, arc=None, dataset=None,
+                 multi_var=False, list_of_defocuses=None, verbosity=1):
         """!
 
-        @param[in] date                                           date
-        @param[in] obs                                            observatio
-        @param[in] single_number                                  single number determining which spot we are analyzing
-        @param[in] eps                                            analysis parameter
-        @param[in] arc                                            arc-lamp used
-        @param[in] dataset                                        dataset number
-        @param[in] multi_var                                      is this multi analysis
-        @param[in] list_of_defocuses                              at which defocuses we are analyzing           
-        
+        @param[in] date                                 date
+        @param[in] obs                                  observatio
+        @param[in] single_number                        single number determining which spot we are analyzing
+        @param[in] eps                                  analysis parameter
+        @param[in] arc                                  arc-lamp used
+        @param[in] dataset                              dataset number
+        @param[in] multi_var                            is this multi analysis
+        @param[in] list_of_defocuses                    at which defocuses we are analyzing
+
         """
-        
-        
+
         ############
-        #initializing 
+        # initializing
         ###########
         if arc is None:
-            arc=''
-            
+            arc = ''
 
-        self.date=date
-        self.obs=obs
+        self.date = date
+        self.obs = obs
+        self.single_number = single_number
+        self.eps = eps
+        self.arc = arc
+        self.multi_var = multi_var
+        self.list_of_defocuses = list_of_defocuses
 
-        
-        self.single_number=single_number
-        self.eps=eps
-        self.arc=arc
-        self.multi_var=multi_var
-        self.list_of_defocuses=list_of_defocuses 
-        
-        method='P'
-        self.method=method
-        self.verbosity=verbosity
-        
-            
+        method = 'P'
+        self.method = method
+        self.verbosity = verbosity
+
         #############
         # where are poststamps of spots located
-        if dataset==0:
-            STAMPS_FOLDER=PSF_DIRECTORY+"Data_Nov_14/Stamps_cleaned/"  
-        if dataset==1:
-            STAMPS_FOLDER=PSF_DIRECTORY+"ReducedData/Data_Feb_5/Stamps_cleaned/"    
-        if dataset==2:
-            STAMPS_FOLDER=PSF_DIRECTORY+"ReducedData/Data_May_28/Stamps_cleaned/"
-        if dataset==3:
-            STAMPS_FOLDER=PSF_DIRECTORY+"ReducedData/Data_Jun_25/Stamps_cleaned/"
-        if dataset==4 or dataset==5:
-            STAMPS_FOLDER=PSF_DIRECTORY+"ReducedData/Data_Aug_14/Stamps_cleaned/"    
-        if dataset==6:
-            if socket.gethostname()=='IapetusUSA':
-                STAMPS_FOLDER=PSF_DIRECTORY+"ReducedData/Data_Nov_20_2020/Stamps_cleaned/"    
+        if dataset == 0:
+            STAMPS_FOLDER = PSF_DIRECTORY+"Data_Nov_14/Stamps_cleaned/"
+        if dataset == 1:
+            STAMPS_FOLDER = PSF_DIRECTORY+"ReducedData/Data_Feb_5/Stamps_cleaned/"
+        if dataset == 2:
+            STAMPS_FOLDER = PSF_DIRECTORY+"ReducedData/Data_May_28/Stamps_cleaned/"
+        if dataset == 3:
+            STAMPS_FOLDER = PSF_DIRECTORY+"ReducedData/Data_Jun_25/Stamps_cleaned/"
+        if dataset == 4 or dataset == 5:
+            STAMPS_FOLDER = PSF_DIRECTORY+"ReducedData/Data_Aug_14/Stamps_cleaned/"
+        if dataset == 6:
+            if socket.gethostname() == 'IapetusUSA':
+                STAMPS_FOLDER = PSF_DIRECTORY+"ReducedData/Data_Nov_20_2020/Stamps_cleaned/"
+            elif socket.gethostname() == 'pfsa-usr01-gb.subaru.nao.ac.jp' or \
+                    socket.gethostname() == 'pfsa-usr02-gb.subaru.nao.ac.jp':
+                STAMPS_FOLDER = '/work/ncaplar/ReducedData/Data_Nov_20/Stamps_cleaned/'
             else:
-                STAMPS_FOLDER=PSF_DIRECTORY+"ReducedData/Data_Nov_20/Stamps_cleaned/"  
-        if dataset==7:
-                STAMPS_FOLDER=PSF_DIRECTORY+"ReducedData/Data_May_21_2021/Stamps_cleaned/"              
-                 
+                STAMPS_FOLDER = PSF_DIRECTORY+"ReducedData/Data_Nov_20/Stamps_cleaned/"
+        if dataset == 7:
+            STAMPS_FOLDER = PSF_DIRECTORY+"ReducedData/Data_May_21_2021/Stamps_cleaned/"
+
+        if dataset == 8:
+            if socket.gethostname() == 'IapetusUSA':
+                STAMPS_FOLDER = '/Volumes/Saturn_USA/PFS/'+"ReducedData/Data_May_21/Stamps_cleaned/"
+            elif socket.gethostname() == 'pfsa-usr01-gb.subaru.nao.ac.jp' or \
+                socket.gethostname() == 'pfsa-usr02-gb.subaru.nao.ac.jp':
+                STAMPS_FOLDER = '/work/ncaplar/ReducedData/Data_May_25_2021/Stamps_cleaned/'
+            else:
+                STAMPS_FOLDER = '/tigress/ncaplar/ReducedData/Data_May_25_2021/Stamps_cleaned/'
+
         print('STAMPS_FOLDER: '+str(STAMPS_FOLDER))
-        
+
         # which observation numbers associated with each dataset
-        if dataset==0:
-            if arc is not None:         
-                if arc=="HgAr":
-                    single_number_focus=8603
-                elif arc=="Ne":
-                    single_number_focus=8693  
+        if dataset == 0:
+            if arc is not None:
+                if arc == "HgAr":
+                    single_number_focus = 8603
+                elif arc == "Ne":
+                    single_number_focus = 8693
 
-        if dataset==1:  
-            # F/3.4 stop 
-            if arc is not None:         
-                if arc=="HgAr":
-                    single_number_focus=11748
-                    obs_possibilites=np.array([11796,11790,11784,11778,11772,11766,11760,11754,11748,11748,11694,11700,11706,11712,11718,11724,11730,11736])
+        if dataset == 1:
+            # F/3.4 stop
+            if arc is not None:
+                if arc == "HgAr":
+                    single_number_focus = 11748
+                    obs_possibilites = np.array([11796, 11790, 11784, 11778, 11772, 11766, 11760, 11754,
+                                                 11748, 11748, 11694, 11700, 11706, 11712, 11718, 11724,
+                                                 11730, 11736])
 
-                elif arc=="Ne":
-                    single_number_focus=11748+607  
-                    obs_possibilites=np.array([12403,12397,12391,12385,12379,12373,12367,12361,12355,12355,12349,12343,12337,12331,12325,12319,12313,12307])
- 
-        if dataset==2:
+                elif arc == "Ne":
+                    single_number_focus = 11748+607
+                    obs_possibilites = np.array([12403, 12397, 12391, 12385, 12379, 12373,
+                                                 12367, 12361, 12355, 12355, 12349, 12343,
+                                                 12337, 12331, 12325, 12319, 12313, 12307])
+
+        if dataset == 2:
             # F/2.8 stop
-            if arc is not None:         
-                if arc=="HgAr":
-                    single_number_focus=17017+54
-                    obs_possibilites=np.array([17023,17023+6,17023+12,17023+18,17023+24,17023+30,17023+36,17023+42,-99,17023+48,\
-                               17023+54,17023+60,17023+66,17023+72,17023+78,17023+84,17023+90,17023+96,17023+48])
-                if arc=="Ne":
-                    single_number_focus=16292  
-                    obs_possibilites=np.array([16238+6,16238+12,16238+18,16238+24,16238+30,16238+36,16238+42,16238+48,-99,16238+54,\
-                               16238+60,16238+66,16238+72,16238+78,16238+84,16238+90,16238+96,16238+102,16238+54])
-                if arc=="Kr":
-                    single_number_focus=17310+54  
-                    obs_possibilites=np.array([17310+6,17310+12,17310+18,17310+24,17310+30,17310+36,17310+42,17310+48,-99,17310+54,\
-                                    17310+60,17310+66,17310+72,17310+78,17310+84,17310+90,17310+96,17310+102,17310+54])
-                
-        if dataset==3:  
+            if arc is not None:
+                if arc == "HgAr":
+                    single_number_focus = 17017+54
+                    obs_possibilites = np.array([17023, 17023+6, 17023+12, 17023+18, 17023+24, 17023+30,
+                                                 17023+36, 17023+42, -99, 17023+48, 17023+54, 17023+60,
+                                                 17023+66, 17023+72, 17023+78, 17023+84, 17023+90, 17023+96,
+                                                 17023+48])
+                if arc == "Ne":
+                    single_number_focus = 16292
+                    obs_possibilites = np.array([16238+6, 16238+12, 16238+18,
+                                                 16238+24, 16238+30, 16238+36,
+                                                 16238+42, 16238+48, -99, 16238+54,
+                                                 16238+60, 16238+66, 16238+72,
+                                                 16238+78, 16238+84, 16238+90,
+                                                 16238+96, 16238+102, 16238+54])
+                if arc == "Kr":
+                    single_number_focus = 17310+54
+                    obs_possibilites = np.array([17310+6, 17310+12, 17310+18,
+                                                 17310+24, 17310+30, 17310+36,
+                                                 17310+42, 17310+48, -99, 17310+54,
+                                                 17310+60, 17310+66, 17310+72,
+                                                 17310+78, 17310+84, 17310+90,
+                                                 17310+96, 17310+102, 17310+54])
+
+        if dataset == 3:
             # F/2.5 stop
-            if arc is not None:         
-                if arc=="HgAr":
-                    single_number_focus=19238+54
-                    obs_possibilites=np.array([19238,19238+6,19238+12,19238+18,19238+24,19238+30,19238+36,19238+42,-99,19238+48,\
-                                   19238+54,19238+60,19238+66,19238+72,19238+78,19238+84,19238+90,19238+96,19238+48])
-                elif arc=="Ne":
-                    single_number_focus=19472  
-                    obs_possibilites=np.array([19472+6,19472+12,19472+18,19472+24,19472+30,19472+36,19472+42,19472+48,-99,19472+54,\
-                                  19472+60,19472+66,19472+72,19472+78,19472+84,19472+90,19472+96,19472+102,19472+54]) 
-                    
-        if dataset==4: 
-            # F/2.8 stop, July LAM data, full defocus
-            if arc is not None:         
-                if arc=="HgAr":
-                    single_number_focus=21346+54
-                    obs_possibilites=np.array([21346+6,21346+12,21346+18,21346+24,21346+30,21346+36,21346+42,21346+48,-99,21346+54,\
-                                   21346+60,21346+66,21346+72,21346+78,21346+84,21346+90,21346+96,21346+102,21346+48])
-                if arc=="Ne":
-                    single_number_focus=21550+54  
-                    obs_possibilites=np.array([21550+6,21550+12,21550+18,21550+24,21550+30,21550+36,21550+42,21550+48,-99,21550+54,\
-                                   21550+60,21550+66,21550+72,21550+78,21550+84,21550+90,21550+96,21550+102,21550+54])
-                if str(arc)=="Kr":
-                    single_number_focus=21754+54    
-                    obs_possibilites=np.array([21754+6,21754+12,21754+18,21754+24,21754+30,21754+36,21754+42,21754+48,-99,21754+54,\
-                                    21754+60,21754+66,21754+72,21754+78,21754+84,21754+90,21754+96,21754+102,21754+54])
-    
-        if dataset==5:
+            if arc is not None:
+                if arc == "HgAr":
+                    single_number_focus = 19238+54
+                    obs_possibilites = np.array([19238, 19238+6, 19238+12,
+                                                 19238+18, 19238+24, 19238+30,
+                                                 19238+36, 19238+42, -99, 19238+48,
+                                                 19238+54, 19238+60, 19238+66,
+                                                 19238+72, 19238+78, 19238+84,
+                                                 19238+90, 19238+96, 19238+48])
+                elif arc == "Ne":
+                    single_number_focus = 19472
+                    obs_possibilites = np.array([19472+6, 19472+12, 19472+18,
+                                                 19472+24, 19472+30, 19472+36,
+                                                 19472+42, 19472+48, -99, 19472+54,
+                                                 19472+60, 19472+66, 19472+72,
+                                                 19472+78, 19472+84, 19472+90,
+                                                 19472+96, 19472+102, 19472+54])
+
+        if dataset == 4:
+            # F/2.8 stop,  July LAM data,  full defocus
+            if arc is not None:
+                if arc == "HgAr":
+                    single_number_focus = 21346+54
+                    obs_possibilites = np.array([21346+6, 21346+12, 21346+18,
+                                                 21346+24, 21346+30, 21346+36,
+                                                 21346+42, 21346+48, -99, 21346+54,
+                                                 21346+60, 21346+66, 21346+72,
+                                                 21346+78, 21346+84, 21346+90,
+                                                 21346+96, 21346+102, 21346+48])
+                if arc == "Ne":
+                    single_number_focus = 21550+54
+                    obs_possibilites = np.array([21550+6, 21550+12, 21550+18,
+                                                 21550+24, 21550+30, 21550+36,
+                                                 21550+42, 21550+48, -99, 21550+54,
+                                                 21550+60, 21550+66, 21550+72,
+                                                 21550+78, 21550+84, 21550+90,
+                                                 21550+96, 21550+102, 21550+54])
+                if str(arc) == "Kr":
+                    single_number_focus = 21754+54
+                    obs_possibilites = np.array([21754+6, 21754+12, 21754+18,
+                                                 21754+24, 21754+30, 21754+36,
+                                                 21754+42, 21754+48, -99, 21754+54,
+                                                 21754+60, 21754+66, 21754+72,
+                                                 21754+78, 21754+84, 21754+90,
+                                                 21754+96, 21754+102, 21754+54])
+
+        if dataset == 5:
             # F/2.8 stop, July LAM data, fine defocus
-            
-                if arc=='HgAr':
-                    obs_possibilites=np.arange(21280,21280+11*6,6)
-                if arc=='Ne':
-                    obs_possibilites=np.arange(21484,21484+11*6,6)
-                if arc=='Kr':
-                     obs_possibilites=np.arange(21688,21688+11*6,6)
 
-        if dataset==6:
-            if arc=='Ar':
-                single_number_focus=34341+48
-                obs_possibilites=np.array([34341,34341+6,34341+12,34341+18,34341+24,34341+30,34341+36,34341+42,34341+48,34341+48,\
-                                           34341+54,34341+60,34341+66,34341+72,34341+78,34341+84,34341+90,34341+96,21346+48])
-            if arc=='Ne':
-                single_number_focus=34217+48
-                obs_possibilites=np.array([34217,34217+6,34217+12,34217+18,34217+24,34217+30,34217+36,34217+42,34217+48,34217+48,\
-                                           34217+54,34217+60,34217+66,34217+72,34217+78,34217+84,34217+90,34217+96,34217+48])
-            if arc=='Kr':
-                 single_number_focus=34561+48
-                 obs_possibilites=np.array([34561,34561+6,34561+12,34561+18,34561+24,34561+30,34561+36,34561+42,34561+48,34561+48,\
-                                            34561+54,34561+60,34561+66,34561+72,34561+78,34561+84,34561+90,34561+96,34561+48])
-                     
-        if dataset==7:
-            #if str(arc)=="Ar":
+            if arc == 'HgAr':
+                obs_possibilites = np.arange(21280, 21280+11*6, 6)
+            if arc == 'Ne':
+                obs_possibilites = np.arange(21484, 21484+11*6, 6)
+            if arc == 'Kr':
+                obs_possibilites = np.arange(21688, 21688+11*6, 6)
+
+        if dataset == 6:
+            if arc == 'Ar':
+                single_number_focus = 34341+48
+                obs_possibilites = np.array([34341, 34341+6, 34341+12,
+                                             34341+18, 34341+24, 34341+30,
+                                             34341+36, 34341+42, 34341+48, 34341+48,
+                                             34341+54, 34341+60, 34341+66,
+                                             34341+72, 34341+78, 34341+84,
+                                             34341+90, 34341+96, 21346+48])
+            if arc == 'Ne':
+                single_number_focus = 34217+48
+                obs_possibilites = np.array([34217, 34217+6, 34217+12,
+                                             34217+18, 34217+24, 34217+30,
+                                             34217+36, 34217+42, 34217+48, 34217+48,
+                                             34217+54, 34217+60, 34217+66,
+                                             34217+72, 34217+78, 34217+84,
+                                             34217+90, 34217+96, 34217+48])
+            if arc == 'Kr':
+                single_number_focus = 34561+48
+                obs_possibilites = np.array([34561, 34561+6, 34561+12,
+                                             34561+18, 34561+24, 34561+30,
+                                             34561+36, 34561+42, 34561+48, 34561+48,
+                                             34561+54, 34561+60, 34561+66,
+                                             34561+72, 34561+78, 34561+84,
+                                             34561+90, 34561+96, 34561+48])
+
+        if dataset == 7:
+            # if str(arc) == "Ar":
             #    single_number_focus=34341+48
-            if str(arc)=="Ne":
-                single_number_focus=27677
-                if multi_var==True:
-                    obs_multi=27719
+            if str(arc) == "Ne":
+                single_number_focus = 27677
+                if multi_var is True:
+                    obs_multi = 27719
 
-                obs_possibilites=np.array([27713,-999,27683,-999,-999,-999,-999,-999,27677,-999,\
-                                   -999,-999,-999,-999,-999,27698,-999,27719,-999])
-                    
-                    
-            #elif str(arc)=="Kr":
+                obs_possibilites = np.array([27713, -999, 27683,
+                                             -999, -999, -999, -999,
+                                             -999, 27677, -999,
+                                             -999, -999, -999,
+                                             -999, -999, 27698,
+                                             -999, 27719, -999])
+
+        if dataset == 8:
+            if arc == 'Ar':
+                single_number_focus = 51485+8*12
+                obs_possibilites = np.array([51485, 51485+12, 51485+2*12,
+                                             51485+3*12, 51485+4*12, 51485+5*12,
+                                             51485+6*12, 51485+7*12, 51485+8*12,
+                                             52085+8*12, 51485+9*12, 51485+10*12,
+                                             51485+11*12, 51485+12*12, 51485+13*12,
+                                             51485+14*12, 51485+15*12, 51485+16*12, 51485+8*12])
+
+            if arc == 'Ne':
+                single_number_focus = 59655+8*12
+                obs_possibilites = np.array([59655, 59655+12, 59655+2*12,
+                                             59655+3*12, 59655+4*12, 59655+5*12,
+                                             59655+6*12, 59655+7*12, 59655+8*12,
+                                             52085+8*12, 59655+9*12, 59655+10*12,
+                                             59655+11*12, 59655+12*12, 59655+13*12,
+                                             59655+14*12, 59655+15*12, 59655+16*12, 59655+8*12])
+            if arc == 'Kr':
+                single_number_focus = 52085+8*12
+                obs_possibilites = np.array([52085, 52085+12, 52085+2*12,
+                                             52085+3*12, 52085+4*12, 52085+5*12,
+                                             52085+6*12, 52085+7*12, 52085+8*12,
+                                             52085+8*12, 52085+9*12, 52085+10*12,
+                                             52085+11*12, 52085+12*12, 52085+13*12,
+                                             52085+14*12, 52085+15*12, 52085+16*12, 52085+8*12])
+
+            # elif str(arc)=="Kr":
             #    single_number_focus=34561+48
 
-
-
         #  if multi ??
-        if multi_var==True and dataset<7:
-            obs_multi=single_number_focus+48
-        if multi_var==True:
-            self.obs_multi=obs_multi
-            obs_single=obs
-            self.obs_single=obs_single
-            
+        if multi_var is True and dataset < 7:
+            obs_multi = single_number_focus + 48
 
-        label=['m4','m35','m3','m25','m2','m15','m1','m05','0','0d','p05','p1','p15','p2','p25','p3','p35','p4','0p']
-        label_fine_defocus=['m05ff','m04ff','m03ff','m02ff','m01ff','0ff','p01ff','p02ff','p03ff','p04ff','p05ff']
+        # if multi ??
+        if multi_var is True and dataset == 8:
+            obs_multi = single_number_focus + 96
+        if multi_var is True:
+            self.obs_multi = obs_multi
+            obs_single = obs
+            self.obs_single = obs_single
 
-        if type(obs)==str:
-            labelInput=obs
-            obs=obs_possibilites[label.index(labelInput)]
-            
-        obs_int = int(obs)      
-        
-        
-        
-        
-        if dataset in [0,1,2,3,4,6,7]:
-            labelInput=label[list(obs_possibilites).index(obs_int)]
+        label = ['m4', 'm35', 'm3',
+                 'm25', 'm2', 'm15',
+                 'm1', 'm05', '0', '0d',
+                 'p05', 'p1', 'p15',
+                 'p2', 'p25', 'p3',
+                 'p35', 'p4', '0p']
+        label_fine_defocus = ['m05ff', 'm04ff', 'm03ff',
+                              'm02ff', 'm01ff', '0ff',
+                              'p01ff', 'p02ff', 'p03ff',
+                              'p04ff', 'p05ff']
+
+        if type(obs) == str:
+            labelInput = obs
+            obs = obs_possibilites[label.index(labelInput)]
+
+        obs_int = int(obs)
+
+        if dataset in [0, 1, 2, 3, 4, 6, 7]:
+            labelInput = label[list(obs_possibilites).index(obs_int)]
         if dataset in [5]:
-            labelInput=label_fine_defocus[list(obs_possibilites).index(obs_int)]
-            
-        if multi_var==True:
-            if self.verbosity==1:
+            labelInput = label_fine_defocus[list(obs_possibilites).index(obs_int)]
+
+        if multi_var is True:
+            if self.verbosity == 1:
                 print('labelInput: ' + str(labelInput))
                 print('self.single_number: '+str(self.single_number))
-            index_of_single_image_in_list_of_images=self.list_of_defocuses.index(labelInput)
-            self.index_of_single_image_in_list_of_images=index_of_single_image_in_list_of_images
-            
-        list_of_obs=[]
-        if multi_var==True:
+            index_of_single_image_in_list_of_images = self.list_of_defocuses.index(labelInput)
+            self.index_of_single_image_in_list_of_images = index_of_single_image_in_list_of_images
+
+        list_of_obs = []
+        if multi_var is True:
 
             for labelInput in self.list_of_defocuses:
-                if dataset in [0,1,2,3,4,6,7]:
-                    obs_single=obs_possibilites[label.index(labelInput)]
+                if dataset in [0, 1, 2, 3, 4, 6, 7, 8]:
+                    obs_single = obs_possibilites[label.index(labelInput)]
                 if dataset in [5]:
-                    obs_single=obs_possibilites[label_fine_defocus.index(labelInput)]
-                    
+                    obs_single = obs_possibilites[label_fine_defocus.index(labelInput)]
+
                 list_of_obs.append(obs_single)
         else:
             list_of_obs.append(obs_single)
 
-
         ##########################
         # import data
         ##########################
-       
-        
-        if multi_var==True:
-            list_of_sci_images=[]
-            list_of_mask_images=[]
-            list_of_var_images=[]
-            
-            if self.verbosity==1:
-                print('list_of_defocuses: ' +str(self.list_of_defocuses))
-                print('list_of_obs: ' +str(list_of_obs))
-            
-            
+
+        if multi_var is True:
+            list_of_sci_images = []
+            list_of_mask_images = []
+            list_of_var_images = []
+
+            if self.verbosity == 1:
+                print('list_of_defocuses: ' + str(self.list_of_defocuses))
+                print('list_of_obs: ' + str(list_of_obs))
+
+            # for obs_v in list_of_obs:
+            #    if obs_v>0:
+            #        sci_image =np.load(STAMPS_FOLDER+'sci'+str(obs_v)+str(single_number)+
+            # str(arc)+'_Stacked.npy')
+            #        mask_image =np.load(STAMPS_FOLDER+'mask'+str(obs_v)+str(single_number)+
+            # str(arc)+'_Stacked.npy')
+            #        var_image =np.load(STAMPS_FOLDER+'var'+str(obs_v)+str(single_number)+
+            # str(arc)+'_Stacked.npy')
+            #    else:
+            #        # if the image is not avaliable (has obs_v negative) make some dummy images
+            #        sci_image=np.ones((20,20))
+            #        mask_image=np.ones((20,20))
+            #        var_image=np.ones((20,20))
+
             for obs_v in list_of_obs:
-                if obs_v>0:
-                    sci_image =np.load(STAMPS_FOLDER+'sci'+str(obs_v)+str(single_number)+str(arc)+'_Stacked.npy')
-                    mask_image =np.load(STAMPS_FOLDER+'mask'+str(obs_v)+str(single_number)+str(arc)+'_Stacked.npy')
-                    var_image =np.load(STAMPS_FOLDER+'var'+str(obs_v)+str(single_number)+str(arc)+'_Stacked.npy')
-                else:
+
+                try:
+                    sci_image = np.load(STAMPS_FOLDER+'sci'+str(obs_v)+
+                                       str(single_number)+str(arc)+'_Stacked.npy')
+                    mask_image = np.load(STAMPS_FOLDER+'mask'+str(obs_v)+
+                                        str(single_number)+str(arc)+'_Stacked.npy')
+                    var_image = np.load(STAMPS_FOLDER+'var'+str(obs_v)+
+                                       str(single_number)+str(arc)+'_Stacked.npy')
+                except:
                     # if the image is not avaliable (has obs_v negative) make some dummy images
-                    sci_image=np.ones((20,20))
-                    mask_image=np.ones((20,20))
-                    var_image=np.ones((20,20))
-                
+                    sci_image = np.ones((20,20))
+                    mask_image = np.ones((20,20))
+                    var_image = np.ones((20,20))
+
                 list_of_sci_images.append(sci_image)
                 list_of_mask_images.append(mask_image)
-                list_of_var_images.append(var_image)     
+                list_of_var_images.append(var_image)
 
 
         sci_image =np.load(STAMPS_FOLDER+'sci'+str(obs)+str(single_number)+str(arc)+'_Stacked.npy')
@@ -360,114 +473,154 @@ class Zernike_Analysis(object):
             var_image_focus_large =np.load(STAMPS_FOLDER+'var'+str(single_number_focus)+str(single_number)+str(arc)+'_Stacked_large.npy')
         except:
             pass
-                
-       
+
+
         self.list_of_sci_images=list_of_sci_images
         self.list_of_mask_images=list_of_mask_images
         self.list_of_var_images=list_of_var_images
-        
-        
+
+
         self.sci_image=sci_image
         self.var_image=var_image
         self.mask_image=mask_image
         self.STAMPS_FOLDER=STAMPS_FOLDER
-        
+
         if dataset==1:
             if arc=="HgAr":
                 finalArc=finalHgAr_Feb2019
             elif arc=="Ne":
-                finalArc=finalNe_Feb2019    
+                finalArc=finalNe_Feb2019
             else:
-                print("Not recognized arc-line")  
-                
-        if dataset==2: 
-            
+                print("Not recognized arc-line")
+
+        if dataset==2:
+
             with open(PSF_DIRECTORY+'ReducedData/Data_May_28/Dataframes/finalNe_May2019.pkl', 'rb') as f:
-                finalNe_May2019=pickle.load(f)  
+                finalNe_May2019=pickle.load(f)
             with open(PSF_DIRECTORY+'ReducedData/Data_May_28/Dataframes/finalHgAr_May2019.pkl', 'rb') as f:
-                finalHgAr_May2019=pickle.load(f)  
+                finalHgAr_May2019=pickle.load(f)
             with open(PSF_DIRECTORY+'ReducedData/Data_May_28/Dataframes/finalKr_May2019.pkl', 'rb') as f:
-                finalKr_May2019=pickle.load(f)  
-            
+                finalKr_May2019=pickle.load(f)
+
             if arc=="HgAr":
                 finalArc=finalHgAr_May2019
             elif arc=="Ne":
-                finalArc=finalNe_May2019    
+                finalArc=finalNe_May2019
             elif arc=="Kr":
-                finalArc=finalKr_May2019    
+                finalArc=finalKr_May2019
             else:
-                print("Not recognized arc-line")   
-                
-        if dataset==3:   
-            
+                print("Not recognized arc-line")
+
+        if dataset==3:
+
             with open(PSF_DIRECTORY+'ReducedData/Data_Jun_25/Dataframes/finalNe_May2019.pkl', 'rb') as f:
-                finalNe_May2019=pickle.load(f)  
+                finalNe_May2019=pickle.load(f)
             with open(PSF_DIRECTORY+'ReducedData/Data_Jun_25/Dataframes/finalHgAr_May2019.pkl', 'rb') as f:
-                finalHgAr_May2019=pickle.load(f)  
+                finalHgAr_May2019=pickle.load(f)
             with open(PSF_DIRECTORY+'ReducedData/Data_Jun_25/Dataframes/finalKr_May2019.pkl', 'rb') as f:
-                finalKr_May2019=pickle.load(f)  
-            
+                finalKr_May2019=pickle.load(f)
+
             if arc=="HgAr":
                 finalArc=finalHgAr_May2019
             elif arc=="Ne":
-                finalArc=finalNe_May2019    
+                finalArc=finalNe_May2019
             else:
-                print("Not recognized arc-line")   
-                
-        if dataset==4 or dataset==5:   
-                
+                print("Not recognized arc-line")
+
+        if dataset==4 or dataset==5:
+
             with open(PSF_DIRECTORY+'ReducedData/Data_Aug_14/Dataframes/finalHgAr_Feb2020', 'rb') as f:
                 print(f)
-                finalHgAr_Feb2020_dataset=pickle.load(f)  
+                finalHgAr_Feb2020_dataset=pickle.load(f)
             with open(PSF_DIRECTORY+'ReducedData/Data_Aug_14/Dataframes/finalNe_Feb2020', 'rb') as f:
-                finalNe_Feb2020_dataset=pickle.load(f)  
+                finalNe_Feb2020_dataset=pickle.load(f)
             with open(PSF_DIRECTORY+'ReducedData/Data_Aug_14/Dataframes/finalKr_Feb2020', 'rb') as f:
-                finalKr_Feb2020_dataset=pickle.load(f)  
-            
-            
+                finalKr_Feb2020_dataset=pickle.load(f)
+
+
             if arc=="HgAr":
                 finalArc=finalHgAr_Feb2020_dataset
             elif arc=="Ne":
-                finalArc=finalNe_Feb2020_dataset    
+                finalArc=finalNe_Feb2020_dataset
             elif arc=="Kr":
-                finalArc=finalKr_Feb2020_dataset    
+                finalArc=finalKr_Feb2020_dataset
             else:
-                print("Not recognized arc-line")   
-                
-        if dataset==6 or dataset==7:   
-                
+                print("Not recognized arc-line")
+
+        if dataset==6 or dataset==7:
+
             if socket.gethostname()=='IapetusUSA':
                 with open(PSF_DIRECTORY+'ReducedData/Data_Nov_20_2020/Dataframes/finalHgAr_Feb2020', 'rb') as f:
-                    print(f)
-                    finalHgAr_Feb2020_dataset=pickle.load(f)  
+                    finalHgAr_Feb2020_dataset=pickle.load(f)
                 with open(PSF_DIRECTORY+'ReducedData/Data_Nov_20_2020/Dataframes/finalNe_Feb2020', 'rb') as f:
-                    finalNe_Feb2020_dataset=pickle.load(f)  
+                    finalNe_Feb2020_dataset=pickle.load(f)
                 with open(PSF_DIRECTORY+'ReducedData/Data_Nov_20_2020/Dataframes/finalKr_Feb2020', 'rb') as f:
-                    finalKr_Feb2020_dataset=pickle.load(f)  
+                    finalKr_Feb2020_dataset=pickle.load(f)
                 with open(PSF_DIRECTORY+'ReducedData/Data_Nov_20_2020/Dataframes/finalAr_Feb2020', 'rb') as f:
-                    finalAr_Feb2020_dataset=pickle.load(f)        
+                    finalAr_Feb2020_dataset=pickle.load(f)
             else:
-                with open(PSF_DIRECTORY+'ReducedData/Data_Nov_20/Dataframes/finalHgAr_Feb2020', 'rb') as f:
-                    print(f)
-                    finalHgAr_Feb2020_dataset=pickle.load(f)  
-                with open(PSF_DIRECTORY+'ReducedData/Data_Nov_20/Dataframes/finalNe_Feb2020', 'rb') as f:
-                    finalNe_Feb2020_dataset=pickle.load(f)  
-                with open(PSF_DIRECTORY+'ReducedData/Data_Nov_20/Dataframes/finalKr_Feb2020', 'rb') as f:
-                    finalKr_Feb2020_dataset=pickle.load(f)  
-                with open(PSF_DIRECTORY+'ReducedData/Data_Nov_20/Dataframes/finalAr_Feb2020', 'rb') as f:
-                    finalAr_Feb2020_dataset=pickle.load(f)                   
-            
+                #with open(PSF_DIRECTORY+'ReducedData/Data_Nov_20/Dataframes/finalHgAr_Feb2020', 'rb') as f:
+                #    finalHgAr_Feb2020_dataset=pickle.load(f)
+                #with open(PSF_DIRECTORY+'ReducedData/Data_Nov_20/Dataframes/finalNe_Feb2020', 'rb') as f:
+                #    finalNe_Feb2020_dataset=pickle.load(f)
+                #with open(PSF_DIRECTORY+'ReducedData/Data_Nov_20/Dataframes/finalKr_Feb2020', 'rb') as f:
+                #    finalKr_Feb2020_dataset=pickle.load(f)
+                #with open(PSF_DIRECTORY+'ReducedData/Data_Nov_20/Dataframes/finalAr_Feb2020', 'rb') as f:
+                #    finalAr_Feb2020_dataset=pickle.load(f)
+
+
+
+                finalHgAr_Feb2020_dataset = np.load(PSF_DIRECTORY
+                                                  + 'ReducedData/Data_Nov_20/Dataframes/finalHgAr_Feb2020',
+                                                  allow_pickle=True)
+                finalNe_Feb2020_dataset = np.load(PSF_DIRECTORY
+                                                + 'ReducedData/Data_Nov_20/Dataframes/finalNe_Feb2020',
+                                                allow_pickle=True)
+                finalKr_Feb2020_dataset = np.load(PSF_DIRECTORY
+                                                + 'ReducedData/Data_Nov_20/Dataframes/finalKr_Feb2020',
+                                                allow_pickle=True)
+                finalAr_Feb2020_dataset = np.load(PSF_DIRECTORY
+                                                + 'ReducedData/Data_Nov_20/Dataframes/finalAr_Feb2020',
+                                                allow_pickle=True)
+
+
             if arc=="HgAr":
                 finalArc=finalHgAr_Feb2020_dataset
             elif arc=="Ne":
-                finalArc=finalNe_Feb2020_dataset    
+                finalArc=finalNe_Feb2020_dataset
             elif arc=="Kr":
-                finalArc=finalKr_Feb2020_dataset    
+                finalArc=finalKr_Feb2020_dataset
             elif arc=="Ar":
-                finalArc=finalAr_Feb2020_dataset    
+                finalArc=finalAr_Feb2020_dataset
             else:
-                print("Not recognized arc-line") 
-                
+                print("Not recognized arc-line")
+
+
+        if dataset==8:
+
+             if socket.gethostname()=='IapetusUSA':
+                with open('/Volumes/Saturn_USA/PFS/'+'ReducedData/Data_May_21/DataFrames/finalNe_Jul2021', 'rb') as f:
+                    finalArc=pickle.load(f)
+                with open('/Volumes/Saturn_USA/PFS/'+'ReducedData/Data_May_21/DataFrames/finalKr_Jul2021', 'rb') as f:
+                    finalArc=pickle.load(f)
+                with open('/Volumes/Saturn_USA/PFS/'+'ReducedData/Data_May_21/DataFrames/finalAr_Jul2021', 'rb') as f:
+                    finalArc=pickle.load(f)
+             else:
+                finalNe_Feb2020_dataset=np.load(PSF_DIRECTORY+'ReducedData/Data_May_25_2021/Dataframes/finalNe_Jul2021')
+                finalKr_Feb2020_dataset=np.load(PSF_DIRECTORY+'ReducedData/Data_May_25_2021/Dataframes/finalKr_Jul2021')
+                finalAr_Feb2020_dataset=np.load(PSF_DIRECTORY+'ReducedData/Data_May_25_2021/Dataframes/finalAr_Jul2021')
+
+
+                if arc=="Ne":
+                    finalArc=finalNe_Feb2020_dataset
+                elif arc=="Kr":
+                    finalArc=finalKr_Feb2020_dataset
+                elif arc=="Ar":
+                    finalArc=finalAr_Feb2020_dataset
+                else:
+                    print("Not recognized arc-line")
+
+
 
         ##########################
         # import column names
@@ -480,9 +633,9 @@ class Zernike_Analysis(object):
                       'x_ilum','y_ilum',
                       'x_fiber','y_fiber','effective_ilum_radius','frd_sigma','det_vert','slitHolder_frac_dx',
                       'grating_lines','scattering_radius','scattering_slope','scattering_amplitude',
-                      'pixel_effect','fiber_r','flux']    
-        
-            
+                      'pixel_effect','fiber_r','flux']
+
+
         columns22=['z4','z5','z6','z7','z8','z9','z10','z11',
                'z12','z13','z14','z15','z16','z17','z18','z19','z20','z21','z22',
               'hscFrac','strutFrac','dxFocal','dyFocal','slitFrac','slitFrac_dy',
@@ -490,17 +643,17 @@ class Zernike_Analysis(object):
               'x_fiber','y_fiber','effective_radius_illumination',
               'frd_sigma','frd_lorentz_factor','det_vert','slitHolder_frac_dx',
               'grating_lines','scattering_slope','scattering_amplitude',
-              'pixel_effect','fiber_r','flux']  
+              'pixel_effect','fiber_r','flux']
         """
-        
+
         columns=['z4','z5','z6','z7','z8','z9','z10','z11',
                       'hscFrac','strutFrac','dxFocal','dyFocal','slitFrac','slitFrac_dy',
                       'wide_0','wide_23','wide_43','misalign',
                       'x_fiber','y_fiber','effective_ilum_radius','frd_sigma','det_vert','slitHolder_frac_dx',
                       'grating_lines','scattering_radius','scattering_slope','scattering_amplitude',
-                      'pixel_effect','fiber_r','flux']    
-        
-            
+                      'pixel_effect','fiber_r','flux']
+
+
         columns22=['z4','z5','z6','z7','z8','z9','z10','z11',
                'z12','z13','z14','z15','z16','z17','z18','z19','z20','z21','z22',
               'hscFrac','strutFrac','dxFocal','dyFocal','slitFrac','slitFrac_dy',
@@ -508,19 +661,19 @@ class Zernike_Analysis(object):
               'x_fiber','y_fiber','effective_radius_illumination',
               'frd_sigma','frd_lorentz_factor','det_vert','slitHolder_frac_dx',
               'grating_lines','scattering_slope','scattering_amplitude',
-              'pixel_effect','fiber_r','flux']          
+              'pixel_effect','fiber_r','flux']
 
         columns22_analysis=columns22+['chi2','chi2max']
-        
+
         self.columns=columns
         self.columns22=columns22
         self.columns22_analysis=columns22_analysis
- 
+
         ##########################
         # where are results from Tiger placed
         ##########################
-        
-        
+
+
         ############################################################
         # name your directory where you want to have files!
         if socket.gethostname()=='IapetusUSA':
@@ -536,209 +689,210 @@ class Zernike_Analysis(object):
         else:
             # if the analysis is done on Tiger
             RESULT_FOLDER='/tigress/ncaplar/Results/'
-        
+
         self.RESULT_FOLDER=RESULT_FOLDER
         ############################################################
-        
+
         IMAGES_FOLDER=PSF_DIRECTORY+'/Images/'+date+'/'
         if not os.path.exists(IMAGES_FOLDER):
             os.makedirs(IMAGES_FOLDER)
         self.IMAGES_FOLDER=IMAGES_FOLDER
-        
+
         #print('finalArc[close].loc[int(single_number)]'+str(finalArc['close'].loc[int(single_number)]))
-        
+
         if finalArc['close'].loc[int(single_number)]=='1' or finalArc['close'].loc[int(single_number)]==1:
             double_sources=False
         else:
-             double_sources=True           
+             double_sources=True
         #print('double_sources'+str(double_sources))
         self.double_sources=double_sources
         double_sources_positions_ratios=finalArc.loc[int(single_number)][['second_offset','second_ratio']].values
         self.double_sources_positions_ratios=double_sources_positions_ratios
-        
+
         if self.verbosity==1:
             print('analyzing label: '+str(obs))
             print('double_sources_positions_ratios for this spot is: '+str(double_sources_positions_ratios))
-            
-            
-            
-            
-        
-        
+
+
+
+
+
+
 
     def return_double_sources(self):
         return self.double_sources,self.double_sources_positions_ratios
-    
+
     def return_lists_of_images(self):
         assert self.multi_var==True
 
         return self.list_of_sci_images,self.list_of_var_images,self.list_of_mask_images
-    
+
     def return_index_of_single_image_in_list_of_images(self):
         return self.index_of_single_image_in_list_of_images
 
     def return_columns(self):
         return self.columns,self.columns22,self.columns22_analysis
-    
+
     def create_list_of_var_or_ln_sums(self,sigma_offset=0):
-        
+
         """
         gives likelihood for chi**2 =1
         """
-        
+
         list_of_var_sums=[]
         for i in range(len(self.list_of_var_images)):
             # taking from create_chi_2_almost function in LN_PFS_single
-    
-    
+
+
             mask_image=self.list_of_mask_images[i]
             var_image=self.list_of_var_images[i]
             # array that has True for values which are good and False for bad values
             inverted_mask=~mask_image.astype(bool)
-    
-            #         
+
+            #
             var_image_masked=var_image*inverted_mask
             var_image_masked_without_nan = var_image_masked.ravel()[var_image_masked.ravel()>0]
-    
+
             var_sum=-(1/2)*(len(var_image_masked_without_nan)*sigma_offset+np.sum(np.log(2*np.pi*var_image_masked_without_nan)))
-    
-            list_of_var_sums.append(var_sum)  
-            
-        array_of_var_sums=np.array(list_of_var_sums)    
-        return array_of_var_sums        
-        
-    
-    
+
+            list_of_var_sums.append(var_sum)
+
+        array_of_var_sums=np.array(list_of_var_sums)
+        return array_of_var_sums
+
     def create_likelihood(self):
 
-        if self.multi_var==True:
-            self.obs=self.obs_multi
-            
-            
-        self.len_of_chains()    
-            
-        # Swarm1
-        #likechain_Swarm1=np.load(self.RESULT_FOLDER+'likechain'+str(self.date)+'_Single_'+str(self.method)+'_'+str(self.obs)+str(self.single_number)+str(self.eps)+str(self.arc)+'Swarm1.npy')
-        likechain_Swarm1=self.likechain_Swarm1
-        
-        
-        like_min_swarm1=[]
-        for i in range(likechain_Swarm1.shape[0]):
-            like_min_swarm1.append(np.min(np.abs(likechain_Swarm1[i]))  )  
+        if self.multi_var is True:
+            self.obs = self.obs_multi
 
-        #        
+        # self.len_of_chains()
+
+        # Swarm1
+        # likechain_Swarm1=np.load(self.RESULT_FOLDER+'likechain'+str(self.date)+'_Single_'+str(self.method)+
+        # '_'+str(self.obs)+str(self.single_number)+str(self.eps)+str(self.arc)+'Swarm1.npy')
+        likechain_Swarm1 = self.likechain_Swarm1
+
+        like_min_swarm1 = []
+        for i in range(likechain_Swarm1.shape[0]):
+            like_min_swarm1.append(np.min(np.abs(likechain_Swarm1[i])))
+
+        #
         if self.chain_Emcee2 is not None:
             # Emcee1
-            #likechain_Emcee2=np.load(self.RESULT_FOLDER+'likechain'+str(self.date)+'_Single_'+str(self.method)+'_'+str(self.obs)+str(self.single_number)+str(self.eps)+str(self.arc)+'Emcee2.npy')
-            likechain_Emcee1=self.likechain_Emcee1
-            
-            like_min_Emcee1=[]
+            # likechain_Emcee2=np.load(self.RESULT_FOLDER+'likechain'+str(self.date)+'_Single_'+
+            # str(self.method)+'_'+str(self.obs)+str(self.single_number)+str(self.eps)+
+            # str(self.arc)+'Emcee2.npy')
+            likechain_Emcee1 = self.likechain_Emcee1
+
+            like_min_Emcee1 = []
             for i in range(likechain_Emcee1.shape[1]):
-                like_min_Emcee1.append(np.min(np.abs(likechain_Emcee1[:,i]))  )     
-                
-      
+                like_min_Emcee1.append(np.min(np.abs(likechain_Emcee1[:, i])))
+
             # Swarm2
-            likechain_Swarm2=np.load(self.RESULT_FOLDER+'likechain'+str(self.date)+'_Single_'+str(self.method)+'_'+str(self.obs)+str(self.single_number)+str(self.eps)+str(self.arc)+'Swarm2.npy')        
-            likechain_Swarm2=self.likechain_Swarm2
-    
-            like_min_swarm2=[]
+            likechain_Swarm2 = np.load(self.RESULT_FOLDER + 'likechain' + str(self.date) + '_Single_' +
+                                       str(self.method) + '_'+str(self.obs) + str(self.single_number) +
+                                       str(self.eps) + str(self.arc)+'Swarm2.npy')
+            likechain_Swarm2 = self.likechain_Swarm2
+
+            like_min_swarm2 = []
             for i in range(likechain_Swarm2.shape[0]):
-                like_min_swarm2.append(np.min(np.abs(likechain_Swarm2[i]))  )  
-            
+                like_min_swarm2.append(np.min(np.abs(likechain_Swarm2[i])))
+
             # Emcee 2
-            #chain_Emcee3=np.load(self.RESULT_FOLDER+'chain'+str(self.date)+'_Single_'+str(self.method)+'_'+str(self.obs)+str(self.single_number)+str(self.eps)+str(self.arc)+'Emcee3.npy')
-            #likechain_Emcee3=np.load(self.RESULT_FOLDER+'likechain'+str(self.date)+'_Single_'+str(self.method)+'_'+str(self.obs)+str(self.single_number)+str(self.eps)+str(self.arc)+'Emcee3.npy')
-            
-            chain_Emcee2=self.chain_Emcee2
-            likechain_Emcee2=self.likechain_Emcee2
-      
+            # chain_Emcee3=np.load(self.RESULT_FOLDER+'chain'+str(self.date)+'_Single_'+str(self.method)+
+            # '_'+str(self.obs)+str(self.single_number)+str(self.eps)+str(self.arc)+'Emcee3.npy')
+            # likechain_Emcee3=np.load(self.RESULT_FOLDER+'likechain'+str(self.date)+'_Single_'+
+            # str(self.method)+'_'+str(self.obs)+str(self.single_number)+str(self.eps)+str(self.arc)+'Emcee3.npy')
+
+            chain_Emcee2 = self.chain_Emcee2
+            likechain_Emcee2 = self.likechain_Emcee2
+
             # get chain number 0, which is has lowest temperature
-            #if len(likechain_Emcee3)<=4:
+            # if len(likechain_Emcee3)<=4:
             #    likechain0_Emcee3=likechain_Emcee3[0]
-            #    chain0_Emcee3=chain_Emcee3[0]     
-            #else:
+            #    chain0_Emcee3=chain_Emcee3[0]
+            # else:
             #    likechain0_Emcee3=likechain_Emcee3
             #    chain0_Emcee3=chain_Emcee3
             # check the shape of the chain (number of walkers, number of steps, number of parameters)
-            if self.verbosity==1:
-                print('(number of walkers, number of steps, number of parameters for Emcee): '+str(chain_Emcee2.shape))
-            
-            # see the best chain
-            minchain=chain_Emcee2[np.abs(likechain_Emcee2)==np.min(np.abs(likechain_Emcee2))][0]
-            #print(minchain)
-            self.minchain=minchain
-            
-            like_min_Emcee2=[]
-                    
-            for i in range(likechain_Emcee2.shape[1]):
-                like_min_Emcee2.append(np.min(np.abs(likechain_Emcee2[:,i]))  )  
-            
-   
-            like_min=like_min_swarm1+like_min_Emcee1+like_min_swarm2+like_min_Emcee2
-        else:
-            
-            # see the best chain
-            minchain=self.chain_Swarm1[np.abs(self.likechain_Swarm1)==np.min(np.abs(self.likechain_Swarm1))][0]
-            #print(minchain)
-            self.minchain=minchain
-            
-            like_min=like_min_swarm1            
-            
-        list_of_var_sums=self.create_list_of_var_or_ln_sums(0)
-        #print('list_of_var_sums: '+str(list_of_var_sums))
-        
-        
-        array_of_var_sum=np.array(list_of_var_sums)
-        max_of_array_of_var_sum=np.max(array_of_var_sum)
-        renormalization_of_var_sum=array_of_var_sum/max_of_array_of_var_sum
-        
-        zero_sigma_ln=np.mean(list_of_var_sums/renormalization_of_var_sum)
-        self.zero_sigma_ln=zero_sigma_ln
-        list_of_var_sums_1=self.create_list_of_var_or_ln_sums(1)
-        one_sigma_ln=np.mean(list_of_var_sums_1/renormalization_of_var_sum)
-        self.one_sigma_ln=one_sigma_ln
+            if self.verbosity == 1:
+                print('(number of walkers, number of steps, number of parameters for Emcee): ' +
+                      str(chain_Emcee2.shape))
 
-        #print(len(like_min))      
-        if self.verbosity==1:                  
-            print('minimal likelihood is: '+str(np.min(like_min)))   
-        
-        min_like_min=np.min(like_min)
-        self.min_like_min=min_like_min
-        
-        
-        chi2=(np.array(like_min)*(2)-np.sum(np.log(2*np.pi*self.var_image)))/(self.sci_image.shape[0])**2
-       
-        min_chi2=-(min_like_min+zero_sigma_ln)/(one_sigma_ln-zero_sigma_ln)
-        
-        print('average chi2 reduced is: '+str(min_chi2))
-        
-        return minchain,like_min
+            # see the best chain
+            minchain = chain_Emcee2[np.abs(likechain_Emcee2) == np.min(np.abs(likechain_Emcee2))][0]
+            # print(minchain)
+            self.minchain = minchain
+            
+            
+
+            like_min_Emcee2 = []
+
+            for i in range(likechain_Emcee2.shape[1]):
+                like_min_Emcee2.append(np.min(np.abs(likechain_Emcee2[:, i])))
+
+            like_min = like_min_swarm1 + like_min_Emcee1+like_min_swarm2 + like_min_Emcee2
+        else:
+
+            # see the best chain
+            minchain = self.chain_Swarm1[np.abs(self.likechain_Swarm1) ==
+                                         np.min(np.abs(self.likechain_Swarm1))][0]
+            # print(minchain)
+            self.minchain = minchain
+
+            like_min = like_min_swarm1
+
+        list_of_var_sums = self.create_list_of_var_or_ln_sums(0)
+        # print('list_of_var_sums: '+str(list_of_var_sums))
+
+        array_of_var_sum = np.array(list_of_var_sums)
+        max_of_array_of_var_sum = np.max(array_of_var_sum)
+        renormalization_of_var_sum = array_of_var_sum/max_of_array_of_var_sum
+
+        zero_sigma_ln = np.mean(list_of_var_sums/renormalization_of_var_sum)
+        self.zero_sigma_ln = zero_sigma_ln
+        list_of_var_sums_1 = self.create_list_of_var_or_ln_sums(1)
+        one_sigma_ln = np.mean(list_of_var_sums_1/renormalization_of_var_sum)
+        self.one_sigma_ln = one_sigma_ln
+
+        # print(len(like_min))
+        if self.verbosity == 1:
+            print('minimal likelihood is: '+str(np.min(like_min)))
+
+        min_like_min = np.min(like_min)
+        self.min_like_min = min_like_min
+
+        # chi2 = (np.array(like_min)*(2)-np.sum(np.log(2*np.pi*self.var_image)))/(self.sci_image.shape[0])**2
+        # min_chi2 = -(min_like_min+zero_sigma_ln)/(one_sigma_ln-zero_sigma_ln)
+        # print('average chi2 reduced is: ' + str(min_chi2))
+
+        return minchain, like_min
 
     def len_of_chains(self):
 
         if self.multi_var==True:
             self.obs=self.obs_multi
-            
-            
-        
-            
+
+
+
+
         self.create_chains_Emcee_1()
         self.create_chains_Emcee_2()
         self.create_chains_swarm_1()
         self.create_chains_swarm_2()
-   
-        # (number of walkers, number of steps, number of parameters) for Emcee 
-        # (number of steps, number of walkers, number of parameters) for Swarm 
+
+        # (number of walkers, number of steps, number of parameters) for Emcee
+        # (number of steps, number of walkers, number of parameters) for Swarm
         if self.chain_Emcee2 is None:
-            print(self.chain_Swarm1.shape)       
+            print(self.chain_Swarm1.shape)
             return [len(self.chain_Swarm1),0,0,0]
         else:
             print(self.chain_Swarm1.shape,self.chain_Emcee2.shape,self.chain_Swarm2.shape,self.chain_Emcee3.shape)
             return [len(self.chain_Swarm1),(self.chain_Emcee2).shape[1],len(self.chain_Swarm2),(self.chain_Emcee3).shape[1]]
-        
+
 
     def create_chains(self):
-         
+
         #chain_Emcee1=np.load(self.RESULT_FOLDER+'chain'+str(self.date)+'_Single_'+str(self.method)+'_'+str(self.obs)+str(self.single_number)+str(self.eps)+'Emcee1.npy')
         #likechain_Emcee1=np.load(self.RESULT_FOLDER+'likechain'+str(self.date)+'_Single_'+str(self.method)+'_'+str(self.obs)+str(self.single_number)+str(self.eps)+'Emcee1.npy')
 
@@ -748,95 +902,95 @@ class Zernike_Analysis(object):
 
         #chain_Emcee2=np.load(self.RESULT_FOLDER+'chain'+str(self.date)+'_Single_'+str(self.method)+'_'+str(self.obs)+str(self.single_number)+str(self.eps)+'Emcee2.npy')
         #likechain_Emcee2=np.load(self.RESULT_FOLDER+'likechain'+str(self.date)+'_Single_'+str(self.method)+'_'+str(self.obs)+str(self.single_number)+str(self.eps)+'Emcee2.npy')
-        
+
         #likechain0_Emcee2=likechain_Emcee2[0]
-        #chain0_Emcee2=chain_Emcee2[0]        
+        #chain0_Emcee2=chain_Emcee2[0]
         if self.multi_var==True:
             self.obs=self.obs_multi
-        
+
         chain_Emcee3=np.load(self.RESULT_FOLDER+'chain'+str(self.date)+'_Single_'+str(self.method)+'_'+str(self.obs)+str(self.single_number)+str(self.eps)+str(self.arc)+'Emcee3.npy')
         likechain_Emcee3=np.load(self.RESULT_FOLDER+'likechain'+str(self.date)+'_Single_'+str(self.method)+'_'+str(self.obs)+str(self.single_number)+str(self.eps)+str(self.arc)+'Emcee3.npy')
-        
+
         # get chain number 0, which is has lowest temperature
         likechain0_Emcee3=likechain_Emcee3
-        chain0_Emcee3=chain_Emcee3     
-        
+        chain0_Emcee3=chain_Emcee3
+
         self.chain0_Emcee3=chain0_Emcee3
         self.likechain0_Emcee3=likechain0_Emcee3
-        
-        return chain0_Emcee3,likechain0_Emcee3   
+
+        return chain0_Emcee3,likechain0_Emcee3
 
 
-    
+
     def create_chains_Emcee_1(self):
         """
         get chain and likelihood chain for first run of Emcee
-        
+
         unfortunately the file name is ``Emcee2'', because of historical reasons
-        
-        
+
+
         Returns
         -------
         chain0_Emcee1 : chain
         likechain0_Emcee1 : likelihood chain
-        
-        
+
+
         """
-        
+
         if self.multi_var==True:
             self.obs=self.obs_multi
-        try:     
+        try:
             chain_Emcee1=np.load(self.RESULT_FOLDER+'chain'+str(self.date)+'_Single_'+str(self.method)+'_'+str(self.obs)+\
                                  str(self.single_number)+str(self.eps)+str(self.arc)+'Emcee2.npy')
             likechain_Emcee1=np.load(self.RESULT_FOLDER+'likechain'+str(self.date)+'_Single_'+str(self.method)+'_'+str(self.obs)+\
                                      str(self.single_number)+str(self.eps)+str(self.arc)+'Emcee2.npy')
-            
-            
+
+
             self.chain_Emcee1=chain_Emcee1
             self.likechain_Emcee1=likechain_Emcee1
         except:
             self.chain_Emcee1=None
             self.likechain_Emcee1=None
-            
-        
-        return self.chain_Emcee1,self.likechain_Emcee1   
-    
-    
+
+
+        return self.chain_Emcee1,self.likechain_Emcee1
+
+
     def create_chains_Emcee_2(self):
-        """        
+        """
         get chain and likelihood chain for the second run of Emcee
         unfortunately the file name is ``Emcee3'', because of historical reasons
-        """        
+        """
 
         if self.multi_var==True:
             self.obs=self.obs_multi
-            
+
         try:
             chain_Emcee2=np.load(self.RESULT_FOLDER+'chain'+str(self.date)+'_Single_'+str(self.method)+'_'+str(self.obs)+\
                                  str(self.single_number)+str(self.eps)+str(self.arc)+'Emcee3.npy')
             likechain_Emcee2=np.load(self.RESULT_FOLDER+'likechain'+str(self.date)+'_Single_'+str(self.method)+'_'+str(self.obs)+\
                                      str(self.single_number)+str(self.eps)+str(self.arc)+'Emcee3.npy')
-    
+
             self.chain_Emcee2=chain_Emcee2
             self.likechain_Emcee2=likechain_Emcee2
         except:
             self.chain_Emcee2=None
             self.likechain_Emcee2=None
-        
-        return self.chain_Emcee2,self.likechain_Emcee2  
- 
-        
+
+        return self.chain_Emcee2,self.likechain_Emcee2
+
+
     def create_Emcee2_stack(self):
 
         if self.multi_var==True:
             self.obs=self.obs_multi
-        
-        
+
+
         chain0_Emcee2=np.load(self.RESULT_FOLDER+'chain'+str(self.date)+'_Single_'+str(self.method)+'_'+str(self.obs)+\
                               str(self.single_number)+str(self.eps)+str(self.arc)+'Emcee3.npy')
         likechain0_Emcee2=np.load(self.RESULT_FOLDER+'likechain'+str(self.date)+'_Single_'+str(self.method)+'_'+str(self.obs)+\
                                   str(self.single_number)+str(self.eps)+str(self.arc)+'Emcee3.npy')
-        
+
         for i in range(chain0_Emcee2.shape[1]):
             if i==0:
                 chain0_Emcee2_reshaped=chain0_Emcee2[:,0]
@@ -844,55 +998,56 @@ class Zernike_Analysis(object):
             else:
                 chain0_Emcee2_reshaped=np.vstack((chain0_Emcee2_reshaped,chain0_Emcee2[:,i]))
                 likechain0_Emcee2_reshaped=np.vstack((likechain0_Emcee2_reshaped,likechain0_Emcee2[:,i]))
-    
-    
+
+
         chain0_stack=chain0_Emcee2_reshaped
         likechain0_stack=likechain0_Emcee2_reshaped.ravel()
         likechain0_stack=likechain0_stack-np.max(likechain0_stack)
-        
-        
+
+
         return chain0_stack,likechain0_stack
-    
 
     def create_chains_swarm_1(self):
-        
-        """        
-        get chain and likelihood chain for the first run of cosmoHammer optimizer
+        """get chain and likelihood chain from the swarm analysis
+        """
 
-        """  
-
-        if self.multi_var==True:
-            self.obs=self.obs_multi
-        try:      
-            chain_Swarm1=np.load(self.RESULT_FOLDER+'chain'+str(self.date)+'_Single_'+str(self.method)+'_'+str(self.obs)+\
-                                 str(self.single_number)+str(self.eps)+str(self.arc)+'Swarm1.npy')
-            likechain_Swarm1=np.load(self.RESULT_FOLDER+'likechain'+str(self.date)+'_Single_'+str(self.method)+'_'+str(self.obs)+\
-                                     str(self.single_number)+str(self.eps)+str(self.arc)+'Swarm1.npy')
-            print('Swarm1 and likechainSwarm1 found')
-            print('Path searched was: '+str(self.RESULT_FOLDER+'chain'+str(self.date)+'_Single_'+str(self.method)+'_'+str(self.obs)+\
-                                 str(self.single_number)+str(self.eps)+str(self.arc)+'Swarm1.npy'))
-                
-                
-        except:
+        if self.multi_var is True:
+            self.obs = self.obs_multi
+        try:
+            chain_Swarm1 = np.load(self.RESULT_FOLDER+'chain' + str(self.date) + '_Single_' +
+                                   str(self.method) + '_' + str(self.obs) +
+                                   str(self.single_number) + str(self.eps) + str(self.arc)+'Swarm1.npy')
+            likechain_Swarm1 = np.load(self.RESULT_FOLDER + 'likechain' + str(self.date) + '_Single_' +
+                                       str(self.method) + '_' + str(self.obs) +
+                                       str(self.single_number) + str(self.eps) + str(self.arc)+'Swarm1.npy')
+            print('create_chains_swarm_1: Swarm1 and likechainSwarm1 found')
+            print('Path searched was: ' + str(self.RESULT_FOLDER+'chain' + str(self.date) + '_Single_' +
+                                              str(self.method) + '_' + str(self.obs) +
+                                              str(self.single_number) + str(self.eps) + str(self.arc) +
+                                              'Swarm1.npy'))
+        except : # noqa
             print('Swarm1 or likechainSwarm1 not found')
-            print('Path searched for chain was: '+str(self.RESULT_FOLDER+'chain'+str(self.date)+'_Single_'+str(self.method)+'_'+str(self.obs)+\
-                                 str(self.single_number)+str(self.eps)+str(self.arc)+'Swarm1.npy'))
-            print('Path searched for likechain was: '+str(self.RESULT_FOLDER+'likechain'+str(self.date)+'_Single_'+str(self.method)+'_'+str(self.obs)+\
-                                 str(self.single_number)+str(self.eps)+str(self.arc)+'Swarm1.npy'))
+            print('Path searched for chain was: ' +
+                  str(self.RESULT_FOLDER + 'chain' + str(self.date) +
+                      '_Single_' + str(self.method)+'_' + str(self.obs) +
+                      str(self.single_number) + str(self.eps) + str(self.arc) + 'Swarm1.npy'))
+            print('Path searched for likechain was: ' +
+                  str(self.RESULT_FOLDER + 'likechain' + str(self.date) +
+                      '_Single_' + str(self.method)+'_' + str(self.obs) +
+                      str(self.single_number) + str(self.eps) + str(self.arc) + 'Swarm1.npy'))
 
-        
-        self.chain_Swarm1=chain_Swarm1
-        self.likechain_Swarm1=likechain_Swarm1
-        
-        return chain_Swarm1,likechain_Swarm1       
-    
+        self.chain_Swarm1 = chain_Swarm1
+        self.likechain_Swarm1 = likechain_Swarm1
+
+        return chain_Swarm1, likechain_Swarm1
+
     def create_chains_swarm_2(self):
-        
-        """        
+
+        """
         get chain and likelihood chain for the second run of cosmoHammer optimizer
 
         """
-              
+
         if self.multi_var==True:
             self.obs=self.obs_multi
         try:
@@ -900,74 +1055,74 @@ class Zernike_Analysis(object):
                                  str(self.single_number)+str(self.eps)+str(self.arc)+'Swarm2.npy')
             likechain_Swarm2=np.load(self.RESULT_FOLDER+'likechain'+str(self.date)+'_Single_'+str(self.method)+'_'+str(self.obs)+\
                                      str(self.single_number)+str(self.eps)+str(self.arc)+'Swarm2.npy')
-      
+
             self.chain_Swarm2=chain_Swarm2
             self.likechain_Swarm2=likechain_Swarm2
-            
+
         except:
             self.chain_Swarm2=None
             self.likechain_Swarm2=None
-            
-        
-        return self.chain_Swarm2,self.likechain_Swarm2      
-     
+
+
+        return self.chain_Swarm2,self.likechain_Swarm2
+
 
     def create_allparameters_single(self,mm,array_of_polyfit_1_parameterizations,zmax=None):
         """
-        
+
         copied from multi
-        
-        transfroms linear fits as a function of defocus of parametrizations into form acceptable for creating single images 
+
+        transfroms linear fits as a function of defocus of parametrizations into form acceptable for creating single images
         workhorse function used by create_list_of_allparameters
-        
+
         @param mm [float]                               defocus of the slit
         @param array_of_polyfit_1_parameterizations     parametrs describing linear fit for the parameters as a function of focus
         @param zmax                                     largerst Zernike used
-        
+
         """
-        
+
         if zmax==None:
             zmax=11
-        
+
         #for single case, up to z11
         if zmax==11:
             z_parametrizations=array_of_polyfit_1_parameterizations[:8]
             g_parametrizations=array_of_polyfit_1_parameterizations[8:]
-            
-            
+
+
             allparameters_proposal_single=np.zeros((8+len(g_parametrizations)))
-            
+
             for i in range(0,8,1):
-                allparameters_proposal_single[i]=self.value_at_defocus(mm,z_parametrizations[i][0],z_parametrizations[i][1])      
-        
+                allparameters_proposal_single[i]=self.value_at_defocus(mm,z_parametrizations[i][0],z_parametrizations[i][1])
+
             for i in range(len(g_parametrizations)):
-                allparameters_proposal_single[i+8]=g_parametrizations[i][1] 
-                
+                allparameters_proposal_single[i+8]=g_parametrizations[i][1]
+
         if zmax==22:
             z_parametrizations=array_of_polyfit_1_parameterizations[:19]
             g_parametrizations=array_of_polyfit_1_parameterizations[19:]
-            
-            
+
+
             allparameters_proposal_single=np.zeros((19+len(g_parametrizations)))
             for i in range(0,19,1):
                 #print(str([i,mm,z_parametrizations[i]]))
-                allparameters_proposal_single[i]=self.value_at_defocus(mm,z_parametrizations[i][0],z_parametrizations[i][1])      
-        
+                allparameters_proposal_single[i]=self.value_at_defocus(mm,z_parametrizations[i][0],z_parametrizations[i][1])
+
             for i in range(len(g_parametrizations)):
-                allparameters_proposal_single[19+i]=g_parametrizations[i][1] 
-            
-        return allparameters_proposal_single           
-        
-        
-        
-    
+                allparameters_proposal_single[19+i]=g_parametrizations[i][1]
+
+        return allparameters_proposal_single
+
+
+
+
     def entrance_exit_pupil_plot(self):
-        
-        
+
+
         ilum=np.load(TESTING_PUPIL_IMAGES_FOLDER+'ilum.npy')
         radiometricEffectArray=np.load(TESTING_PUPIL_IMAGES_FOLDER+'radiometricEffectArray.npy')
         ilum_radiometric=np.load(TESTING_PUPIL_IMAGES_FOLDER+'ilum_radiometric.npy')
-        
+
         plt.figure(figsize=(30,8))
         plt.subplot(131)
         plt.imshow(ilum,origin='lower',vmax=1,vmin=0)
@@ -976,41 +1131,39 @@ class Zernike_Analysis(object):
         plt.subplot(132)
         plt.title('ent->exit pupil')
         plt.imshow(radiometricEffectArray,origin='lower',vmax=1,vmin=0)
-        
+
         plt.colorbar()
         plt.subplot(133)
         plt.title('exit pupil')
         plt.imshow(ilum_radiometric,origin='lower',vmax=1,vmin=0)
         plt.colorbar()
-            
+
     def wavefront_plot(self):
-        
-        wf_full=np.load(TESTING_WAVEFRONT_IMAGES_FOLDER+'wf_full.npy') 
-        
-        
-        
-        plt.figure(figsize=(36,6))
+
+        wf_full = np.load(TESTING_WAVEFRONT_IMAGES_FOLDER + 'wf_full.npy')
+
+        plt.figure(figsize=(36, 6))
         plt.subplot(141)
         plt.imshow(wf_full)
         plt.colorbar()
-        
+
         plt.subplot(142)
         plt.imshow(np.real(np.exp(2j*np.pi * wf_full/800)))
         plt.colorbar()
-        
+
         plt.subplot(143)
         plt.imshow(np.imag(np.exp(2j*np.pi * wf_full/800)))
         plt.colorbar()
-        
+
     def illumination_wavefront_plot(self,return_Images=False):
         ilum=np.load(TESTING_PUPIL_IMAGES_FOLDER+'ilum.npy')
-        wf_full=np.load(TESTING_WAVEFRONT_IMAGES_FOLDER+'wf_full.npy') 
-        wf_full_fake_0=np.load(TESTING_WAVEFRONT_IMAGES_FOLDER+'wf_full_fake_0.npy') 
-        
+        wf_full=np.load(TESTING_WAVEFRONT_IMAGES_FOLDER+'wf_full.npy')
+        wf_full_fake_0=np.load(TESTING_WAVEFRONT_IMAGES_FOLDER+'wf_full_fake_0.npy')
+
         midpoint=int(len(ilum)/2)
         ilum_zoom=ilum[int(midpoint-len(ilum)/4):int(midpoint+len(ilum)/4),int(midpoint-len(ilum)/4):int(midpoint+len(ilum)/4)]
         plt.figure(figsize=(28,8))
-        
+
         plt.subplot(131)
         plt.imshow(ilum_zoom,origin='lower',vmax=1,vmin=0)
         plt.title('illumination of the pupil',fontsize=25)
@@ -1018,42 +1171,42 @@ class Zernike_Analysis(object):
 
         ilum_1=np.copy(ilum)
         ilum_1[ilum_1>0.01]=1
-        
+
         wavefront=ilum_1*wf_full
         wavefront=wavefront/800
         wavefront_zoom=wavefront[int(midpoint-len(ilum)/4):int(midpoint+len(ilum)/4),int(midpoint-len(ilum)/4):\
                              int(midpoint+len(ilum)/4)]
-        
+
         plt.imshow(wavefront_zoom,cmap=plt.get_cmap('bwr'),vmax=np.max(np.abs(wavefront))*0.75,vmin=-np.max(np.abs(wavefront))*0.75)
 
         plt.colorbar(fraction=0.046, pad=0.04)
         plt.title('wavefront [units of waves]',fontsize=25)
-        
+
         plt.subplot(133)
 
         ilum_1=np.copy(ilum)
         ilum_1[ilum_1>0.01]=1
-        
+
         wavefront=ilum_1*wf_full_fake_0
         wavefront=wavefront/800
         wavefront_0_zoom=wavefront[int(midpoint-len(ilum)/4):int(midpoint+len(ilum)/4),int(midpoint-len(ilum)/4):int(midpoint+len(ilum)/4)]
         plt.imshow(wavefront_0_zoom,cmap=plt.get_cmap('bwr'),vmax=np.max(np.abs(wavefront))*0.75,vmin=-np.max(np.abs(wavefront))*0.75)
 
         plt.colorbar(fraction=0.046, pad=0.04)
-        plt.title('wavefront w.o. defocus [u. of waves]',fontsize=25)        
-        
+        plt.title('wavefront w.o. defocus [u. of waves]',fontsize=25)
+
         if return_Images==True:
-            return ilum_zoom,wavefront_zoom,wavefront_0_zoom   
-    
+            return ilum_zoom,wavefront_zoom,wavefront_0_zoom
+
     def wavefront_gradient_plot(self):
-         
-        wf_full=np.load(TESTING_WAVEFRONT_IMAGES_FOLDER+'wf_full.npy') 
+
+        wf_full=np.load(TESTING_WAVEFRONT_IMAGES_FOLDER+'wf_full.npy')
         plt.figure(figsize=(30,8))
         plt.subplot(131)
         vgrad = np.gradient(wf_full)
         fulgrad = np.sqrt(vgrad[0]**2 + vgrad[1]**2)
         plt.title('gradient (magnitude)')
-        plt.imshow(fulgrad,cmap=plt.get_cmap('hot'), vmin = np.amin(fulgrad),vmax = np.amax(fulgrad))  
+        plt.imshow(fulgrad,cmap=plt.get_cmap('hot'), vmin = np.amin(fulgrad),vmax = np.amax(fulgrad))
         plt.colorbar()
         plt.subplot(132)
         x, y = range(0, len(wf_full)), range(0,len(wf_full))
@@ -1063,323 +1216,326 @@ class Zernike_Analysis(object):
         plt.subplot(133)
         laplace_of_wf = scipy.ndimage.filters.laplace(wf_full)
         plt.title('Laplacian')
-        plt.imshow(laplace_of_wf,cmap=plt.get_cmap('hot'), vmin = -1,vmax = 1) 
+        plt.imshow(laplace_of_wf,cmap=plt.get_cmap('hot'), vmin = -1,vmax = 1)
         plt.colorbar()
 
-    def create_basic_data_image(self,return_Images=False):     
-        
+    def create_basic_data_image(self,return_Images=False):
+
         sci_image=self.sci_image
         var_image=self.var_image
         mask_image=self.mask_image
-        
-        
+
+
         plt.figure(figsize=(30,8))
         plt.subplot(131)
-        plt.imshow(sci_image,norm=LogNorm(),origin='lower',vmin=1,vmax=np.max(sci_image))
+        plt.imshow(sci_image,norm=LogNorm(vmin=1,vmax=np.max(sci_image)),origin='lower')
         cbar=plt.colorbar(fraction=0.046, pad=0.04)
         cbar.set_ticks([10,10**2,10**3,10**4,10**5])
         plt.title('sci_image')
-        
+
         plt.subplot(132)
-        plt.imshow(var_image,norm=LogNorm(),origin='lower',vmin=1,vmax=np.max(sci_image))
+        plt.imshow(var_image,norm=LogNorm(vmin=1,vmax=np.max(sci_image)),origin='lower')
         cbar=plt.colorbar(fraction=0.046, pad=0.04)
         cbar.set_ticks([10,10**2,10**3,10**4,10**5])
         plt.title('var_image')
-        
+
         plt.subplot(133)
-        plt.imshow(sci_image,norm=LogNorm(),origin='lower',vmin=1,vmax=np.max(sci_image))
+        plt.imshow(sci_image,norm=LogNorm(vmin=1,vmax=np.max(sci_image)),origin='lower')
         cbar=plt.colorbar(fraction=0.046, pad=0.04)
         plt.imshow(mask_image,origin='lower',vmin=0,vmax=np.max(mask_image),alpha=0.2)
         cbar.set_ticks([10,10**2,10**3,10**4,10**5])
-        plt.title('sci+mask_image')        
-        
+        plt.title('sci+mask_image')
+
         if return_Images==True:
             return sci_image,var_image,mask_image
 
+    def create_fitting_evolution_plot(self):
 
-    def create_fitting_evolution_plot(self):     
-        
-        minchain,like_min=self.create_likelihood()
-        len_of_chains=self.len_of_chains()
-        #chain0_Emcee3,likechain0_Emcee3=self.create_chains()
-        
-        
-        #size=self.chain_swarm1.shape[1]
+        minchain, like_min = self.create_likelihood()
+        len_of_chains = self.len_of_chains()
+        # chain0_Emcee3,likechain0_Emcee3=self.create_chains()
+        # size=self.chain_swarm1.shape[1]
         matplotlib.rcParams.update({'font.size': 18})
-        plt.figure(figsize=(24,12))
+        plt.figure(figsize=(24, 12))
         plt.subplot(211)
-        plt.plot(np.linspace(1,len(like_min),len(like_min)),like_min,'blue',ls='-',marker='o')
+        plt.plot(np.linspace(0, len(like_min)-1, len(like_min)), like_min, 'blue', ls='-', marker='o')
         plt.ylabel('likelihood')
         plt.xlabel('steps')
-        plt.axvline(np.sum(len_of_chains[:1])+0.5,ls='--')
-        plt.axvline(np.sum(len_of_chains[:2])+0.5,ls='--')
-        plt.axvline(np.sum(len_of_chains[:3])+0.5,ls='--')
-        
-        if np.min(like_min)<-self.zero_sigma_ln:
-            plt.ylim(np.min(like_min)*0.95,1.05*np.max(like_min))            
+        plt.axvline(np.sum(len_of_chains[:1])+0.5, ls='--')
+
+        if np.min(like_min) < -self.zero_sigma_ln:
+            plt.ylim(np.min(like_min) * 0.95, 1.05 * np.max(like_min))
         else:
-            plt.ylim(-self.zero_sigma_ln,1.05*np.max(like_min))
-        plt.axhline(self.min_like_min,ls='--')
-        plt.axhline(-self.one_sigma_ln,ls='--',color='black')        
-        
+            plt.ylim(-self.zero_sigma_ln, 1.05 * np.max(like_min))
+        plt.axhline(self.min_like_min, ls='--')
+        # plt.axhline(-self.one_sigma_ln, ls='--', color='black')
+
         plt.subplot(212)
-        plt.plot(np.linspace(1,len(like_min),len(like_min)),np.log10(like_min),'blue',ls='-',marker='o')
+        plt.plot(np.linspace(0, len(like_min)-1, len(like_min)), np.log10(like_min),
+                 'blue', ls='-', marker='o')
         plt.ylabel('log10(likelihood)')
         plt.xlabel('steps')
-        plt.axvline(np.sum(len_of_chains[:1])+0.5,ls='--')
-        plt.axvline(np.sum(len_of_chains[:2])+0.5,ls='--')
-        plt.axvline(np.sum(len_of_chains[:3])+0.5,ls='--')
+        plt.axvline(np.sum(len_of_chains[:1])+0.5, ls='--')
 
-    
-    def create_basic_comparison_plot(self,custom_model_image=None,custom_mask=None,\
-                                     custom_sci_image=None,custom_var_image=None,\
-                                         use_max_chi_scaling=False,use_max_flux_scaling=False,
-                                         show_flux_mask=False,show_impact_pixels_mask=False,
-                                         save=False,multi_background_factor=3): 
-        
+    def create_basic_comparison_plot(self, custom_model_image=None, custom_mask=None,
+                                     custom_sci_image=None, custom_var_image=None,
+                                     use_max_chi_scaling=False, use_max_flux_scaling=False,
+                                     show_flux_mask=False, show_impact_pixels_mask=False,
+                                     save=False, multi_background_factor=3):
+
         if custom_model_image is None:
-            optPsf_cut_fiber_convolved_downsampled=np.load(TESTING_FINAL_IMAGES_FOLDER+'optPsf_cut_fiber_convolved_downsampled.npy')
-            res_iapetus=optPsf_cut_fiber_convolved_downsampled
+            optPsf_cut_fiber_convolved_downsampled = np.load(TESTING_FINAL_IMAGES_FOLDER +
+                                                             'optPsf_cut_fiber_convolved_downsampled.npy')
+            res_iapetus = optPsf_cut_fiber_convolved_downsampled
         else:
-            res_iapetus=custom_model_image
-            
-            
-        
-        if custom_sci_image is None:   
-            sci_image=self.sci_image
-        else:
-            sci_image=custom_sci_image
+            res_iapetus = custom_model_image
 
-            
-        if custom_var_image is None:           
-            var_image=self.var_image
+        if custom_sci_image is None:
+            sci_image = self.sci_image
         else:
-            var_image=custom_var_image     
+            sci_image = custom_sci_image
 
-
-        mean_value_of_background_via_var=np.mean([np.median(var_image[0]),np.median(var_image[-1]),\
-                                              np.median(var_image[:,0]),np.median(var_image[:,-1])])*multi_background_factor
-     
-        mean_value_of_background_via_sci=np.mean([np.median(sci_image[0]),np.median(sci_image[-1]),\
-                                              np.median(sci_image[:,0]),np.median(sci_image[:,-1])])*multi_background_factor
-            
-        mean_value_of_background=np.max([mean_value_of_background_via_var,mean_value_of_background_via_sci])
-        print(str(multi_background_factor)+'x mean_value_of_background via sci is estimated to be: '+str(mean_value_of_background))
-        if type(show_flux_mask)==bool:
-            flux_mask=sci_image>(mean_value_of_background)
+        if custom_var_image is None:
+            var_image = self.var_image
         else:
-            flux_mask=sci_image>(show_flux_mask)
-            show_flux_mask=True
-            
-            
-        size=sci_image.shape[0]
-        #if size==40:
+            var_image = custom_var_image
+
+        mean_value_of_background_via_var = np.mean([np.median(var_image[0]),
+                                                    np.median(var_image[-1]),
+                                                    np.median(var_image[:, 0]),
+                                                    np.median(var_image[:, -1])]) *\
+            multi_background_factor
+
+        mean_value_of_background_via_sci = np.mean([np.median(sci_image[0]),
+                                                    np.median(sci_image[-1]),
+                                                    np.median(sci_image[:, 0]),
+                                                    np.median(sci_image[:, -1])]) *\
+            multi_background_factor
+
+        mean_value_of_background = np.max([mean_value_of_background_via_var,
+                                           mean_value_of_background_via_sci])
+        print(str(multi_background_factor) + 'x mean_value_of_background via sci is estimated to be: ' +
+              str(mean_value_of_background))
+        if type(show_flux_mask) == bool:
+            flux_mask = sci_image > (mean_value_of_background)
+        else:
+            flux_mask = sci_image > (show_flux_mask)
+            show_flux_mask = True
+
+        size = sci_image.shape[0]
+        # if size==40:
         #    dithering=2
-        #else:
+        # else:
         #    dithering=1
-        #dithering=1
-        
-        if size==20:
-            x_center=find_centroid_of_flux(res_iapetus)[0]
-        else:
-            x_center=(size/2)
-            
-        left_limit=np.round(x_center-3.5)+0.5
-        right_limit=np.round(x_center+3.5)-0.5               
-        
-        chi2_image=(sci_image-res_iapetus)**2/((1)*var_image)
-        if show_impact_pixels_mask==True:
-            mask_most_impactful_pixels=np.zeros(sci_image.shape)
-            mask_most_impactful_pixels[chi2_image>(np.quantile(chi2_image[flux_mask].ravel(),0.99))]=1
-            
-            value_of_chi2_1=np.sum(chi2_image[flux_mask].ravel()[chi2_image[flux_mask].ravel()>np.quantile(chi2_image[flux_mask].ravel(),0.99)])
-            total_chi2=np.sum(chi2_image[flux_mask].ravel())
-            
-            print('fraction of chi2 due to 1% of pixels: '+str(value_of_chi2_1/total_chi2))
-            
-            
-        
-        plt.figure(figsize=(20,20))
+        # dithering=1
 
+        if size == 20:
+            x_center = find_centroid_of_flux(res_iapetus)[0]
+        else:
+            x_center = (size/2)
+
+        left_limit = np.round(x_center-3.5)+0.5
+        right_limit = np.round(x_center+3.5)-0.5
+
+        chi2_image = (sci_image-res_iapetus)**2/((1)*var_image)
+        if show_impact_pixels_mask is True:
+            mask_most_impactful_pixels = np.zeros(sci_image.shape)
+            mask_most_impactful_pixels[chi2_image > (np.quantile(chi2_image[flux_mask].ravel(), 0.99))] = 1
+
+            value_of_chi2_1 = np.sum(chi2_image[flux_mask].ravel()
+                                     [chi2_image[flux_mask].ravel() >
+                                     np.quantile(chi2_image[flux_mask].ravel(), 0.99)])
+            total_chi2 = np.sum(chi2_image[flux_mask].ravel())
+
+            print('fraction of chi2 due to 1% of pixels: ' + str(value_of_chi2_1/total_chi2))
+
+        plt.figure(figsize=(20, 20))
 
         plt.subplot(221)
-        plt.imshow(res_iapetus,origin='lower',vmax=np.max(np.abs(sci_image)))
-        plt.plot(np.ones(len(sci_image))*(left_limit),np.array(range(len(sci_image))),'--',color='white')
-        plt.plot(np.ones(len(sci_image))*(right_limit),np.array(range(len(sci_image))),'--',color='white')
+        plt.imshow(res_iapetus, origin='lower', vmax=np.max(np.abs(sci_image)))
+        plt.plot(np.ones(len(sci_image))*(left_limit), np.array(range(len(sci_image))), '--', color='white')
+        plt.plot(np.ones(len(sci_image))*(right_limit), np.array(range(len(sci_image))), '--', color='white')
         plt.colorbar(fraction=0.046, pad=0.04)
-        if show_flux_mask==True:
-            plt.imshow(flux_mask,alpha=0.4)    
-            
-        
+        if show_flux_mask is True:
+            plt.imshow(flux_mask, origin='lower', alpha=0.4)
 
-        
-        if show_impact_pixels_mask==True:
-            plt.imshow(mask_most_impactful_pixels,alpha=0.35,cmap='magma')        
-        
+        if show_impact_pixels_mask is True:
+            plt.imshow(mask_most_impactful_pixels, origin='lower', alpha=0.35, cmap='magma')
+
         plt.title('Model')
         plt.grid(False)
         plt.subplot(222)
-        plt.imshow(sci_image,origin='lower',vmax=np.max(np.abs(sci_image)))
-        plt.plot(np.ones(len(sci_image))*(left_limit),np.array(range(len(sci_image))),'--',color='white')
-        plt.plot(np.ones(len(sci_image))*(right_limit),np.array(range(len(sci_image))),'--',color='white')
+        plt.imshow(sci_image, origin='lower', vmax=np.max(np.abs(sci_image)))
+        plt.plot(np.ones(len(sci_image))*(left_limit), np.array(range(len(sci_image))), '--', color='white')
+        plt.plot(np.ones(len(sci_image))*(right_limit), np.array(range(len(sci_image))), '--', color='white')
         plt.colorbar(fraction=0.046, pad=0.04)
-        if show_flux_mask==True:
-            plt.imshow(flux_mask,alpha=0.4)   
+        if show_flux_mask is True:
+            plt.imshow(flux_mask, alpha=0.4, origin='lower',)
 
-        if show_impact_pixels_mask==True:
-            plt.imshow(mask_most_impactful_pixels,alpha=0.35,cmap='magma')                    
-    
+        if show_impact_pixels_mask is True:
+            plt.imshow(mask_most_impactful_pixels, alpha=0.35, cmap='magma', origin='lower',)
+
         plt.title('Data')
         plt.grid(False)
-        
-        
+
         plt.subplot(223)
-        
-        if use_max_flux_scaling==False:
-            plt.imshow(sci_image-res_iapetus,origin='lower',cmap='bwr',vmin=-np.max(np.abs(sci_image))/20,vmax=np.max(np.abs(sci_image))/20)
+
+        if use_max_flux_scaling is False:
+            plt.imshow(sci_image-res_iapetus, origin='lower', cmap='bwr',
+                       vmin=-np.max(np.abs(sci_image))/20, vmax=np.max(np.abs(sci_image))/20)
         else:
-            max_flux=np.max(np.abs(sci_image-res_iapetus))
-            plt.imshow((sci_image-res_iapetus),origin='lower',cmap='bwr',vmax=-max_flux*0.75,vmin=max_flux*0.75)     
-        
+            max_flux = np.max(np.abs(sci_image-res_iapetus))
+            plt.imshow((sci_image-res_iapetus), origin='lower', cmap='bwr',
+                       vmax=-max_flux*0.75, vmin=max_flux*0.75)
+
         plt.colorbar(fraction=0.046, pad=0.04)
 
-        plt.plot(np.ones(len(sci_image))*(left_limit),np.array(range(len(sci_image))),'--',color='black')
-        plt.plot(np.ones(len(sci_image))*(right_limit),np.array(range(len(sci_image))),'--',color='black')        
+        plt.plot(np.ones(len(sci_image))*(left_limit), np.array(range(len(sci_image))), '--', color='black')
+        plt.plot(np.ones(len(sci_image))*(right_limit), np.array(range(len(sci_image))), '--', color='black')
 
-        if show_flux_mask==True:
-            plt.imshow(flux_mask,alpha=0.55,vmin=0,vmax=1)   
+        if show_flux_mask is True:
+            plt.imshow(flux_mask, alpha=0.55, vmin=0, vmax=1, origin='lower',)
 
         if custom_mask is None:
             pass
         else:
-            if np.sum(custom_mask)==0:
-                alpha_value=0
+            if np.sum(custom_mask) == 0:
+                alpha_value = 0
             else:
-                alpha_value=0.25
-        
-            plt.imshow(custom_mask,origin='lower',alpha=alpha_value)
-            
-        if show_impact_pixels_mask==True:
-            plt.imshow(mask_most_impactful_pixels,alpha=0.55,cmap='magma')        
-        
+                alpha_value = 0.25
+
+            plt.imshow(custom_mask, origin='lower', alpha=alpha_value)
+
+        if show_impact_pixels_mask is True:
+            plt.imshow(mask_most_impactful_pixels, alpha=0.55, cmap='magma', origin='lower',)
+
         plt.title('Residual (data - model)')
         plt.grid(False)
-        
-        
+
         plt.subplot(224)
 
-        if use_max_chi_scaling==False:
-            plt.imshow((sci_image-res_iapetus)/np.sqrt(var_image),origin='lower',cmap='bwr',vmax=5,vmin=-5)
+        if use_max_chi_scaling is False:
+            plt.imshow((sci_image-res_iapetus)/np.sqrt(var_image),
+                       origin='lower', cmap='bwr', vmax=5, vmin=-5)
         else:
-            max_chi=np.max(np.abs((sci_image-res_iapetus)/np.sqrt(var_image)))*0.75
-            plt.imshow((sci_image-res_iapetus)/np.sqrt(var_image),origin='lower',cmap='bwr',vmax=-max_chi,vmin=max_chi)            
+            max_chi = np.max(np.abs((sci_image-res_iapetus)/np.sqrt(var_image))) * 0.75
+            plt.imshow((sci_image-res_iapetus)/np.sqrt(var_image), origin='lower',
+                       cmap='bwr', vmax=-max_chi, vmin=max_chi)
 
-        plt.plot(np.ones(len(sci_image))*(left_limit),np.array(range(len(sci_image))),'--',color='black')
-        plt.plot(np.ones(len(sci_image))*(right_limit),np.array(range(len(sci_image))),'--',color='black')
+        plt.plot(np.ones(len(sci_image))*(left_limit), np.array(range(len(sci_image))), '--', color='black')
+        plt.plot(np.ones(len(sci_image))*(right_limit), np.array(range(len(sci_image))), '--', color='black')
         plt.colorbar(fraction=0.046, pad=0.04)
         plt.title('chi map')
         plt.tight_layout(pad=0.0, w_pad=1.8, h_pad=-10.0)
 
-        if show_flux_mask==True:
-            plt.imshow(flux_mask,alpha=0.55)    
-            
-        if show_impact_pixels_mask==True:
-            plt.imshow(mask_most_impactful_pixels,alpha=0.55,cmap='magma')           
-        
-        chi2_max_reduced=np.sum((res_iapetus)**2/((var_image.shape[0]*var_image.shape[1])*var_image))
-        chi2_reduced=np.sum((res_iapetus-sci_image)**2/((var_image.shape[0]*var_image.shape[1])*var_image))
-        chi_max_reduced=np.sum(np.abs(res_iapetus)**1/((var_image.shape[0]*var_image.shape[1])*np.sqrt(var_image)))
-        chi_reduced=np.sum(np.abs(res_iapetus-sci_image)**1/((var_image.shape[0]*var_image.shape[1])*np.sqrt(var_image)))
+        if show_flux_mask is True:
+            plt.imshow(flux_mask, alpha=0.55, origin='lower')
+
+        if show_impact_pixels_mask is True:
+            plt.imshow(mask_most_impactful_pixels, alpha=0.55, cmap='magma', origin='lower')
+
+        chi2_max_reduced = np.sum((res_iapetus)**2/((var_image.shape[0]*var_image.shape[1])*var_image))
+        chi2_reduced = np.sum((res_iapetus-sci_image)**2/((var_image.shape[0]*var_image.shape[1])*var_image))
+        chi_max_reduced = np.sum(np.abs(res_iapetus)**1/((var_image.shape[0]*var_image.shape[1]) *
+                                                         np.sqrt(var_image)))
+        chi_reduced = np.sum(np.abs(res_iapetus-sci_image)**1/((var_image.shape[0]*var_image.shape[1]) *
+                                                               np.sqrt(var_image)))
         print('---------------------')
-        print('chi**2 max reduced is: '+str(chi2_max_reduced))   
-        print('chi**2 reduced is: '+str(chi2_reduced)+ ' for log improvment: '+str(np.log10(chi2_reduced/chi2_max_reduced)) )
-        print('chi max reduced is: '+str(chi_max_reduced))   
-        print('chi reduced is: '+str(chi_reduced)+ ' for log improvment: '+str(np.log10(chi_reduced/chi_max_reduced)) )
+        print('chi**2 max reduced is: '+str(chi2_max_reduced))
+        print('chi**2 reduced is: '+str(chi2_reduced) + ' for log improvement: ' +
+              str(np.log10(chi2_reduced/chi2_max_reduced)))
+        print('chi max reduced is: '+str(chi_max_reduced))
+        print('chi reduced is: '+str(chi_reduced) + ' for log improvement: ' +
+              str(np.log10(chi_reduced/chi_max_reduced)))
         print('---------------------')
-        
-        
+
         if custom_mask is None:
             pass
         else:
-            custom_mask=~custom_mask.astype('bool')
-            print('chi**2 reduced within custom mask area is: '+str(np.mean((res_iapetus[custom_mask]-sci_image[custom_mask])**2/(var_image[custom_mask]))))
-        
-        
-        chi2_max_flux_reduced=np.sum((res_iapetus[flux_mask])**2/(len(var_image[flux_mask])*var_image[flux_mask]))
-        chi2_flux_reduced=np.mean((res_iapetus[flux_mask]-sci_image[flux_mask])**2/(var_image[flux_mask]))
-        chi_max_flux_reduced=np.sum(np.abs(res_iapetus[flux_mask])**1/(len(var_image[flux_mask])*np.sqrt(var_image)[flux_mask]))
-        chi_flux_reduced=np.mean(np.abs(res_iapetus[flux_mask]-sci_image[flux_mask])**1/np.sqrt(var_image[flux_mask]))
-        
+            custom_mask = ~custom_mask.astype('bool')
+            print('chi**2 reduced within custom mask area is: ' +
+                  str(np.mean((res_iapetus[custom_mask]-sci_image[custom_mask])**2/(var_image[custom_mask]))))
+
+        chi2_max_flux_reduced = np.sum((res_iapetus[flux_mask])**2/(len(var_image[flux_mask]) *
+                                                                    var_image[flux_mask]))
+        chi2_flux_reduced = np.mean((res_iapetus[flux_mask]-sci_image[flux_mask])**2/(var_image[flux_mask]))
+        chi_max_flux_reduced = np.sum(np.abs(res_iapetus[flux_mask])**1/(len(var_image[flux_mask]) *
+                                                                         np.sqrt(var_image)[flux_mask]))
+        chi_flux_reduced = np.mean(np.abs(res_iapetus[flux_mask] -
+                                          sci_image[flux_mask])**1/np.sqrt(var_image[flux_mask]))
+
         print('---------------------')
-        print('chi**2 max reduced within flux mask area is: '+\
+        print('chi**2 max reduced within flux mask area is: ' +
               str(chi2_max_flux_reduced))
-        print('chi**2 reduced within flux mask area is: '+\
-              str(chi2_flux_reduced) + ' for log improvment: '+str(np.log10(chi2_flux_reduced/chi2_max_flux_reduced)) )
-        print('chi max reduced within flux mask area is: '+\
+        print('chi**2 reduced within flux mask area is: ' +
+              str(chi2_flux_reduced) + ' for log improvement: ' +
+              str(np.log10(chi2_flux_reduced/chi2_max_flux_reduced)))
+        print('chi max reduced within flux mask area is: ' +
               str(chi_max_flux_reduced))
-        print('chi reduced within flux mask area is: '+\
-              str(chi_flux_reduced) + ' for log improvment: '+str(np.log10(chi_flux_reduced/chi_max_flux_reduced)) )            
+        print('chi reduced within flux mask area is: ' +
+              str(chi_flux_reduced) + ' for log improvement: ' +
+              str(np.log10(chi_flux_reduced/chi_max_flux_reduced)))
         print('---------------------')
-        print('Abs of residual divided by total flux is: '+str(np.sum(np.abs((res_iapetus-sci_image)))/np.sum((res_iapetus))))
-        print('Abs of residual divided by largest value of a flux in the image is: '+str(np.max(np.abs((res_iapetus-sci_image)/np.max(res_iapetus)))))
-  
+        print('Abs of residual divided by total flux is: ' +
+              str(np.sum(np.abs((res_iapetus-sci_image)))/np.sum((res_iapetus))))
+        print('Abs of residual divided by largest value of a flux in the image is: ' +
+              str(np.max(np.abs((res_iapetus-sci_image)/np.max(res_iapetus)))))
+
         if save is not False:
             plt.savefig('/Users/nevencaplar/Documents/PFS/Images/Jan2921/Spot_figures/spot_'+save)
             plt.clf()
-            
-  
-    
+
     def create_basic_comparison_plot_log(self,custom_model_image=None,custom_mask=None,custom_sci_image=None,custom_var_image=None,use_max_chi_scaling=False,\
-                                         show_flux_mask=False):   
-        
-        
+                                         show_flux_mask=False):
+
+
         if custom_model_image is None:
             optPsf_cut_fiber_convolved_downsampled=np.load(TESTING_FINAL_IMAGES_FOLDER+'optPsf_cut_fiber_convolved_downsampled.npy')
             res_iapetus=optPsf_cut_fiber_convolved_downsampled
         else:
             res_iapetus=custom_model_image
-        
 
-        if custom_sci_image is None:   
+
+        if custom_sci_image is None:
             sci_image=self.sci_image
         else:
             sci_image=custom_sci_image
 
 
 
-        if custom_var_image is None:           
+        if custom_var_image is None:
             var_image=self.var_image
         else:
-            var_image=custom_var_image  
-        
+            var_image=custom_var_image
+
         mean_value_of_background_via_var=np.mean([np.median(var_image[0]),np.median(var_image[-1]),\
                                               np.median(var_image[:,0]),np.median(var_image[:,-1])])*3
-     
+
         mean_value_of_background_via_sci=np.mean([np.median(sci_image[0]),np.median(sci_image[-1]),\
                                               np.median(sci_image[:,0]),np.median(sci_image[:,-1])])*3
-            
+
         mean_value_of_background=np.max([mean_value_of_background_via_var,mean_value_of_background_via_sci])
-        
+
         flux_mask=sci_image>(mean_value_of_background)
-                        
-            
+
+
         size=sci_image.shape[0]
         if size==40:
             dithering=2
         else:
             dithering=1
-            
+
         if size==20:
             x_center=find_centroid_of_flux(res_iapetus)[0]
         else:
             x_center=(size/2)
-            
+
         left_limit=np.round(x_center-3.5)+0.5
-        right_limit=np.round(x_center+3.5)-0.5                  
-        
+        right_limit=np.round(x_center+3.5)-0.5
+
         chi2_image=(sci_image-res_iapetus)**2/((1)*var_image)
-        
-        
+
+
         plt.figure(figsize=(20,20))
         plt.subplot(221)
         plt.imshow(res_iapetus,origin='lower',vmin=1,vmax=np.max(np.abs(sci_image)),norm=LogNorm())
@@ -1388,10 +1544,10 @@ class Zernike_Analysis(object):
         cbar=plt.colorbar(fraction=0.046, pad=0.04)
         cbar.set_ticks([10,10**2,10**3,10**4,10**5])
         plt.title('Model')
-        
+
         if show_flux_mask==True:
-            plt.imshow(flux_mask,alpha=0.55)    
-        
+            plt.imshow(flux_mask,alpha=0.55)
+
         plt.grid(False)
         plt.subplot(222)
         plt.imshow(sci_image,origin='lower',vmin=1,vmax=np.max(np.abs(sci_image)),norm=LogNorm())
@@ -1401,8 +1557,8 @@ class Zernike_Analysis(object):
         cbar.set_ticks([10,10**2,10**3,10**4,10**5])
         plt.title('Data')
         if show_flux_mask==True:
-            plt.imshow(flux_mask,alpha=0.55)    
-            
+            plt.imshow(flux_mask,alpha=0.55)
+
         plt.grid(False)
         plt.subplot(223)
         plt.imshow(np.abs(sci_image-res_iapetus),origin='lower',vmax=np.max(np.abs(sci_image))/20,norm=LogNorm())
@@ -1412,7 +1568,7 @@ class Zernike_Analysis(object):
         cbar.set_ticks([10,10**2,10**3,10**4,10**5])
         plt.title('abs(Residual (  data-model))')
         if show_flux_mask==True:
-            plt.imshow(flux_mask,alpha=0.55)        
+            plt.imshow(flux_mask,alpha=0.55)
 
         plt.grid(False)
         plt.subplot(224)
@@ -1422,39 +1578,39 @@ class Zernike_Analysis(object):
         cbar=plt.colorbar(fraction=0.046, pad=0.04)
         cbar.set_ticks([10,10**2,10**3,10**4,10**5])
         if show_flux_mask==True:
-            plt.imshow(flux_mask,alpha=0.55)    
-        
+            plt.imshow(flux_mask,alpha=0.55)
+
         plt.title('chi**2 map')
         print('chi**2 max reduced is: '+str(np.sum((res_iapetus)**2/((var_image.shape[0]*var_image.shape[1])*var_image))))
         np.sum(np.abs((res_iapetus-sci_image)))/np.sum((res_iapetus))
         plt.tight_layout(pad=0.0, w_pad=1.8, h_pad=-7.0)
         print('chi**2 reduced is: '+str(np.sum((res_iapetus-sci_image)**2/((var_image.shape[0]*var_image.shape[1])*var_image))))
         print('Abs of residual divided by total flux is: '+str(np.sum(np.abs((res_iapetus-sci_image)))/np.sum((res_iapetus))))
-        print('Abs of residual divided by largest value of a flux in the image is: '+str(np.max(np.abs((res_iapetus-sci_image)/np.max(res_iapetus)))))     
- 
+        print('Abs of residual divided by largest value of a flux in the image is: '+str(np.max(np.abs((res_iapetus-sci_image)/np.max(res_iapetus)))))
 
-    def create_basic_comparison_plot_log_artifical(self,custom_model_image=None,custom_mask=None,custom_sci_image=None,custom_var_image=None,use_max_chi_scaling=False): 
-        
+
+    def create_basic_comparison_plot_log_artifical(self,custom_model_image=None,custom_mask=None,custom_sci_image=None,custom_var_image=None,use_max_chi_scaling=False):
+
         # need to update for multivar
         if custom_model_image is None:
             optPsf_cut_fiber_convolved_downsampled=np.load(TESTING_FINAL_IMAGES_FOLDER+'optPsf_cut_fiber_convolved_downsampled.npy')
             res_iapetus=optPsf_cut_fiber_convolved_downsampled
         else:
             res_iapetus=custom_model_image
-        
+
 
         noise=self.create_artificial_noise(custom_model_image=custom_model_image,custom_var_image=custom_var_image)
-        
-        if custom_sci_image is None:   
+
+        if custom_sci_image is None:
             sci_image=self.sci_image
         else:
             sci_image=custom_sci_image
 
-        if custom_var_image is None:           
+        if custom_var_image is None:
             var_image=self.var_image
         else:
-            var_image=custom_var_image  
-            
+            var_image=custom_var_image
+
         size=sci_image.shape[0]
         if size==40:
             dithering=2
@@ -1466,10 +1622,10 @@ class Zernike_Analysis(object):
             x_center=find_centroid_of_flux(res_iapetus)[0]
         else:
             x_center=(size/2)
-            
+
         left_limit=np.round(x_center-3.5)+0.5
-        right_limit=np.round(x_center+3.5)-0.5            
-        
+        right_limit=np.round(x_center+3.5)-0.5
+
         plt.figure(figsize=(20,20))
         plt.subplot(221)
         plt.imshow(res_iapetus+noise,origin='lower',vmin=1,vmax=np.max(np.abs(sci_image)),norm=LogNorm())
@@ -1507,59 +1663,59 @@ class Zernike_Analysis(object):
         plt.tight_layout(pad=0.0, w_pad=1.8, h_pad=-7.0)
         print('chi**2 reduced is: '+str(np.sum((res_iapetus-sci_image)**2/((var_image.shape[0]*var_image.shape[1])*var_image))))
         print('Abs of residual divided by total flux is: '+str(np.sum(np.abs((res_iapetus-sci_image)))/np.sum((res_iapetus))))
-        print('Abs of residual divided by largest value of a flux in the image is: '+str(np.max(np.abs((res_iapetus-sci_image)/np.max(res_iapetus)))))          
-        
+        print('Abs of residual divided by largest value of a flux in the image is: '+str(np.max(np.abs((res_iapetus-sci_image)/np.max(res_iapetus)))))
+
     def create_artificial_noise(self, custom_model_image=None,custom_var_image=None):
-        
-        if custom_var_image is None:           
+
+        if custom_var_image is None:
             var_image=self.var_image
         else:
-            var_image=custom_var_image  
-        
+            var_image=custom_var_image
+
         if custom_model_image is None:
             optPsf_cut_fiber_convolved_downsampled=np.load(TESTING_FINAL_IMAGES_FOLDER+'optPsf_cut_fiber_convolved_downsampled.npy')
             res_iapetus=optPsf_cut_fiber_convolved_downsampled
         else:
-            res_iapetus=custom_model_image        
-                
+            res_iapetus=custom_model_image
+
         artifical_noise=np.zeros_like(res_iapetus)
         artifical_noise=np.array(artifical_noise)
         for i in range(len(artifical_noise)):
             for j in range(len(artifical_noise)):
-                artifical_noise[i,j]=np.random.randn()*np.sqrt(var_image[i,j]+40)       
-                
+                artifical_noise[i,j]=np.random.randn()*np.sqrt(var_image[i,j]+40)
+
         return artifical_noise
-    
+
     def create_cut_plots(self):
-        
+
         var_image=self.var_image
         artifical_noise=self.create_artificial_noise()
         sci_image=self.sci_image
         optPsf_cut_fiber_convolved_downsampled=np.load(TESTING_FINAL_IMAGES_FOLDER+'optPsf_cut_fiber_convolved_downsampled.npy')
         res_iapetus=optPsf_cut_fiber_convolved_downsampled
-        
+
         mid_point_of_sci_image=int(sci_image.shape[0]/2)
-        
+
         plt.figure(figsize=(25,10))
-        
+
         plt.subplot(121)
         plt.title('horizontal direction')
         plt.plot(np.array(range(len(res_iapetus))),np.log10(res_iapetus[mid_point_of_sci_image]),'blue',linestyle='--',label='model')
         plt.plot(np.array(range(len(res_iapetus))),np.log10(np.abs(sci_image[mid_point_of_sci_image])),'orange',linestyle='--',label='data')
         plt.plot(np.array(range(len(res_iapetus))),np.ones(len(res_iapetus))*np.log10(np.max(sci_image[:,mid_point_of_sci_image])*(1/2)),'--',color='black')
-        
-        
+
+
         plt.legend(fontsize=25)
-        
+
         plt.subplot(122)
         plt.title('wavelength direction')
         plt.plot(np.array(range(len(res_iapetus))),np.log10(res_iapetus[:,mid_point_of_sci_image]),'blue',linestyle='--',label='model')
         plt.plot(np.array(range(len(res_iapetus))),np.log10(np.abs(sci_image[:,mid_point_of_sci_image])),'orange',linestyle='--',label='data')
         plt.plot(np.array(range(len(res_iapetus))),np.ones(len(res_iapetus))*np.log10(np.max(sci_image[:,mid_point_of_sci_image])*(1/2)),'--',color='black')
-        plt.legend(fontsize=20)      
+        plt.legend(fontsize=20)
 
         plt.figure(figsize=(30,10))
-        
+
         plt.subplot(121)
         plt.title('horizontal direction, with noise')
         plt.plot(np.array(range(len(res_iapetus))),np.log10(res_iapetus[mid_point_of_sci_image]+artifical_noise[mid_point_of_sci_image]),'blue',linestyle='--',label='model')
@@ -1568,7 +1724,7 @@ class Zernike_Analysis(object):
         plt.plot(np.array(range(len(res_iapetus))),np.ones(len(res_iapetus))*np.log10(np.max(res_iapetus[mid_point_of_sci_image]*(1/2))),'-',color='blue',label='FWHM of model')
         plt.plot(np.array(range(len(res_iapetus))),np.log10(np.abs(res_iapetus[mid_point_of_sci_image]-sci_image[mid_point_of_sci_image])),'red',linestyle='--',label='abs(residual)')
         plt.legend(fontsize=15)
-        
+
         plt.subplot(122)
         plt.title('wavelength direction, with noise')
         plt.plot(np.array(range(len(res_iapetus))),np.log10(res_iapetus[:,mid_point_of_sci_image]+artifical_noise[:,mid_point_of_sci_image]),'blue',linestyle='--',label='model')
@@ -1579,7 +1735,7 @@ class Zernike_Analysis(object):
         plt.legend(fontsize=15)
 
         plt.figure(figsize=(30,10))
-        
+
         plt.subplot(121)
         plt.title('horizontal direction, with noise')
         plt.plot(np.array(range(len(res_iapetus))),res_iapetus[mid_point_of_sci_image]+artifical_noise[mid_point_of_sci_image],'blue',linestyle='--',label='model')
@@ -1589,7 +1745,7 @@ class Zernike_Analysis(object):
         plt.plot(np.array(range(len(res_iapetus))),np.ones(len(res_iapetus))*np.max(sci_image[mid_point_of_sci_image]*(1/2)),'-',color='orange',label='FWHM of data')
         plt.plot(np.array(range(len(res_iapetus))),np.ones(len(res_iapetus))*np.max(res_iapetus[mid_point_of_sci_image]*(1/2)),'-',color='blue',label='FWHM of model')
         plt.legend(fontsize=15)
-        
+
         plt.subplot(122)
         plt.title('wavelength direction, with noise')
         plt.plot(np.array(range(len(res_iapetus))),res_iapetus[:,mid_point_of_sci_image]+artifical_noise[:,mid_point_of_sci_image],'blue',linestyle='--',label='model')
@@ -1598,7 +1754,7 @@ class Zernike_Analysis(object):
         plt.errorbar(np.array(range(len(res_iapetus))),sci_image[:,mid_point_of_sci_image],yerr=1*np.sqrt(var_image[:,mid_point_of_sci_image]),color='orange',fmt='o')
         plt.plot(np.array(range(len(res_iapetus))),np.ones(len(res_iapetus))*np.max(sci_image[mid_point_of_sci_image]*(1/2)),'-',color='orange',label='FWHM of data')
         plt.plot(np.array(range(len(res_iapetus))),np.ones(len(res_iapetus))*np.max(res_iapetus[mid_point_of_sci_image]*(1/2)),'-',color='blue',label='FWHM of model')
-        plt.legend(fontsize=15)    
+        plt.legend(fontsize=15)
 
     def create_corner_plots(self):
         # this probably goes into result_analysis
@@ -1606,7 +1762,7 @@ class Zernike_Analysis(object):
         if not os.path.exists(IMAGES_FOLDER):
             os.makedirs(IMAGES_FOLDER)
         print('Images are in folder: '+str(IMAGES_FOLDER))
-    
+
         import corner
         minchain=self.minchain
         columns=self.columns
@@ -1615,162 +1771,165 @@ class Zernike_Analysis(object):
 
         matplotlib.rcParams.update({'font.size': 16})
         flatchain0=np.reshape(chain0_Emcee3,(chain0_Emcee3.shape[0]*chain0_Emcee3.shape[1],chain0_Emcee3.shape[2]))
-        
+
         figure=corner.corner(flatchain0[:,0:8], labels=columns[0:8],
                           truths=list(minchain[0:8]))
         figure.savefig(IMAGES_FOLDER+'zparameters.png')
-        
+
         flatchain0=np.reshape(chain0_Emcee3,(chain0_Emcee3.shape[0]*chain0_Emcee3.shape[1],chain0_Emcee3.shape[2]))
 
         figure=corner.corner(flatchain0[:,8:], labels=columns[8:],
                           truths=list(minchain[8:]))
         figure.savefig(IMAGES_FOLDER+'/globalparameters.png')
-        
+
     def return_sci_image(self):
         return self.sci_image
-            
+
     def return_var_image(self):
         return self.var_image
-            
+
     def return_model_image(self):
         optPsf_cut_fiber_convolved_downsampled=np.load(TESTING_FINAL_IMAGES_FOLDER+'optPsf_cut_fiber_convolved_downsampled.npy')
         return optPsf_cut_fiber_convolved_downsampled
-     
+
 
     def plot_1D_residual(self,custom_model_image=None,custom_mask=None,custom_sci_image=None,custom_var_image=None,use_max_chi_scaling=False,title=None):
-            
-        """ 
-    
+
+        """
+
         @array[in] sci_image               numpy array with the values for the cutout of the science image (20x20 cutout)
         @array[in] var_image               numpy array with the cutout for the cutout of the variance image (20x20 cutout)
         @array[in] model_image             model (20x20 image)
         @string[in] title                  custom title to appear above the plot
-    
-    
+
+
         @plot[out]                         diagnostic plot
-    
+
         """
-        
+
         if custom_model_image is None:
             optPsf_cut_fiber_convolved_downsampled=np.load(TESTING_FINAL_IMAGES_FOLDER+'optPsf_cut_fiber_convolved_downsampled.npy')
             model_image=optPsf_cut_fiber_convolved_downsampled
         else:
             model_image=custom_model_image
-            
-            
-        
-        if custom_sci_image is None:   
+
+
+
+        if custom_sci_image is None:
             sci_image=self.sci_image
         else:
             sci_image=custom_sci_image
 
-        if custom_var_image is None:           
+        if custom_var_image is None:
             var_image=self.var_image
         else:
-            var_image=custom_var_image     
-            
+            var_image=custom_var_image
+
         size=sci_image.shape[0]
         if size==40:
             dithering=2
         else:
             dithering=1
-        
+
         if size==20:
             x_center=find_centroid_of_flux(model_image)[0]
         else:
             x_center=(size/2)
-            
+
         left_limit=np.round(x_center-3.5)+0.5
-        right_limit=np.round(x_center+3.5)-0.5           
-        
+        right_limit=np.round(x_center+3.5)-0.5
+
         init_lamda,std_init_lamda,init_removal_lamda,std_init_removal_lamda=self.residual_1D(sci_image,var_image,model_image)
-        
-        
+
+
         position_of_max_flux=np.where(init_lamda==np.max(init_lamda))[0][0]
         difference_from_max=range(20)-position_of_max_flux
         pixels_to_test=np.array(range(20))[(np.abs(difference_from_max)>2)&(np.abs(difference_from_max)<=6)]
         Q=np.mean(np.abs(init_removal_lamda[pixels_to_test]/std_init_removal_lamda[pixels_to_test]))
-     
+
         plt.figure(figsize=(20,10))
-        plt.errorbar(np.array(range(len(init_lamda))),init_lamda,yerr=std_init_lamda,fmt='o',elinewidth=2,capsize=12,markeredgewidth=2,label='data',color='orange')
+        plt.errorbar(np.array(range(len(init_lamda))),init_lamda,yerr=std_init_lamda,\
+                     fmt='o',elinewidth=3,capsize=14,markeredgewidth=3,label='data',color='orange')
         plt.plot(np.array(range(len(init_lamda))),init_lamda*0.01,color='gray',label='1% data')
-        plt.plot(np.array(range(len(init_lamda))),-init_lamda*0.01,color='gray')    
-        
-        plt.errorbar(np.array(range(len(init_removal_lamda))),init_removal_lamda,yerr=std_init_removal_lamda,color='red',fmt='o',elinewidth=2,capsize=10,markeredgewidth=2,label='residual')
-    
+        plt.plot(np.array(range(len(init_lamda))),-init_lamda*0.01,color='gray')
+
+        plt.errorbar(np.array(range(len(init_removal_lamda))),init_removal_lamda,yerr=std_init_removal_lamda,\
+                     color='red',fmt='o',elinewidth=3,capsize=14,markeredgewidth=3,label='residual')
+
         for i in range(20):
-            plt.text(-0.5+i, -1400, str("{:1.0f}".format(init_lamda[i])), fontsize=20,rotation=70.,color='orange')
-    
+            plt.text(-0.5+i, -1400, str("{:1.0f}".format(init_lamda[i])), fontsize=24,rotation=70.,color='orange')
+
         for i in range(20):
-            plt.text(-0.5+i, -2100, str("{:1.1f}".format(init_removal_lamda[i]/std_init_removal_lamda[i])), fontsize=20,rotation=70.,color='red')
-        
+            plt.text(-0.5+i, -1900, str("{:1.1f}".format(init_removal_lamda[i]/std_init_removal_lamda[i])),\
+                     fontsize=24,rotation=70.,color='red')
+
         if title is None:
             pass
         else:
             plt.title(str(title))
-            
+
         plt.legend(loc=2, fontsize=22)
         plt.plot(np.zeros(20),'--',color='black')
         plt.ylim(-2500,2500)
-        plt.ylabel('flux',size=25)
-        plt.xlabel('pixel',size=25)
+        plt.ylabel('flux',size=28)
+        plt.xlabel('pixel',size=28)
         plt.xticks(range(20))
-    
+
         sci_image_40000,var_image_40000,model_image_40000=add_artificial_noise(sci_image,var_image,model_image)
         init_lamda,std_init_lamda,init_removal_lamda,std_init_removal_lamda=self.residual_1D(sci_image_40000,var_image_40000,model_image_40000)
-    
+
         position_of_max_flux=np.where(init_lamda==np.max(init_lamda))[0][0]
         difference_from_max=range(20)-position_of_max_flux
         pixels_to_test=np.array(range(20))[(np.abs(difference_from_max)>2)&(np.abs(difference_from_max)<=6)]
         Q_40000=np.mean(np.abs(init_removal_lamda[pixels_to_test]/std_init_removal_lamda[pixels_to_test]))
-        
-    
-    
+
+
+
         plt.text(19.5,2300, '$Q_{'+str(np.int(np.round(np.max(sci_image))))+'}$='+str("{:1.2f}".format(Q)),
                 horizontalalignment='right',
                 verticalalignment='top',fontsize=26)
-    
+
         chi2=np.mean((model_image-sci_image)**2/var_image)
-    
+
         plt.text(19.5,2000, '$\chi^{2}_{'+str(np.int(np.round(np.max(sci_image))))+'}$='+str("{:1.2f}".format(chi2)),
                 horizontalalignment='right',
                 verticalalignment='top',fontsize=26)
-    
+
         chi2_40000=np.mean((model_image_40000-sci_image_40000)**2/var_image_40000)
-    
+
         plt.text(19.5,1650, '$Q_{40000}$='+str("{:1.2f}".format(Q_40000)),
                 horizontalalignment='right',
                 verticalalignment='top',fontsize=26)
         plt.text(19.5,1300, '$\chi^{2}_{40000}$='+str("{:1.2f}".format(chi2_40000)),
                 horizontalalignment='right',
                 verticalalignment='top',fontsize=26)
-    
+
         plt.axvspan(pixels_to_test[0]-0.5, pixels_to_test[3]+0.5, alpha=0.3, color='grey')
         plt.axvspan(pixels_to_test[4]-0.5, pixels_to_test[7]+0.5, alpha=0.3, color='grey')
-        
-            
+
+
     def residual_1D(self,sci_image,var_image,res_iapetus):
-        
+
         """
-    
+
         @param[in] sci_image        data (20x20 cutout)
         @param[in] var_image        Variance data (20x20 cutout)
         @param[in] res_iapetus      model (20x20 cutout)
         """
-    
-        x_center=find_centroid_of_flux(res_iapetus)[0]  
+
+        x_center=find_centroid_of_flux(res_iapetus)[0]
         left_limit=np.round(x_center-3.5)+0.5
-        right_limit=np.round(x_center+3.5)-0.5                
-    
-    
+        right_limit=np.round(x_center+3.5)-0.5
+
+
         #sci_image =np.load(STAMPS_FOLDER+'sci'+str(obs)+str(single_number)+str(arc)+'_Stacked.npy')
-        #var_image =np.load(STAMPS_FOLDER+'var'+str(obs)+str(single_number)+str(arc)+'_Stacked.npy')    
+        #var_image =np.load(STAMPS_FOLDER+'var'+str(obs)+str(single_number)+str(arc)+'_Stacked.npy')
         multiplicative_factor_to_renormalize_to_50000=np.max(sci_image)/50000
         sci_image_smaller=sci_image[:,left_limit:right_limit]/multiplicative_factor_to_renormalize_to_50000
         var_image_smaller=var_image[:,left_limit:right_limit]/multiplicative_factor_to_renormalize_to_50000
         residual_initial_smaller=sci_image_smaller-res_iapetus[:,left_limit:right_limit]/multiplicative_factor_to_renormalize_to_50000
         #residual_RF_smaller=chi_RF_corrected_image[:,8:14]*np.sqrt(var_image_smaller)
-    
+
         #################################
         # step 5 from Horne, very simplified
         inputimage_smaller=sci_image_smaller
@@ -1779,58 +1938,58 @@ class Zernike_Analysis(object):
         #################################
         # Equation 8 from Horne with modification from Robert abut variance for extraction of signal
         # note that this uses profile from full thing, and not "residual profile"
-    
+
         # nominator
         weighted_inputimage_smaller=inputimage_smaller*Px/(1)
         # denominator
         weights_array=np.ones((inputimage_smaller.shape[0],inputimage_smaller.shape[1]))*Px**2
-    
+
         init_lamda=np.array(list(map(np.sum, weighted_inputimage_smaller)))/(np.array(list(map(np.sum,weights_array))))
         init_lamda_boxcar=np.array(list(map(np.sum, inputimage_smaller)))
         # Equation 8.5 from Horne
         var_f_std_lamda=1/np.sum(np.array(Px**2/(var_inputimage_smaller)),axis=1)
         std_init_lamda=np.sqrt(var_f_std_lamda)
         std_init_lamda_boxcar=np.sqrt(np.array(list(map(np.sum, var_inputimage_smaller))))
-    
-    
+
+
         #################################
         # Equation 8 from Horne with modification from Robert abut variance for initial removal
         # note that this uses profile from full thing, and not "residual profile"
-    
+
         # nominator
         weighted_inputimage_smaller=residual_initial_smaller*Px/(1)
         # denominator
         weights_array=np.ones((residual_initial_smaller.shape[0],residual_initial_smaller.shape[1]))*Px**2
-    
+
         init_removal_lamda=np.array(list(map(np.sum, weighted_inputimage_smaller)))/(np.array(list(map(np.sum,weights_array))))
         init_removal_lamda_boxcar=np.array(list(map(np.sum, residual_initial_smaller)))
         # Equation 8.5 from Horne
         var_init_removal_lamda=1/np.sum(np.array(Px**2/(var_inputimage_smaller)),axis=1)
         std_init_removal_lamda=np.sqrt(var_init_removal_lamda)
         return init_lamda,std_init_lamda,init_removal_lamda,std_init_removal_lamda
-        
+
 
 class Zernike_result_analysis(object):
-    
+
 
     def __init__(self, date,single_number,arc,zmax,dataset,verbosity=None):
-    
-        
+
+
         if verbosity is None:
             verbosity=0
-            
+
         self.verbosity=verbosity
-        
+
         columns11=['z4','z5','z6','z7','z8','z9','z10','z11',
               'hscFrac','strutFrac','dxFocal','dyFocal','slitFrac','slitFrac_dy',
               'wide_0','wide_23','wide_43','misalign',
               'x_fiber','y_fiber','effective_radius_illumination',
               'frd_sigma','frd_lorentz_factor','det_vert','slitHolder_frac_dx',
               'grating_lines','scattering_slope','scattering_amplitude',
-              'pixel_effect','fiber_r','flux']  
-    
+              'pixel_effect','fiber_r','flux']
+
         columns11_analysis=columns11+['chi2','chi2max']
-    
+
         columns22=['z4','z5','z6','z7','z8','z9','z10','z11',
                'z12','z13','z14','z15','z16','z17','z18','z19','z20','z21','z22',
               'hscFrac','strutFrac','dxFocal','dyFocal','slitFrac','slitFrac_dy',
@@ -1838,73 +1997,73 @@ class Zernike_result_analysis(object):
               'x_fiber','y_fiber','effective_radius_illumination',
               'frd_sigma','frd_lorentz_factor','det_vert','slitHolder_frac_dx',
               'grating_lines','scattering_slope','scattering_amplitude',
-              'pixel_effect','fiber_r','flux']  
-    
+              'pixel_effect','fiber_r','flux']
+
         columns22_analysis=columns22+['chi2','chi2max']
-        
+
         self.columns22=columns22
         self.columns22_analysis=columns22_analysis
         self.columns=columns11
         self.columns11=columns11
         self.columns11_analysis=columns11_analysis
-        
-        
+
+
 
         if dataset==0:
             STAMPS_FOLDER="/Users/nevencaplar/Documents/PFS/Data_Nov_14/Stamps_cleaned/"
-            if arc is not None:         
+            if arc is not None:
                 if arc=="HgAr":
                     single_number_focus=8603
                 elif arc=="Ne":
-                    single_number_focus=8693  
+                    single_number_focus=8693
 
-        if dataset==1:   
+        if dataset==1:
             STAMPS_FOLDER="/Users/nevencaplar/Documents/PFS/ReducedData/Data_Feb_5/Stamps_cleaned/"
-            if arc is not None:         
+            if arc is not None:
                 if arc=="HgAr":
                     single_number_focus=11748
                 elif arc=="Ne":
-                    single_number_focus=11748+607  
- 
+                    single_number_focus=11748+607
+
         if dataset==2:
             STAMPS_FOLDER="/Users/nevencaplar/Documents/PFS/ReducedData/Data_May_28/Stamps_cleaned/"
-            if arc is not None:         
+            if arc is not None:
                 if arc=="HgAr":
                     single_number_focus=17017+54
                 if arc=="Ne":
-                    single_number_focus=16292  
+                    single_number_focus=16292
                 if arc=="Kr":
-                    single_number_focus=17310+54  
-                
-        if dataset==3:  
+                    single_number_focus=17310+54
+
+        if dataset==3:
             STAMPS_FOLDER="/Users/nevencaplar/Documents/PFS/ReducedData/Data_Jun_25/Stamps_cleaned/"
-            if arc is not None:         
+            if arc is not None:
                 if arc=="HgAr":
                     single_number_focus=19238+54
                 elif arc=="Ne":
-                    single_number_focus=19472  
-                    
-        if dataset==4 or dataset==5:  
+                    single_number_focus=19472
+
+        if dataset==4 or dataset==5:
             STAMPS_FOLDER="/Users/nevencaplar/Documents/PFS/ReducedData/Data_Aug_14/Stamps_cleaned/"
-            if arc is not None:         
+            if arc is not None:
                 if arc=="HgAr":
                     single_number_focus=21346+54
                 elif arc=="Ne":
-                    single_number_focus=21550+54  
+                    single_number_focus=21550+54
                 if str(arc)=="Kr":
-                    single_number_focus=21754+54      
-                    
-                    
+                    single_number_focus=21754+54
+
+
         if dataset==6:
             STAMPS_FOLDER="/Volumes/Saturn_USA/PFS/ReducedData/Data_Nov_20_2020/Stamps_cleaned/"
-            if arc is not None:         
+            if arc is not None:
                 if arc=="Ar":
                     single_number_focus=34341+48
                 elif arc=="Ne":
-                    single_number_focus=34217+48 
+                    single_number_focus=34217+48
                 if str(arc)=="Kr":
                     single_number_focus=34561+48
-                    
+
         if dataset==7:
             STAMPS_FOLDER="/Volumes/Saturn_USA/PFS/ReducedData/Data_Nov_20_2020/Stamps_cleaned/"
             multi_var=True
@@ -1915,21 +2074,33 @@ class Zernike_result_analysis(object):
                 if multi_var==True:
                     obs_multi=27719
 
-                    
+        if dataset==8:
+            STAMPS_FOLDER='/Volumes/Saturn_USA/PFS/'+"ReducedData/Data_May_21/Stamps_cleaned/"
+            multi_var=True
+            if arc is not None:
+                if arc=="Ar":
+                    single_number_focus=51485+8*12
+                elif arc=="Ne":
+                    single_number_focus=59655+8*12
+                if str(arc)=="Kr":
+                    single_number_focus=52085+8*12
+
+
+
 
         self.STAMPS_FOLDER=STAMPS_FOLDER
-        
+
         columns=['z4','z5','z6','z7','z8','z9','z10','z11',
                       'hscFrac','strutFrac','dxFocal','dyFocal','slitFrac','slitFrac_dy',
                       'radiometricEffect','radiometricExponent',
                       'x_ilum','y_ilum',
                       'x_fiber','y_fiber','effective_ilum_radius','frd_sigma','det_vert','slitHolder_frac_dx',
                       'grating_lines','scattering_radius','scattering_slope','scattering_amplitude',
-                      'pixel_effect','fiber_r','flux']    
-        
+                      'pixel_effect','fiber_r','flux']
+
         self.columns=columns
-        
-        
+
+
         ############################################################
         # name your directory where you want to have files!
         if socket.gethostname()=='IapetusUSA':
@@ -1942,7 +2113,7 @@ class Zernike_result_analysis(object):
             RESULT_FOLDER='/tigress/ncaplar/Results/'
 
         self.RESULT_FOLDER=RESULT_FOLDER
-        
+
         if socket.gethostname()=='IapetusUSA':
             IMAGES_FOLDER='/Users/nevencaplar/Documents/PFS/Images/'+date+'/'
             if not os.path.exists(IMAGES_FOLDER):
@@ -1952,14 +2123,14 @@ class Zernike_result_analysis(object):
             IMAGES_FOLDER='/home/ncaplar/Images/'+date+'/'
             if not os.path.exists(IMAGES_FOLDER):
                 os.makedirs(IMAGES_FOLDER)
-            self.IMAGES_FOLDER=IMAGES_FOLDER            
+            self.IMAGES_FOLDER=IMAGES_FOLDER
 
-        ############################################################        
-        
+        ############################################################
 
-        
 
-        
+
+
+
 
 
         self.date=date
@@ -1968,53 +2139,53 @@ class Zernike_result_analysis(object):
         self.arc=arc
         self.zmax=zmax
         self.dataset=dataset
-        
+
         method='P'
         self.method=method
-    
+
 
 
     def create_results_of_fit_single(self):
         """create solution from a single image, create error and lower and upper erros
-    
+
         @param[in] date             date when the analysis was conducted
         @param[in] single_number    number of the image
         @param[in] arc              which arc was analyzed
         @returns       results_of_fit_single,err_results_of_fit_single,err_results_of_fit_single_lower,err_results_of_fit_single_upper to be fed to solution_at_0_and_plots
         """
-       
+
         if self.verbosity==1:
             print('supplied zMax is '+str(self.zmax))
             print(str(self.STAMPS_FOLDER))
-        
+
         zmax=self.zmax
         date=self.date
         arc=self.arc
         dataset=self.dataset
         single_number=self.single_number
         STAMPS_FOLDER=self.STAMPS_FOLDER
-        
-                
+
+
         columns22=self.columns22
         columns22_analysis=self.columns22_analysis
         columns=self.columns11
         columns11=self.columns11
         columns11_analysis=self.columns11_analysis
-            
+
         if dataset==0:
             if arc=='HgAr':
                 obs_possibilites=np.array([8552,8555,8558,8561,8564,8567,8570,8573,8603,8600,8606,8609,8612,8615,8618,8621,8624,8627])
             elif arc=='Ne':
                 obs_possibilites=np.array([8552,8555,8558,8561,8564,8567,8570,8573,8603,8600,8606,8609,8612,8615,8618,8621,8624,8627])+90
-    
+
         # F/3.2 data
         if dataset==1:
             if arc=='HgAr':
                 obs_possibilites=np.array([11796,11790,11784,11778,11772,11766,11760,11754,11748,11748,11694,11700,11706,11712,11718,11724,11730,11736])
             elif arc=='Ne':
                 # different sequence than for HgAr
-                obs_possibilites=np.array([12403,12397,12391,12385,12379,12373,12367,12361,12355,12355,12349,12343,12337,12331,12325,12319,12313,12307])    
-    
+                obs_possibilites=np.array([12403,12397,12391,12385,12379,12373,12367,12361,12355,12355,12349,12343,12337,12331,12325,12319,12313,12307])
+
         # F/2.8 data
         if dataset==2:
             if arc=='HgAr':
@@ -2027,8 +2198,8 @@ class Zernike_result_analysis(object):
             elif arc=='Kr':
                  obs_possibilites=np.array([17310+6,17310+12,17310+18,17310+24,17310+30,17310+36,17310+42,17310+48,17310+54,17310+54,\
                                             17310+60,17310+66,17310+72,17310+78,17310+84,17310+90,17310+96,17310+102,17310+54])
-        
-        # F/2.5 data  
+
+        # F/2.5 data
         if dataset==3:
             if arc=='HgAr':
                 obs_possibilites=np.array([19238+6,19238+12,19238+18,19238+24,19238+30,19238+36,19238+42,19238+48,19238+54,19238+54,\
@@ -2036,7 +2207,7 @@ class Zernike_result_analysis(object):
             elif arc=='Ne':
             # different sequence than for HgAr
                 obs_possibilites=np.array([19472+6,19472+12,19472+18,19472+24,19472+30,19472+36,19472+42,19472+48,19472+54,19472+54,\
-                                           19472+60,19472+66,19472+72,19472+78,19472+84,19472+90,19472+96,19472+102,19472+54])    
+                                           19472+60,19472+66,19472+72,19472+78,19472+84,19472+90,19472+96,19472+102,19472+54])
         # F/2.8 data - July data
         if dataset==4:
             if arc=='HgAr':
@@ -2048,7 +2219,7 @@ class Zernike_result_analysis(object):
             if arc=='Kr':
                  obs_possibilites=np.array([21754+6,21754+12,21754+18,21754+24,21754+30,21754+36,21754+42,21754+48,21754+54,21754+54,\
                                             21754+60,21754+66,21754+72,21754+78,21754+84,21754+90,21754+96,21754+102,21754+54])
-                      
+
         # F/2.8 data - fine defocus
         if dataset==5:
             if arc=='HgAr':
@@ -2057,14 +2228,14 @@ class Zernike_result_analysis(object):
                 obs_possibilites=np.arange(21484,21484+11*6,6)
             if arc=='Kr':
                  obs_possibilites=np.arange(21688,21688+11*6,6)
-   
-    
-        
+
+
+
         if zmax==22:
             columns_analysis=columns22_analysis
         else:
             columns_analysis=columns11_analysis
-        
+
         if dataset in [0,1,2,3,4]:
             results_of_fit_single=pd.DataFrame(np.zeros((18,len(columns_analysis))).reshape(-1,len(columns_analysis)),\
                                                index=['-4.0','-3.5','-3.0','-2.5','-2','-1.5','-1','-0.5','0','0','0.5','1','1.5','2','2.5','3.0','3.5','4'],\
@@ -2080,7 +2251,7 @@ class Zernike_result_analysis(object):
                                                          columns=columns_analysis)
         if dataset in [5]:
             fine_defocus_values=['-0.5','-0.4','-0.3','-0.2','-0.1','0','0.1','0.2','0.3','0.4','0.5']
-            
+
             results_of_fit_single=pd.DataFrame(np.zeros((len(fine_defocus_values),len(columns_analysis))).reshape(-1,len(columns_analysis)),\
                                                index=fine_defocus_values,\
                                                columns=columns_analysis)
@@ -2093,23 +2264,23 @@ class Zernike_result_analysis(object):
             err_results_of_fit_single_upper=pd.DataFrame(np.zeros((len(fine_defocus_values),len(columns_analysis))).reshape(-1,len(columns_analysis)),\
                                                          index=fine_defocus_values,\
                                                          columns=columns_analysis)
-            
-            
-     
+
+
+
         # arrange all results in one pandas dataframe
         RESULT_FOLDER='/Users/nevencaplar/Documents/PFS/TigerAnalysis/ResultsFromTiger/'+str(date)+'/'
-    
+
         single_defocus_list=obs_possibilites
-    
+
         image_index=single_number
         method='P'
         eps=5
-    
+
         res_likelihood=[]
-    
+
         for single_defocus in range(0,len(single_defocus_list)):
             try:
-    
+
                 index=['-4.0','-3.5','-3.0','-2.5','-2','-1.5','-1','-0.5','0','0','0.5','1','1.5','2','2.5','3.0','3.5','4']
                 obs=single_defocus_list[single_defocus]
                 index_name=index[single_defocus]
@@ -2118,29 +2289,29 @@ class Zernike_result_analysis(object):
                     chain=np.load(RESULT_FOLDER+'chain'+str(date)+'_Single_'+str(method)+'_'+str(obs)+str(single_number)+str(eps)+str(arc)+'Emcee3.npy')
                     likechain=np.load(RESULT_FOLDER+'likechain'+str(date)+'_Single_'+str(method)+'_'+str(obs)+str(single_number)+str(eps)+str(arc)+'Emcee3.npy')
                     print(str(single_number)+' obs (Emcee3, defocus): '+str(obs)+' is found!')
-                except:    
+                except:
                     chain=np.load(RESULT_FOLDER+'chain'+str(date)+'_Single_'+str(method)+'_'+str(obs)+str(single_number)+str(eps)+str(arc)+'Emcee2.npy')
                     likechain=np.load(RESULT_FOLDER+'likechain'+str(date)+'_Single_'+str(method)+'_'+str(obs)+str(single_number)+str(eps)+str(arc)+'Emcee2.npy')
                     print(str(single_number)+' obs (Emcee2, defocus): '+str(obs)+' is found!')
-                """                    
+                """
                 chain=np.load(RESULT_FOLDER+'chain'+str(date)+'_Single_'+str(method)+'_'+str(obs)+str(single_number)+str(eps)+str(arc)+'Emcee3.npy')
                 likechain=np.load(RESULT_FOLDER+'likechain'+str(date)+'_Single_'+str(method)+'_'+str(obs)+str(single_number)+str(eps)+str(arc)+'Emcee3.npy')
-                print(str(single_number)+' obs (Emcee3, defocus): '+str(obs)+' ('+str(index_name)+') is found!')             
-    
+                print(str(single_number)+' obs (Emcee3, defocus): '+str(obs)+' ('+str(index_name)+') is found!')
+
                 if obs==8600:
                     sci_image =np.load(STAMPS_FOLDER+'sci'+str(obs)+str(single_number)+str(arc)+'_Stacked_Dithered.npy')
                     var_image =np.load(STAMPS_FOLDER+'var'+str(obs)+str(single_number)+str(arc)+'_Stacked_Dithered.npy')
-                else:     
-    
+                else:
+
                     sci_image =np.load(STAMPS_FOLDER+'sci'+str(obs)+str(single_number)+str(arc)+'_Stacked.npy')
                     var_image =np.load(STAMPS_FOLDER+'var'+str(obs)+str(single_number)+str(arc)+'_Stacked.npy')
                     #sci_image_focus_large =np.load(STAMPS_FOLDER+'sci'+str(single_number_focus)+str(single_number)+str(arc)+'_Stacked_large.npy')
                     #var_image_focus_large =np.load(STAMPS_FOLDER+'var'+str(single_number_focus)+str(single_number)+str(arc)+'_Stacked_large.npy')
                 #print("test0")
-     
+
                 likechain0=likechain
                 chain0=chain
-                
+
                 minchain=chain0[np.abs(likechain0)==np.min(np.abs(likechain0))][0]
                 chi2reduced=2*np.min(np.abs(likechain0))/(sci_image.shape[0])**2
 
@@ -2158,7 +2329,7 @@ class Zernike_result_analysis(object):
                 #print(" test5")
                 err_results_of_fit_single_upper.iloc[single_defocus]=np.concatenate((minchain_err[:,1],np.array([1,1])),axis=0)
                 #print(" test6")
-            
+
             except:
                 ValueError
                 if self.verbosity==1:
@@ -2166,45 +2337,45 @@ class Zernike_result_analysis(object):
         #results_of_fit_single=results_of_fit_single[np.abs(results_of_fit_single['z4'])>0]
         #err_results_of_fit_single=err_results_of_fit_single[np.abs(err_results_of_fit_single['z4'])>0]
         #err_results_of_fit_single_lower=err_results_of_fit_single_lower[np.abs(err_results_of_fit_single_lower['z4'])>0]
-        #err_results_of_fit_single_upper=err_results_of_fit_single_upper[np.abs(err_results_of_fit_single_upper['z4'])>0]              
-        
+        #err_results_of_fit_single_upper=err_results_of_fit_single_upper[np.abs(err_results_of_fit_single_upper['z4'])>0]
+
         return results_of_fit_single,err_results_of_fit_single,err_results_of_fit_single_lower,err_results_of_fit_single_upper
 
 
     def create_results_of_fit_single_focus(self):
         """create solution from a single image, create error and lower and upper erros
-    
+
         @param[in] date             date when the analysis was conducted
         @param[in] single_number    number of the image
         @param[in] arc              which arc was analyzed
         @param[in] zMax             biggest Zernike polynomial analysed
         @param[in] dataset          which dataset
-        
+
         @returns       results_of_fit_single,err_results_of_fit_single,err_results_of_fit_single_lower,err_results_of_fit_single_upper to be fed to solution_at_0_and_plots
         """
-        
+
         zmax=self.zmax
         date=self.date
         arc=self.arc
         dataset=self.dataset
         single_number=self.single_number
         STAMPS_FOLDER=self.STAMPS_FOLDER
-        
-                
+
+
         columns22=self.columns22
         columns22_analysis=self.columns22_analysis
         columns=self.columns11
         columns11=self.columns11
         columns11_analysis=self.columns11_analysis
-        
-            
+
+
         if arc=='HgAr':
             obs_possibilites=np.array([11748])
             labels=['11748']
         elif arc=='Ne':
             obs_possibilites=np.array([12355])
             labels=['12355']
-            
+
         if dataset==2:
             if arc=='HgAr':
                 obs_possibilites=np.array([17017+54])
@@ -2215,8 +2386,8 @@ class Zernike_result_analysis(object):
             elif arc=='Kr':
                 obs_possibilites=np.array([17364])
                 labels=['17364']
-                
-                
+
+
         if dataset==3:
             if arc=='HgAr':
                 obs_possibilites=np.array([19238+54])
@@ -2224,10 +2395,10 @@ class Zernike_result_analysis(object):
             elif arc=='Ne':
                 obs_possibilites=np.array([19472+54 ])
                 labels=['19526']
-                
-            
+
+
         # dataset=4
-        if dataset==4:   
+        if dataset==4:
             if str(arc)=="HgAr":
                 obs_possibilites=np.array([21346+54 ])
                 labels=['21400']
@@ -2238,30 +2409,30 @@ class Zernike_result_analysis(object):
                 obs_possibilites=np.array([21754+54 ])
                 labels=['21808']
             else:
-                print("Not recognized arc-line")                
-                
+                print("Not recognized arc-line")
+
         if zmax==22:
             columns_analysis=columns22_analysis
         else:
-            columns_analysis=columns11_analysis        
-            
-    
+            columns_analysis=columns11_analysis
+
+
         results_of_fit_single=pd.DataFrame(np.zeros((len(labels),len(columns_analysis))).reshape(-1,len(columns_analysis)),index=labels,columns=columns_analysis)
         err_results_of_fit_single=pd.DataFrame(np.zeros((len(labels),len(columns_analysis))).reshape(-1,len(columns_analysis)),index=labels,columns=columns_analysis)
         err_results_of_fit_single_lower=pd.DataFrame(np.zeros((len(labels),len(columns_analysis))).reshape(-1,len(columns_analysis)),index=labels,columns=columns_analysis)
         err_results_of_fit_single_upper=pd.DataFrame(np.zeros((len(labels),len(columns_analysis))).reshape(-1,len(columns_analysis)),index=labels,columns=columns_analysis)
-    
+
 
         RESULT_FOLDER='/Users/nevencaplar/Documents/PFS/TigerAnalysis/ResultsFromTiger/'+str(date)+'/'
-    
+
         single_defocus_list=obs_possibilites
-    
+
         image_index=single_number
         method='P'
         eps=5
-    
+
         res_likelihood=[]
-    
+
         for single_defocus in range(0,len(single_defocus_list)):
             try:
                 obs=single_defocus_list[single_defocus]
@@ -2270,7 +2441,7 @@ class Zernike_result_analysis(object):
                     chain=np.load(RESULT_FOLDER+'chain'+str(date)+'_Single_'+str(method)+'_'+str(obs)+str(single_number)+str(eps)+str(arc)+'Emcee3.npy')
                     likechain=np.load(RESULT_FOLDER+'likechain'+str(date)+'_Single_'+str(method)+'_'+str(obs)+str(single_number)+str(eps)+str(arc)+'Emcee3.npy')
                     print(str(single_number)+' obs (Emcee3, focus): '+str(obs)+' is found!')
-                except:    
+                except:
                     chain=np.load(RESULT_FOLDER+'chain'+str(date)+'_Single_'+str(method)+'_'+str(obs)+str(single_number)+str(eps)+str(arc)+'Emcee2.npy')
                     likechain=np.load(RESULT_FOLDER+'likechain'+str(date)+'_Single_'+str(method)+'_'+str(obs)+str(single_number)+str(eps)+str(arc)+'Emcee2.npy')
                     print(str(single_number)+'obs (Emcee2, focus): '+str(obs)+' is found!')
@@ -2279,37 +2450,37 @@ class Zernike_result_analysis(object):
                 likechain=np.load(RESULT_FOLDER+'likechain'+str(date)+'_Single_'+str(method)+'_'+str(obs)+str(single_number)+str(eps)+str(arc)+'Emcee3.npy')
                 print(str(single_number)+' obs (Emcee3, focus): '+str(obs)+' is found!')
 
-    
+
                 if obs==8600:
                     sci_image =np.load(STAMPS_FOLDER+'sci'+str(obs)+str(single_number)+str(arc)+'_Stacked_Dithered.npy')
                     var_image =np.load(STAMPS_FOLDER+'var'+str(obs)+str(single_number)+str(arc)+'_Stacked_Dithered.npy')
-                else:       
+                else:
                     sci_image =np.load(STAMPS_FOLDER+'sci'+str(obs)+str(single_number)+str(arc)+'_Stacked.npy')
                     var_image =np.load(STAMPS_FOLDER+'var'+str(obs)+str(single_number)+str(arc)+'_Stacked.npy')
                     #sci_image_focus_large =np.load(STAMPS_FOLDER+'sci'+str(single_number_focus)+str(single_number)+str(arc)+'_Stacked_large.npy')
                     #var_image_focus_large =np.load(STAMPS_FOLDER+'var'+str(single_number_focus)+str(single_number)+str(arc)+'_Stacked_large.npy')
-    
-     
+
+
                 likechain0=likechain
-    
+
                 chain0=chain
                 minchain=chain0[np.abs(likechain0)==np.min(np.abs(likechain0))][0]
                 chi2reduced=2*np.min(np.abs(likechain0))/(sci_image.shape[0])**2
-                
+
                 chi2reduced=(2*np.min(np.abs(likechain0))-np.sum(np.log(2*np.pi*var_image)))/(sci_image.shape[0])**2
-                
-    
+
+
                 """
                 minchain_err=[]
                 for i in range(len(columns)):
                     #minchain_err=np.append(minchain_err,np.std(chain0[:,:,i].flatten()))
                     minchain_err=np.append(minchain_err,np.sqrt(chi2reduced)*np.std(chain0[:,:,i].flatten()))
-    
+
                 minchain_err=np.array(minchain_err)
                 """
                 minchain_err_old=self.create_minchain_err(chain0,likechain0,sci_image,var_image,old=1)
                 #print(minchain_err_old)
-               
+
                 minchain_err=self.create_minchain_err(chain0,likechain0,sci_image,var_image)
                 #print(" test2")
                 results_of_fit_single.iloc[single_defocus]=np.concatenate((minchain,np.array([chi2reduced,np.mean(sci_image**2/var_image)])),axis=0)
@@ -2321,7 +2492,7 @@ class Zernike_result_analysis(object):
                 #print(" test5")
                 err_results_of_fit_single_upper.iloc[single_defocus]=np.concatenate((minchain_err[:,1],np.array([1,1])),axis=0)
                 #print(" test6")
-            
+
             except:
                 ValueError
                 if self.verbosity==1:
@@ -2329,30 +2500,30 @@ class Zernike_result_analysis(object):
         #results_of_fit_single=results_of_fit_single[np.abs(results_of_fit_single['z4'])>0]
         #err_results_of_fit_single=err_results_of_fit_single[np.abs(err_results_of_fit_single['z4'])>0]
         #err_results_of_fit_single_lower=err_results_of_fit_single_lower[np.abs(err_results_of_fit_single_lower['z4'])>0]
-        #err_results_of_fit_single_upper=err_results_of_fit_single_upper[np.abs(err_results_of_fit_single_upper['z4'])>0]              
-        
+        #err_results_of_fit_single_upper=err_results_of_fit_single_upper[np.abs(err_results_of_fit_single_upper['z4'])>0]
+
         return results_of_fit_single,err_results_of_fit_single,err_results_of_fit_single_lower,err_results_of_fit_single_upper
-    
+
 
 
     def create_results_of_fit_single_fine_defocus(self):
-                    
+
         zmax=self.zmax
         date=self.date
         arc=self.arc
         dataset=self.dataset
         single_number=self.single_number
         STAMPS_FOLDER=self.STAMPS_FOLDER
-        
+
         method='P'
         eps=5
-        
+
         columns22=self.columns22
         columns22_analysis=self.columns22_analysis
         columns=self.columns11
         columns11=self.columns11
         columns11_analysis=self.columns11_analysis
-            
+
         # F/2.8 data - fine defocus
         if dataset==5:
             if arc=='HgAr':
@@ -2361,16 +2532,16 @@ class Zernike_result_analysis(object):
                 obs_possibilites=np.arange(21484,21484+11*6,6)
             if arc=='Kr':
                  obs_possibilites=np.arange(21688,21688+11*6,6)
-                    
+
         if zmax==22:
             columns_analysis=columns22_analysis
         else:
-            columns_analysis=columns11_analysis   
-            
-        list_of_chain0_stack=[]   
+            columns_analysis=columns11_analysis
+
+        list_of_chain0_stack=[]
         list_of_likechain0_stack=[]
         list_of_i=[]
-        for i in range(11):        
+        for i in range(11):
             obs=obs_possibilites[i]
             single_analysis=Zernike_Analysis(date,obs,single_number,eps,arc,dataset)
             try:
@@ -2380,36 +2551,36 @@ class Zernike_result_analysis(object):
                 list_of_i.append(i)
             except:
                 pass
-            
-            
+
+
         chain0_superstack=np.concatenate((list_of_chain0_stack))
         likechain0_superstack=np.concatenate((list_of_likechain0_stack))
-         
+
         return np.median(chain0_superstack,axis=0)
 
 
     def solution_at_0_and_plots(self,results_of_fit_single,err_results_of_fit_single,err_results_of_fit_single_lower,err_results_of_fit_single_upper,\
                                 plot=True,return_solution_at_05_0_05=None):
         """create solution at the focus and plot dependence with defocus
-    
+
         @param[in] date             date when the analysis was conducted
         @param[in] single_number    number of the image
         @param[in] arc              which arc was analyzed
-      
-        """    
-        
+
+        """
+
         date=self.date
         single_number=self.single_number
         arc=self.arc
         zMax=self.zmax
-        
+
         columns22=self.columns22
         columns22_analysis=self.columns22_analysis
         columns=self.columns11
         columns11=self.columns11
         columns11_analysis=self.columns11_analysis
-        
-        
+
+
         if zMax==22:
             columns_analysis=columns22_analysis
             columns=columns22
@@ -2418,19 +2589,19 @@ class Zernike_result_analysis(object):
             columns_analysis=columns11_analysis
             columns=columns11
             z_addition_factor=0
-        
-        
+
+
         results_of_fit_single=results_of_fit_single[np.abs(results_of_fit_single['z4'])>0]
         len_of_negative_defocus=len(results_of_fit_single[np.abs(results_of_fit_single['z4'])<-1.5])
         len_of_positive_defocus=len(results_of_fit_single[np.abs(results_of_fit_single['z4'])>1.5])
-        
+
         err_results_of_fit_single=err_results_of_fit_single[np.abs(err_results_of_fit_single['z4'])>0]
         err_results_of_fit_single_lower=err_results_of_fit_single_lower[np.abs(err_results_of_fit_single_lower['z4'])>0]
-        err_results_of_fit_single_upper=err_results_of_fit_single_upper[np.abs(err_results_of_fit_single_upper['z4'])>0]    
+        err_results_of_fit_single_upper=err_results_of_fit_single_upper[np.abs(err_results_of_fit_single_upper['z4'])>0]
 
         # in the case when results_of_fit_single consists of 18 lines (from -4 to +4 in steps of 0.5, with two values for focus) this takes values near focus
         index_arr=results_of_fit_single['z4'].index.values.astype(float)
-        results_of_fit_single_near_focus=results_of_fit_single[np.abs(index_arr)<=0.5]    
+        results_of_fit_single_near_focus=results_of_fit_single[np.abs(index_arr)<=0.5]
         results_of_fit_single_near_focus=results_of_fit_single_near_focus[np.abs(results_of_fit_single_near_focus['z4'])>0]
 
 
@@ -2445,14 +2616,14 @@ class Zernike_result_analysis(object):
                 solution_at_05_0_05=[]
                 for i in range(11):
                     solution_at_05_0_05.append(list(solution_at_0))
-    
+
                 solution_at_05_0_05=np.array(solution_at_05_0_05)
             else:
-                solution_at_0=np.full(31,0)    
+                solution_at_0=np.full(31,0)
                 solution_at_05_0_05=[]
                 for i in range(11):
                     solution_at_05_0_05.append(list(solution_at_0))
-    
+
                 solution_at_05_0_05=np.array(solution_at_05_0_05)
 
             if return_solution_at_05_0_05 is None:
@@ -2462,13 +2633,13 @@ class Zernike_result_analysis(object):
 
         else:
             IMAGES_FOLDER='/Users/nevencaplar/Documents/PFS/Images/'+str(date)+'/'
-    
+
             solution_at_0=[]
             solution_at_05_0_05=[]
-    
-    
+
+
             for q in columns_analysis:
-    
+
                 z4_arr=np.array(results_of_fit_single[q])
                 z4_arr_err=np.array(err_results_of_fit_single[q])
                 z4_arr_err_up=np.array(err_results_of_fit_single_upper[q])
@@ -2480,7 +2651,7 @@ class Zernike_result_analysis(object):
                 #print(z4_arr_err)
                 #print(z4_arr_err_up)
                 #print(z4_arr_err_low)
-                
+
                 z4_arr_no0=z4_arr[np.abs(index_arr)>0.5]
                 z4_arr_no0_err=z4_arr_err[np.abs(index_arr)>0.5]
                 z4_arr_no0_err_up=z4_arr_err_up[np.abs(index_arr)>0.5]
@@ -2492,21 +2663,21 @@ class Zernike_result_analysis(object):
                 #print(z4_arr_no0_err)
                 #print(z4_arr_no0_err_up)
                 #print(z4_arr_no0_err_low)
-                
-                
+
+
                 z4_arr_only0=z4_arr[np.abs(index_arr)<=0.5]
                 z4_arr_only0_err=z4_arr_err[np.abs(index_arr)<=0.5]
-                z4_arr_only0_err_up=z4_arr_err_up[np.abs(index_arr)<=0.5] 
+                z4_arr_only0_err_up=z4_arr_err_up[np.abs(index_arr)<=0.5]
                 z4_arr_only0_err_low=z4_arr_err_low[np.abs(index_arr)<=0.5]
                 index_arr_only0=index_arr[np.abs(index_arr)<=0.5]
-    
-    
-    
+
+
+
                 fit_res=[]
                 fit_res_focus=[]
                 interim_zero_solutions=[]
-    
-                
+
+
                 if q in columns[:8+z_addition_factor]:
                     # these variables are fit via linear fit, without values at focus
                     # it is z4-z11
@@ -2529,15 +2700,15 @@ class Zernike_result_analysis(object):
                     #print('z4_arr_no0_err_low'+str(z4_arr_no0_err_low))
                     #print('z4_arr_no0_err_up'+str(z4_arr_no0_err_up))
                     popt=optimize.leastsq(curve_fit_custom_lin,x0=[1,1],args=(np.array(index_arr_no0)[good_index],np.array(z4_arr_no0)[good_index],np.array(z4_arr_no0_err_low)[good_index],np.array(z4_arr_no0_err_up)[good_index]))[0]
-    
+
                     for i in np.linspace(-4.5,4.5,19):
                         fit_res.append(lin_fit_1D(i,popt[0],popt[1]))
                     for j in np.linspace(-0.5,0.5,11):
                         fit_res_focus.append(lin_fit_1D(j,popt[0],popt[1]))
-                        
+
                     solution_at_0.append(fit_res[9])
                     solution_at_05_0_05.append(fit_res_focus)
-    
+
                 interim_zero_solutions=[]
                 if q in columns[8+z_addition_factor:25+z_addition_factor]:
                     # these variables are set at mean value (constant fit), without values at focus
@@ -2548,15 +2719,15 @@ class Zernike_result_analysis(object):
                     #print('z4_arr_no0: '+str(z4_arr_no0))
                     #print('z4_arr_no0_err_low: '+str(z4_arr_no0_err_low))
                     #print('z4_arr_no0_err_up: '+str(z4_arr_no0_err_up))
-                    
+
                     # if all the values are the same, i.e., you did nove this value around in the fit
                     # if not, go through fitting routine
                     #print('len(np.unique(z4_arr_no0))'+str(len(np.unique(z4_arr_no0))))
                     #print('np.unique(z4_arr_no0)'+str(np.unique(z4_arr_no0)))
                     if len(np.unique(z4_arr_no0))==1:
                         fit_res=lin_fit_1DConstant(np.linspace(-4.5,4.5,19),np.unique(z4_arr_no0)[0])
-                        fit_res_focus=lin_fit_1DConstant(np.linspace(-0.5,0.5,11),np.unique(z4_arr_no0)[0])                        
-                    else:                            
+                        fit_res_focus=lin_fit_1DConstant(np.linspace(-0.5,0.5,11),np.unique(z4_arr_no0)[0])
+                    else:
                         for l in range(len(index_arr_no0)):
                             #print('l: '+str(l))
                             popt=optimize.leastsq(curve_fit_custom_con,x0=[1],args=(np.delete(index_arr_no0,l),np.delete(z4_arr_no0,l), np.delete(z4_arr_no0_err_low,l),np.delete(z4_arr_no0_err_up,l)))[0]
@@ -2571,33 +2742,33 @@ class Zernike_result_analysis(object):
                         #print(str(q)+str(interim_zero_solutions_arr[:,0]))
                         good_index=interim_zero_solutions_arr[:,0].astype(int)
                         popt=optimize.leastsq(curve_fit_custom_con,x0=[1],args=(np.array(index_arr_no0)[good_index],np.array(z4_arr_no0)[good_index],np.array(z4_arr_no0_err_low)[good_index],np.array(z4_arr_no0_err_up)[good_index]))[0]
-                        
+
                         fit_res=lin_fit_1DConstant(np.linspace(-4.5,4.5,19),popt[0])
                         fit_res_focus=lin_fit_1DConstant(np.linspace(-0.5,0.5,11),popt[0])
-                
+
                     solution_at_0.append(fit_res[9])
                     solution_at_05_0_05.append(fit_res_focus)
-    
+
                 if q in np.concatenate((np.array(columns[25+z_addition_factor:]),np.array(['chi2','chi2max'])),axis=0):
                     # these variables are set at value as measured at 0 - (perhaps is should be close to 0)
                     if z4_arr_only0.size==1:
                         for i in np.linspace(-4.5,4.5,19):
-                            fit_res.append(z4_arr_only0) 
-                        
+                            fit_res.append(z4_arr_only0)
+
                         for j in np.linspace(-0.5,0.5,11):
                             fit_res_focus.append(z4_arr_only0)
-                        
+
                         solution_at_0.append(fit_res[9])
                         solution_at_05_0_05.append(fit_res_focus)
                     else:
                         # these variables are set at mean value (constant fit), without values at focus
                         popt=optimize.leastsq(curve_fit_custom_con,x0=[1],args=(index_arr_only0, z4_arr_only0, z4_arr_only0_err_low,z4_arr_only0_err_up))[0]
                         fit_res=lin_fit_1DConstant(np.linspace(-4.5,4.5,19),popt[0])
-                        fit_res_focus=lin_fit_1DConstant(np.linspace(-0.5,0.5,11),popt[0]) 
-                        
+                        fit_res_focus=lin_fit_1DConstant(np.linspace(-0.5,0.5,11),popt[0])
+
                         solution_at_0.append(fit_res[9])
                         solution_at_05_0_05.append(fit_res_focus)
-    
+
                 #making plots here
                 ######
                 if plot==True:
@@ -2616,18 +2787,18 @@ class Zernike_result_analysis(object):
                     if not os.path.exists(IMAGES_FOLDER+'Defocus/'+str(single_number)+'/'):
                         os.makedirs(IMAGES_FOLDER+'Defocus/'+str(single_number)+'/')
                     plt.savefig(IMAGES_FOLDER+'Defocus/'+str(single_number)+'/'+str(arc)+str(q))
-        
+
                     if not os.path.exists(IMAGES_FOLDER+'Defocus/'+str(q)+'/'):
                         os.makedirs(IMAGES_FOLDER+'Defocus/'+str(q)+'/')
                     plt.savefig(IMAGES_FOLDER+'Defocus/'+str(q)+'/'+str(arc)+str(single_number))
-        
-                    plt.close()  
+
+                    plt.close()
                 else:
                     pass
                 ######
-    
+
             solution_at_0=np.array(solution_at_0)[:len(solution_at_0)-2]
-            
+
             solution_at_05_0_05=np.transpose(np.array(solution_at_05_0_05[0:42]))
             if self.verbosity==1:
                 print('shape of the solution_at_05_0_05 is: ' +str(solution_at_05_0_05.shape))
@@ -2635,25 +2806,25 @@ class Zernike_result_analysis(object):
                 return solution_at_0
             else:
                 return solution_at_0,solution_at_05_0_05
-            
+
 
     def create_minchain_err(self,chain0,likechain0,sci_image,var_image,old=0):
         """create error on the parameters from the chains
-        
-        @param chain0      
-        @param likechain0  
-        @param sci_image  
-        @param var_image  
-        @param old 
-        
-        @returns        
+
+        @param chain0
+        @param likechain0
+        @param sci_image
+        @param var_image
+        @param old
+
+        @returns
         """
         columns22=self.columns22
         columns11=self.columns11
 
         minchain_err_test=[]
         if len(chain0[0][0])==42:
-            columns=columns22          
+            columns=columns22
         else:
             columns=columns11
 
@@ -2661,27 +2832,27 @@ class Zernike_result_analysis(object):
         for var_number in range(len(columns)):
             #ravel likelihood
             likechain0_Emcee3_ravel=np.ravel(likechain0)
-    
+
             # connect chain and lnchain
             chain0_Emcee3_ravel=np.ravel(chain0[:,:,var_number])
-            chain0_Emcee3_ravel_argsort=np.argsort(chain0_Emcee3_ravel)  
+            chain0_Emcee3_ravel_argsort=np.argsort(chain0_Emcee3_ravel)
             chain0_Emcee3_ravel_sort=chain0_Emcee3_ravel[chain0_Emcee3_ravel_argsort]
             likechain0_Emcee3_ravel_sort=likechain0_Emcee3_ravel[chain0_Emcee3_ravel_argsort]
-    
+
             # move to chi2 space
             # you should take into account mask!
             chi2_Emcee3_ravel_sort=-(np.array(likechain0_Emcee3_ravel_sort)*(2)-np.log(2*np.pi*np.sum(var_image)))/(sci_image.shape[0])**2
             min_chi2_Emcee3_ravel_sort=np.min(chi2_Emcee3_ravel_sort)
-    
+
             # simplest standard deviation
             std_chain=np.std(chain0_Emcee3_ravel_sort)
-    
+
             #best solution
             mean_chain=chain0_Emcee3_ravel_sort[chi2_Emcee3_ravel_sort==np.min(chi2_Emcee3_ravel_sort)][0]
-    
+
             # step size
             step=std_chain/10
-            
+
             # if standard deviation is much much smaller than the mean value aborth the effort
             # and set the erros to be equal to the mean value
             # if the standard deviation is so small it means that there were problems in the fit
@@ -2694,22 +2865,22 @@ class Zernike_result_analysis(object):
                     res=[]
                     for i in np.arange(mean_chain-30*step,mean_chain+30*step,step):
                         selected_chi2_Emcee3_ravel_sort=chi2_Emcee3_ravel_sort[(np.array(chain0_Emcee3_ravel_sort<i+step)&np.array(chain0_Emcee3_ravel_sort>i))]
-                        if len(selected_chi2_Emcee3_ravel_sort>10):   
+                        if len(selected_chi2_Emcee3_ravel_sort>10):
                             res.append([i+step/2,np.min(chi2_Emcee3_ravel_sort[(np.array(chain0_Emcee3_ravel_sort<i+step)&np.array(chain0_Emcee3_ravel_sort>i))])])
-        
+
                     res=np.array(res)
-        
+
                     #print(columns[var_number]+' min : '+str(mean_chain))
                     #print(columns[var_number]+' std : '+str(std_chain))
-        
+
                     # find low limit and high limit
                     res_within2_chi=res[res[:,1]<min_chi2_Emcee3_ravel_sort*2]
                     minchain_err_element=[-np.abs(mean_chain-res_within2_chi[0,0]),np.abs(res_within2_chi[-1,0]-mean_chain)]
-                except IndexError:   
+                except IndexError:
                     if self.verbosity==1:
                         print(columns[var_number]+': failed!')
                     minchain_err_element=[-mean_chain,mean_chain]
-    
+
             minchain_err_test.append(minchain_err_element)
             #print(columns[var_number]+' min_err : '+str(minchain_err_element[0]))
             #print(columns[var_number]+' max_err : '+str(minchain_err_element[1]))
@@ -2717,22 +2888,22 @@ class Zernike_result_analysis(object):
             minchain_err_test=np.mean(np.abs(np.array(minchain_err_test)),axis=1)
             #print(minchain_err_test)
             return minchain_err_test
-        else:       
+        else:
             return np.array(minchain_err_test)
-         
 
-            
 
- 
+
+
+
 def Ifun16Ne (lambdaV,lambda0,Ne):
     """Construct Lorentizan scattering
-        @param lambdaV      
-        @param lambda0  
+        @param lambdaV
+        @param lambda0
         @param Ne           number of effective lines
-        @returns              
+        @returns
     """
-    
-    
+
+
     return (lambda0/(Ne*np.pi*np.sqrt(2)))**2/((lambdaV-lambda0)**2+(lambda0/(Ne*np.pi*np.sqrt(2)))**2)
 
 
@@ -2740,18 +2911,18 @@ def create_mask(FFTTest_fiber_and_pixel_convolved_downsampled_40,semi=None):
     """!given the image, create a mask
         if semi is not specified, it gives the masks which span in all directions
         if semi is specified is masks towards only towards the region specified
-        
-    
+
+
     @param FFTTest_fiber_and_pixel_convolved_downsampled_40     science data stamp
     @param semi (+,-,l,r)                                       which region to uncover
-     """    
+     """
     central_position=np.array(find_centroid_of_flux(FFTTest_fiber_and_pixel_convolved_downsampled_40))
     central_position_int=np.round(central_position)
     central_position_int_x=int(central_position_int[0])
     central_position_int_y=int(central_position_int[1])
 
     size=len(FFTTest_fiber_and_pixel_convolved_downsampled_40)
-    
+
     center_square=np.zeros((size,size))
     if size==20:
         cutsize=3
@@ -2759,7 +2930,7 @@ def create_mask(FFTTest_fiber_and_pixel_convolved_downsampled_40,semi=None):
     if size==40:
         cutsize=6
         small_cutsize=4
-    
+
     center_square[central_position_int_y-cutsize:+central_position_int_y+cutsize,central_position_int_x-cutsize:central_position_int_x+cutsize]=np.ones((2*cutsize,2*cutsize))
     # need to add l and r here
     horizontal_cross=np.zeros((size,size))
@@ -2809,72 +2980,88 @@ def create_mask(FFTTest_fiber_and_pixel_convolved_downsampled_40,semi=None):
     if semi=='-':
         total_mask[:(central_position_int_y),0:size]=np.ones(((central_position_int_y),size))
     if semi=='r':
-        total_mask[:(central_position_int_y),0:size]=np.ones(((central_position_int_y),size))  
+        total_mask[:(central_position_int_y),0:size]=np.ones(((central_position_int_y),size))
     if semi=='l':
-        total_mask[:(central_position_int_y),0:size]=np.ones(((central_position_int_y),size))   
-        
+        total_mask[:(central_position_int_y),0:size]=np.ones(((central_position_int_y),size))
+
     return [center_square,horizontal_cross,vertical_cross,diagonal_cross,total_mask]
 
 
-def create_res_data(FFTTest_fiber_and_pixel_convolved_downsampled_40,mask=None,custom_cent=None,size_pixel=None):
+def create_res_data(FFTTest_fiber_and_pixel_convolved_downsampled_40, mask=None, custom_cent=None, size_pixel=None):
     """!given the small science image, create radial profile in microns
-    
+
     @param FFTTest_fiber_and_pixel_convolved_downsampled_40     science data stamps
     @param mask                                                 mask to cover science data [default: None]
     @param custom_cent                                          if None create new center using the function ``find_centroid_of_flux'' [default:None]
-                                                                - otherwise pass a list/array/tuple with [x_center, y_center] in units of pixels 
+                                                                - otherwise pass a list/array/tuple with [x_center, y_center] in units of pixels
                                                                 (e.g., output of find_centroid_of_flux function )
     @param size_pixel                                           pixel size in the image, in microns [default:1, dithered=7.5, normal operation=15]
-     """     
-     
-    xs_uniform=find_centroid_of_flux(np.ones(FFTTest_fiber_and_pixel_convolved_downsampled_40.shape))[0] 
-    ys_uniform=find_centroid_of_flux(np.ones(FFTTest_fiber_and_pixel_convolved_downsampled_40.shape))[1]
-    
-    print('center of the uniform values in units of pixels is:' +str([xs_uniform,ys_uniform]))
-    
-    # changed in 0.25 
-    if size_pixel is None:
-        size_pixel=15
+     """
 
-    image_shape=np.array(FFTTest_fiber_and_pixel_convolved_downsampled_40.shape)
+    xs_uniform = find_centroid_of_flux(np.ones(FFTTest_fiber_and_pixel_convolved_downsampled_40.shape))[0]
+    ys_uniform = find_centroid_of_flux(np.ones(FFTTest_fiber_and_pixel_convolved_downsampled_40.shape))[1]
+
+    print('center of the uniform values in units of pixels is:' + str([xs_uniform, ys_uniform]))
+
+    # changed in 0.25
+    if size_pixel is None:
+        size_pixel = 15
+
+    image_shape = np.array(FFTTest_fiber_and_pixel_convolved_downsampled_40.shape)
 
     if mask is None:
-        mask=np.ones((FFTTest_fiber_and_pixel_convolved_downsampled_40.shape[0],FFTTest_fiber_and_pixel_convolved_downsampled_40.shape[1]))
-    
+        mask = np.ones((FFTTest_fiber_and_pixel_convolved_downsampled_40.shape[0],
+                        FFTTest_fiber_and_pixel_convolved_downsampled_40.shape[1]))
+
     if custom_cent is None:
-        xs0=(find_centroid_of_flux(FFTTest_fiber_and_pixel_convolved_downsampled_40,mask)[0]-xs_uniform)*size_pixel
-        ys0=(find_centroid_of_flux(FFTTest_fiber_and_pixel_convolved_downsampled_40,mask)[1]-ys_uniform)*size_pixel
-        print('center deduced  (in respect to the center of image, units of microns) at:' +str([xs0,ys0]))
+        xs0 = (find_centroid_of_flux(FFTTest_fiber_and_pixel_convolved_downsampled_40, mask)[0]-xs_uniform) *\
+            size_pixel
+        ys0 = (find_centroid_of_flux(FFTTest_fiber_and_pixel_convolved_downsampled_40, mask)[1]-ys_uniform) *\
+            size_pixel
+        print('center deduced  (in respect to the center of image, units of microns) at:' + str([xs0, ys0]))
     else:
-        xs0,ys0=(custom_cent[0]-xs_uniform)*size_pixel,(custom_cent[1]-xs_uniform)*size_pixel
-        print('center specified (in respect to the center of image, units of pixels) at:' +str([xs0,ys0]))
-            
-    pointsx = np.linspace(-(int(image_shape[0]*size_pixel)-size_pixel)/2,(int(image_shape[0]*size_pixel)-size_pixel)/2,num=int(image_shape[0]))
-    pointsy = np.linspace(-(int(image_shape[0]*size_pixel)-size_pixel)/2,(int(image_shape[0]*size_pixel)-size_pixel)/2,num=int(image_shape[0]))
+        xs0, ys0 = (custom_cent[0]-xs_uniform)*size_pixel, (custom_cent[1]-xs_uniform) * size_pixel
+        print('center specified (in respect to the center of image, units of pixels) at:' + str([xs0, ys0]))
+
+    pointsx = np.linspace(-(int(image_shape[0]*size_pixel)-size_pixel)/2,
+                          (int(image_shape[0]*size_pixel)-size_pixel)/2, num=int(image_shape[0]))
+    pointsy = np.linspace(-(int(image_shape[0]*size_pixel)-size_pixel)/2,
+                          (int(image_shape[0]*size_pixel)-size_pixel)/2, num=int(image_shape[0]))
     xs, ys = np.meshgrid(pointsx, pointsy)
-    r0 = np.sqrt((xs-xs0)** 2 + (ys-ys0)** 2)
-    
+    r0 = np.sqrt((xs-xs0) ** 2 + (ys-ys0) ** 2)
 
-    
-    distances=range(int(image_shape[0]/2*size_pixel*1.2))
+    distances = range(int(image_shape[0]/2 * size_pixel*1.2))
 
-    res_test_data=[]
+    res_test_data = []
+    res_test_data_std = []
     for r in distances:
-        pixels_upper_limit=(mask*FFTTest_fiber_and_pixel_convolved_downsampled_40)[r0<(r+size_pixel)]
-        pixels_lower_limit=(mask*FFTTest_fiber_and_pixel_convolved_downsampled_40)[r0<(r)]
-        
-        mask_upper_limit=mask[r0<(r+size_pixel)]
-        mask_lower_limit=mask[r0<(r)]
-        
-        number_of_valid_pixels=np.sum(mask_upper_limit)-np.sum(mask_lower_limit)
-        
-        if number_of_valid_pixels==0:
-            res_test_data.append(0)
-        else:                  
-            average_flux=(np.sum(pixels_upper_limit)-np.sum(pixels_lower_limit))/number_of_valid_pixels
-            res_test_data.append(average_flux)        
+        # pixels_upper_limit=(mask*FFTTest_fiber_and_pixel_convolved_downsampled_40)[r0<(r+size_pixel)]
+        # pixels_lower_limit=(mask*FFTTest_fiber_and_pixel_convolved_downsampled_40)[r0<(r)]
+        pixels_upper_lower = (mask *
+                              FFTTest_fiber_and_pixel_convolved_downsampled_40)[(r0 > r) & (r0 < (r+size_pixel))]
 
-    return distances,res_test_data 
+        # mask_upper_limit = mask[r0 < (r+size_pixel)]
+        # mask_lower_limit = mask[r0 < (r)]
+        mask_upper_limit = (mask)[(r > r0) & (r0 < (r+size_pixel))]
+
+        # number_of_valid_pixels = np.sum(mask_upper_limit) - np.sum(mask_lower_limit)
+        number_of_valid_pixels = np.sum(mask_upper_limit)
+
+        if number_of_valid_pixels == 0:
+            res_test_data.append(0)
+            res_test_data_std.append(0)
+        else:
+            # average_flux=(np.sum(pixels_upper_limit)-np.sum(pixels_lower_limit))/number_of_valid_pixels
+            # res_test_data.append(average_flux)
+
+            average_flux = np.mean(pixels_upper_lower)
+            res_test_data.append(average_flux)
+
+            # data = np.array(pixels_upper_limit) - np.array(pixels_lower_limit)
+            bootresult = np.mean(bootstrap(pixels_upper_lower, bootfunc=np.std))
+            res_test_data_std.append(bootresult)
+
+    return distances, res_test_data, res_test_data_std
 
 def custom_fftconvolve(array1, array2):
     assert array1.shape==array2.shape
@@ -2934,30 +3121,30 @@ def value_at_defocus(mm,a,b=None):
     if b==None:
         return a
     else:
-        return a*mm+b 
-    
+        return a*mm+b
+
 def create_x(mm,parameters):
     """
     transfrom multi analysis variable into single analysis variables
     only for z11
-    
+
     @param mm     defocu at LAM
     @param parameters multi parameters
-    
+
     """
     #for single case, up to z11
-    
+
     zparameters=parameters[:16]
     globalparameters=parameters[16:]
-    
-    
+
+
     x=np.zeros((8+len(globalparameters)))
     for i in range(0,8,1):
-        x[i]=value_at_defocus(mm,zparameters[i*2],zparameters[i*2+1])      
+        x[i]=value_at_defocus(mm,zparameters[i*2],zparameters[i*2+1])
 
     for i in range(len(globalparameters)):
-        x[int(len(zparameters)/2)+i]=globalparameters[i] 
-    
+        x[int(len(zparameters)/2)+i]=globalparameters[i]
+
 
     return x
 
@@ -2970,8 +3157,8 @@ def add_pupil_parameters_to_all_parameters(parameters,pupil_parameters):
     return np.concatenate((parameters[:lenpar-11],pupil_parameters[:6],parameters[lenpar-11:lenpar-7],pupil_parameters[6:],parameters[lenpar-7:]),axis=0)
 
 
-    
-    
+
+
 
 def curve_fit_custom_lin(V,index_arr,z4_arr,z4_arr_err_low,z4_arr_err_up):
     a,b=V
@@ -2992,7 +3179,7 @@ def curve_fit_custom_con(V,index_arr,z4_arr,z4_arr_err_low,z4_arr_err_up):
     weight[yfit<=z4_arr]=z4_arr_err_low[yfit<=z4_arr] # else use lower weight
     #print('weight_after'+str(weight))
     #print('(yfit-z4_arr)**2/weight**2 '+str((yfit-z4_arr)**2/weight**2 ))
-    return (yfit-z4_arr)**2/weight**2 
+    return (yfit-z4_arr)**2/weight**2
 
 """
 def curve_fit_custom_con(V,index_arr,z4_arr,z4_arr_err_low,z4_arr_err_up):
@@ -3001,7 +3188,7 @@ def curve_fit_custom_con(V,index_arr,z4_arr,z4_arr_err_low,z4_arr_err_up):
     weight=np.ones_like(yfit)
     weight[yfit>z4_arr]=z4_arr_err_up[yfit>z4_arr] # if the fit point is above the measure, use upper weight
     weight[yfit<=z4_arr]=z4_arr_err_low[yfit<=z4_arr] # else use lower weight
-    return (yfit-z4_arr)**2/weight**2 
+    return (yfit-z4_arr)**2/weight**2
 """
 
 def lin_fit_1D(x, a, b):
@@ -3019,24 +3206,24 @@ def lin_fit_2D(x,y, a, b,c):
 def chi_50000(sci_image,var_image,res_iapetus):
 
     #sci_image =np.load(STAMPS_FOLDER+'sci'+str(obs)+str(single_number)+str(arc)+'_Stacked.npy')
-    #var_image =np.load(STAMPS_FOLDER+'var'+str(obs)+str(single_number)+str(arc)+'_Stacked.npy')    
+    #var_image =np.load(STAMPS_FOLDER+'var'+str(obs)+str(single_number)+str(arc)+'_Stacked.npy')
     multiplicative_factor_to_renormalize_to_50000=np.max(sci_image)/50000
     sci_image_renormalized=sci_image/multiplicative_factor_to_renormalize_to_50000
     var_image_renormalized=var_image/multiplicative_factor_to_renormalize_to_50000
     res_iapetus_renormalized=res_iapetus/multiplicative_factor_to_renormalize_to_50000
-    
+
 
     return np.mean((sci_image_renormalized-res_iapetus_renormalized)**2/var_image_renormalized)
 
 def add_artificial_noise(sci_image,var_image,res_iapetus):
-    
+
     """
     add extra noise so that it has comparable noise as if the max flux in the image (in the single pixel) is 40000
-    
-    
+
+
     """
 
-    
+
     multi_factor=np.max(sci_image)/40000
     Max_SN_now=np.max(sci_image)/np.max(np.sqrt(var_image))
     dif_in_SN=Max_SN_now/200
@@ -3044,12 +3231,12 @@ def add_artificial_noise(sci_image,var_image,res_iapetus):
     artifical_noise=np.array(artifical_noise)
     for i in range(len(artifical_noise)):
         for j in range(len(artifical_noise)):
-            artifical_noise[i,j]=np.random.randn()*np.sqrt((dif_in_SN**2-1)*var_image[i,j])   
-            
-    if dif_in_SN>1:        
+            artifical_noise[i,j]=np.random.randn()*np.sqrt((dif_in_SN**2-1)*var_image[i,j])
+
+    if dif_in_SN>1:
         return (sci_image+artifical_noise),((dif_in_SN**2)*var_image),res_iapetus
     else:
-        return (sci_image),((dif_in_SN**2)*var_image),res_iapetus 
+        return (sci_image),((dif_in_SN**2)*var_image),res_iapetus
 
 
 
@@ -3083,7 +3270,7 @@ def _interval_overlap(first_breaks: np.ndarray,
 
   return np.maximum(upper - lower, 0)
 
-    
+
 def _resize_weights(
     old_size: int, new_size: int, reflect: bool = False) -> np.ndarray:
   """Create a weight matrix for resizing with the local mean along an axis.
@@ -3147,18 +3334,18 @@ def resize(array: np.ndarray,
 def find_centroid_of_flux(image,mask=None):
     """
     function giving the tuple of the position of weighted average of the flux in a square image
-    
+
     @input image    poststamp image for which to find center
     @input mask     mask, same size as the image
-    
+
     returns tuple with x and y center, in units of pixels
     """
     if mask is None:
         mask=np.ones(image.shape)
-    
+
     x_center=[]
     y_center=[]
-    
+
     # if there are nan values (most likely cosmics), replace them with max value in the rest of the image
     # careful, this can seriously skew the results if not used for this purpose
     max_value_image=np.max(image[~np.isnan(image)])
@@ -3185,8 +3372,8 @@ def find_centroid_of_flux(image,mask=None):
 def cut_Centroid_of_natural_resolution_image(image,size_natural_resolution,oversampling,dx,dy):
     """
     function which takes central part of a larger oversampled image
-    
-    @param image                          array contaning suggested starting values for a model 
+
+    @param image                          array contaning suggested starting values for a model
     @param size_natural_resolution        how many natural units to create new image (fix)
     @param oversampling                   oversampling
     @param dx                             how much to move in dx direction (fix)
@@ -3198,14 +3385,14 @@ def cut_Centroid_of_natural_resolution_image(image,size_natural_resolution,overs
 
     res=image[positions_from_where_to_start_cut[1]:positions_from_where_to_start_cut[1]+int(size_natural_resolution),
                  positions_from_where_to_start_cut[0]:positions_from_where_to_start_cut[0]+int(size_natural_resolution)]
-    
+
     return res
 
 def downsample_manual_function(optPsf_cut_fiber_convolved,npixfinal):
     """
     function which downsamples the image ''manually'' i.e., without interpolation
-    
-    
+
+
     @param optPsf_cut_fiber_convolved     image which needs to be downsampled (in our case this will be image of the optical psf convolved with fiber)
     @param npixfinal                      what is the size of the final image
     """
@@ -3223,11 +3410,10 @@ def downsample_manual_function(optPsf_cut_fiber_convolved,npixfinal):
 def find_nearest(array,value):
     """
     function which fineds the nearest value in the array to the input value (not sure if I am still using this)
-    
-    
+
+
     @param optPsf_cut_fiber_convolved     image which needs to be downsampled (in our case this will be image of the optical psf convolved with fiber)
     @param npixfinal                      what is the size of the final image
     """
     idx = (np.abs(array-value)).argmin()
     return idx
-
