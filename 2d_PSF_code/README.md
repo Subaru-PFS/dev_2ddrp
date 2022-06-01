@@ -23,8 +23,7 @@ Collection of files and documents related to my work on 2D modeling of the point
 
 - Zernike_code.ipynb: tutorial code which is able to generate single images with some comments and examples
 
-![Overview of the notebook](https://www.dropbox.com/s/1v8sonvg5f23pgy/Screenshot%202018-07-30%2014.53.57.png?raw=1)
+![Overview of the notebook](https://www.dropbox.com/s/53yqdv41yoomi2i/Screen%20Shot%202022-06-01%20at%207.38.34%20PM.png?raw=1)
 
 - Zernike_Module (fluid, changes often) : main python module with definitions of functions 
 - Zernike_Work_ (fluid - currently  Zernike_Work_May_Jun_2022):  latest working notebook
-
