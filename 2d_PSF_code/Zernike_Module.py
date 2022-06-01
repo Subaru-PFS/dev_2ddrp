@@ -156,6 +156,9 @@ Mar 24, 2022: 0.51c -> 0.51d multiple small changes, for running same illum in f
 Apr 03, 2022: 0.51d -> 0.51e test is now analysis_type_fiber == "fixed_fiber_par"
 May 05, 2022: 0.51e -> 0.51f added documentation
 May 09, 2022: 0.51f -> 0.51g replaced print with logging
+May 24, 2022: 0.51g -> 0.51h small changes to output testing directory
+May 26, 2022: 0.51h -> 0.51i linting fixes
+Jun 01, 2022: 0.51i -> 0.52 im1.setCenter(0,0), to be compatible with galsim 2.3.4
 
 @author: Neven Caplar
 @contact: ncaplar@princeton.edu
@@ -187,7 +190,6 @@ import galsim
 import traceback
 # import platform
 import threading
-from functools import lru_cache
 # from multiprocessing import current_process
 import numpy as np
 import os
@@ -261,10 +263,11 @@ __all__ = [
     'create_custom_var_from_popt',
     'Zernike_estimation_preparation']
 
-__version__ = "0.51g"
+__version__ = "0.52"
 
 # classes Pupil, PupilFactory and PFSPupilFactory have different form of documentation,
 # compared to other classes as they have been imported from code written by Josh Meyers
+
 
 class Pupil(object):
     """!Pupil obscuration function.
@@ -289,7 +292,7 @@ class Pupil(object):
 
 class PupilFactory(object):
     """!Pupil obscuration function factory for use with Fourier optics.
-    
+
     Based on the code by Josh Meyers, developed for HSC camera
     Contains functions that can create various obscurations in the camera
     """
@@ -508,8 +511,9 @@ class PupilFactory(object):
         f_lr = np.copy(f) * (1 / f_multiplier)
 
         angleRad21 = -np.pi / 4
-        triangle21 = [[p0[0] + x22, p0[1] + y21], [p0[0] + x22, p0[1] +
-                                                   y21 - y21 * f_lr], [p0[0] + x22 - x22 * f_lr, p0[1] + y21]]
+        triangle21 = [[p0[0] + x22, p0[1] + y21],
+                      [p0[0] + x22, p0[1] + y21 - y21 * f_lr],
+                      [p0[0] + x22 - x22 * f_lr, p0[1] + y21]]
 
         p21 = triangle21[0]
         y22 = (triangle21[1][1] - triangle21[0][1]) / np.sqrt(2)
@@ -517,8 +521,8 @@ class PupilFactory(object):
         x21 = (triangle21[2][0] - triangle21[0][0]) / np.sqrt(2)
         x22 = -(triangle21[2][0] - triangle21[0][0]) / np.sqrt(2)
 
-        pupil_illuminated_only0_in_only1[((v0 - p21[1]) * np.cos(-angleRad21) -
-                                          (u0 - p21[0]) * np.sin(-angleRad21) < y22)] = True
+        pupil_illuminated_only0_in_only1[((v0 - p21[1]) * np.cos(-angleRad21)
+                                          - (u0 - p21[0]) * np.sin(-angleRad21) < y22)] = True
 
         ###########################################################
         # Upper left corner
@@ -529,8 +533,9 @@ class PupilFactory(object):
         # angleRad12 = -np.pi / 4
         f_ul = np.copy(f) * (1 / f_multiplier)
 
-        triangle12 = [[p0[0] + x21, p0[1] + y22], [p0[0] + x21, p0[1] +
-                                                   y22 - y22 * f_ul], [p0[0] + x21 - x21 * f_ul, p0[1] + y22]]
+        triangle12 = [[p0[0] + x21, p0[1] + y22],
+                      [p0[0] + x21, p0[1] + y22 - y22 * f_ul],
+                      [p0[0] + x21 - x21 * f_ul, p0[1] + y22]]
 
         p21 = triangle12[0]
         y22 = 0
@@ -538,8 +543,8 @@ class PupilFactory(object):
         x21 = -(triangle12[2][0] - triangle12[0][0]) / np.sqrt(2)
         x22 = +(triangle12[2][0] - triangle12[0][0]) / np.sqrt(2)
 
-        pupil_illuminated_only0_in_only1[((v0 - p21[1]) * np.cos(-angleRad21) -
-                                          (u0 - p21[0]) * np.sin(-angleRad21) > y21)] = True
+        pupil_illuminated_only0_in_only1[((v0 - p21[1]) * np.cos(-angleRad21)
+                                          - (u0 - p21[0]) * np.sin(-angleRad21) > y21)] = True
 
         ###########################################################
         # Upper right corner
@@ -549,8 +554,9 @@ class PupilFactory(object):
         y22 = +r / 2 * det_vert
         f_ur = np.copy(f) * f_multiplier
 
-        triangle22 = [[p0[0] + x22, p0[1] + y22], [p0[0] + x22, p0[1] +
-                                                   y22 - y22 * f_ur], [p0[0] + x22 - x22 * f_ur, p0[1] + y22]]
+        triangle22 = [[p0[0] + x22, p0[1] + y22],
+                      [p0[0] + x22, p0[1] + y22 - y22 * f_ur],
+                      [p0[0] + x22 - x22 * f_ur, p0[1] + y22]]
 
         p21 = triangle22[0]
         y22 = -0
@@ -558,9 +564,8 @@ class PupilFactory(object):
         x21 = +(triangle22[2][0] - triangle22[0][0]) / np.sqrt(2)
         x22 = -(triangle22[2][0] - triangle22[0][0]) / np.sqrt(2)
 
-
-        pupil_illuminated_only0_in_only1[((u0 - p21[0]) * np.cos(-angleRad21) +
-                                          (v0 - p21[1]) * np.sin(-angleRad21) > x21)] = True
+        pupil_illuminated_only0_in_only1[((u0 - p21[0]) * np.cos(-angleRad21)
+                                          + (v0 - p21[1]) * np.sin(-angleRad21) > x21)] = True
 
         ###########################################################
         # Lower left corner
@@ -570,8 +575,9 @@ class PupilFactory(object):
         y22 = +r / 2 * det_vert
         f_ll = np.copy(f) * f_multiplier
 
-        triangle11 = [[p0[0] + x21, p0[1] + y21], [p0[0] + x21, p0[1] +
-                                                   y21 - y21 * f_ll], [p0[0] + x21 - x21 * f_ll, p0[1] + y21]]
+        triangle11 = [[p0[0] + x21, p0[1] + y21],
+                      [p0[0] + x21, p0[1] + y21 - y21 * f_ll],
+                      [p0[0] + x21 - x21 * f_ll, p0[1] + y21]]
 
         p21 = triangle11[0]
         y22 = -(triangle11[1][1] - triangle11[0][1]) / np.sqrt(2)
@@ -579,8 +585,8 @@ class PupilFactory(object):
         x21 = +(triangle11[2][0] - triangle11[0][0]) / np.sqrt(2)
         x22 = +(triangle11[2][0] - triangle11[0][0]) / np.sqrt(2)
 
-        pupil_illuminated_only0_in_only1[((u0 - p21[0]) * np.cos(-angleRad21) +
-                                          (v0 - p21[1]) * np.sin(-angleRad21) < x22)] = True
+        pupil_illuminated_only0_in_only1[((u0 - p21[0]) * np.cos(-angleRad21)
+                                          + (v0 - p21[1]) * np.sin(-angleRad21) < x22)] = True
 
         pupil_illuminated_only1[i_y_min:i_y_max, i_x_min:i_x_max] = pupil_illuminated_only0_in_only1
 
@@ -588,8 +594,8 @@ class PupilFactory(object):
         time_end_single_square = time.time()
 
         if self.verbosity == 1:
-            logging.info('Time for cutting out the square is ' +
-                  str(time_end_single_square - time_start_single_square))
+            logging.info('Time for cutting out the square is '
+                         + str(time_end_single_square - time_start_single_square))
 
     def _cutRay(self, pupil, p0, angle, thickness, angleunit=None, wide=0):
         """Cut out a ray from a Pupil.
@@ -616,9 +622,9 @@ class PupilFactory(object):
 
         radial_distance = 14.34 * np.sqrt((self.u - p0[0])**2 + (self.v - p0[1])**2)
 
-        pupil.illuminated[(d < 0.5 * thickness * (1 + wide * radial_distance)) &
-                          ((self.u - p0[0]) * np.cos(angleRad) +
-                           (self.v - p0[1]) * np.sin(angleRad) >= 0)] = False
+        pupil.illuminated[(d < 0.5 * thickness * (1 + wide * radial_distance))
+                          & ((self.u - p0[0]) * np.cos(angleRad)
+                             + (self.v - p0[1]) * np.sin(angleRad) >= 0)] = False
 
     def _addRay(self, pupil, p0, angle, thickness, angleunit=None):
         """Add a ray from a Pupil.
@@ -636,14 +642,14 @@ class PupilFactory(object):
         # the line
         p1 = (p0[0] + 1, p0[1] + np.tan(angleRad))
         d = PupilFactory._pointLineDistance((self.u, self.v), p0, p1)
-        pupil.illuminated[(d < 0.5 * thickness) &
-                          ((self.u - p0[0]) * np.cos(angleRad) +
-                           (self.v - p0[1]) * np.sin(angleRad) >= 0)] = True
+        pupil.illuminated[(d < 0.5 * thickness)
+                          & ((self.u - p0[0]) * np.cos(angleRad)
+                             + (self.v - p0[1]) * np.sin(angleRad) >= 0)] = True
 
 
 class PFSPupilFactory(PupilFactory):
     """Pupil obscuration function factory for PFS
-    
+
     Based on the code by Josh Meyers, initially developed for HSC camera
     Invokes PupilFactory to create obscurations of the camera
     Adds various illumination effects which are specified to the spectrographs
@@ -800,8 +806,8 @@ class PFSPupilFactory(PupilFactory):
         frd_sigma = self.frd_sigma
         sigma = 2 * frd_sigma
 
-        pupil_frd = (1 / 2 * (scipy.special.erf((-center_distance + self.effective_ilum_radius) / sigma) +
-                              scipy.special.erf((center_distance + self.effective_ilum_radius) / sigma)))
+        pupil_frd = (1 / 2 * (scipy.special.erf((-center_distance + self.effective_ilum_radius) / sigma)
+                              + scipy.special.erf((center_distance + self.effective_ilum_radius) / sigma)))
 
         ################
         # Adding misaligment in this section
@@ -814,11 +820,12 @@ class PFSPupilFactory(PupilFactory):
         position_of_center_0_y = position_of_center_0[1][0]
 
         distances_to_corners = np.array([np.sqrt(position_of_center[0]**2 + position_of_center[1]**2),
-                                         np.sqrt((len(pupil_frd) - position_of_center[0])**2 +
-                                         position_of_center[1]**2), np.sqrt((position_of_center[0])**2 +
-                                         (len(pupil_frd) - position_of_center[1])**2),
-                                         np.sqrt((len(pupil_frd) - position_of_center[0])**2 +
-                                         (len(pupil_frd) - position_of_center[1])**2)])
+                                         np.sqrt((len(pupil_frd) - position_of_center[0])**2
+                                                 + position_of_center[1]**2),
+                                         np.sqrt((position_of_center[0])**2
+                                                 + (len(pupil_frd) - position_of_center[1])**2),
+                                         np.sqrt((len(pupil_frd) - position_of_center[0])**2
+                                                 + (len(pupil_frd) - position_of_center[1])**2)])
 
         max_distance_to_corner = np.max(distances_to_corners)
         threshold_value = 0.5
@@ -877,17 +884,17 @@ class PFSPupilFactory(PupilFactory):
         time_misalign_end = time.time()
 
         if self.verbosity == 1:
-            logging.info('Time to execute illumination considerations due to misalignment ' +
-                  str(time_misalign_end - time_misalign_start))
+            logging.info('Time to execute illumination considerations due to misalignment '
+                         + str(time_misalign_end - time_misalign_start))
 
         ####
-        pupil_lorentz = (np.arctan(2 * (self.effective_ilum_radius - center_distance) / (4 * sigma)) +
-                         np.arctan(2 * (self.effective_ilum_radius + center_distance) / (4 * sigma))) /\
+        pupil_lorentz = (np.arctan(2 * (self.effective_ilum_radius - center_distance) / (4 * sigma))
+                         + np.arctan(2 * (self.effective_ilum_radius + center_distance) / (4 * sigma))) /\
                         (2 * np.arctan((2 * self.effective_ilum_radius) / (4 * sigma)))
 
         pupil_frd = np.copy(pupil_frd_with_mis)
-        pupil.illuminated = (pupil_frd + 1 * self.frd_lorentz_factor *
-                             pupil_lorentz) / (1 + self.frd_lorentz_factor)
+        pupil.illuminated = (pupil_frd + 1 * self.frd_lorentz_factor
+                             * pupil_lorentz) / (1 + self.frd_lorentz_factor)
 
         # Cout out the acceptance angle of the camera
         self._cutCircleExterior(pupil, (0.0, 0.0), subaruRadius)
@@ -928,7 +935,7 @@ class PFSPupilFactory(PupilFactory):
 
 class Pupil_misalign(object):
     """Apply misaligment correction to the illumination of the pupil
-    
+
     Developed by Brent Belland (Caltech)
     Copied here without modifications
     """
@@ -1020,7 +1027,8 @@ class ZernikeFitterPFS(object):
     Called by LN_PFS_Single (function constructModelImage_PFS_naturalResolution)
     """
 
-    def __init__(self, image=np.ones((20, 20)), image_var=np.ones((20, 20)), image_mask=None, pixelScale=20.76, wavelength=794,
+    def __init__(self, image=np.ones((20, 20)), image_var=np.ones((20, 20)),
+                 image_mask=None, pixelScale=20.76, wavelength=794,
                  diam_sic=139.5327e-3, npix=1536, pupilExplicit=None,
                  wf_full_Image=None,
                  ilum_Image=None, dithering=1, save=None,
@@ -1098,7 +1106,6 @@ class ZernikeFitterPFS(object):
             for the model and the input image
         PSF_DIRECTORY: `str`
             where will intermediate outputs be saved for testing purposes
-            
         Notes
         ----------
         Creates a model image that is fitted to the input sicence image
@@ -1116,7 +1123,7 @@ class ZernikeFitterPFS(object):
         This code uses lmfit to initalize the parameters.
         Calls class PsfPosition
         Calls class PFSPupilFactory
-        
+
         Examples
         ----------
         Simple exampe with initial parameters, changing only one parameter
@@ -1129,6 +1136,7 @@ class ZernikeFitterPFS(object):
         >>> resulting_image, psf_pos =\
             single_image_analysis.constructModelImage_PFS_naturalResolution()
         """
+
         self.image = image
         self.image_var = image_var
         if image_mask is None:
@@ -1139,7 +1147,7 @@ class ZernikeFitterPFS(object):
         self.npix = npix
         self.dithering = dithering
         self.pixelScale = pixelScale
-        self.pixelScale_effective = self.pixelScale / dithering    
+        self.pixelScale_effective = self.pixelScale / dithering
 
         if save in (None, 0):
             save = None
@@ -1147,7 +1155,7 @@ class ZernikeFitterPFS(object):
             save = 1
         self.save = save
         self.use_optPSF = use_optPSF
-            
+
         # puilExplicit can be used to pass explicitly the image of the pupil
         # instead of creating it from the supplied parameters
         if pupilExplicit is None:
@@ -1183,16 +1191,16 @@ class ZernikeFitterPFS(object):
         self.use_only_chi = use_only_chi
         self.use_center_of_flux = use_center_of_flux
         self.flux = float(np.sum(image))
-        
+
         try:
             if not explicit_psf_position:
                 self.explicit_psf_position = None
         except BaseException:
             pass
-        
+
         self.PSF_DIRECTORY = PSF_DIRECTORY
         ############################################################
-        if self.PSF_DIRECTORY == None:
+        if self.PSF_DIRECTORY is None:
             # names of default directories where I often work
             if socket.gethostname() == 'IapetusUSA':
                 self.PSF_DIRECTORY = '/Volumes/Saturn_USA/PFS/'
@@ -1200,8 +1208,7 @@ class ZernikeFitterPFS(object):
                     socket.gethostname() == 'pfsa-usr02-gb.subaru.nao.ac.jp':
                 self.PSF_DIRECTORY = '/work/ncaplar/'
             else:
-                self.PSF_DIRECTORY = '/tigress/ncaplar/'
-
+                self.PSF_DIRECTORY = '/tigress/ncaplar/PFS/'
 
         if self.PSF_DIRECTORY is not None:
             self.TESTING_FOLDER = self.PSF_DIRECTORY + 'Testing/'
@@ -1213,7 +1220,7 @@ class ZernikeFitterPFS(object):
             # check the versions of the most important libraries
             logging.info('np.__version__' + str(np.__version__))
             logging.info('scipy.__version__' + str(scipy.__version__))
-            
+
     def initParams(
             self,
             z4Init=None,
@@ -1589,8 +1596,8 @@ class ZernikeFitterPFS(object):
             optPsf, return_intermediate_images=return_intermediate_images)
 
         if self.save == 1:
-                np.save(self.TESTING_FINAL_IMAGES_FOLDER + 'optPsf', optPsf)
-                np.save(self.TESTING_FINAL_IMAGES_FOLDER + 'optPsf_final', optPsf_final)
+            np.save(self.TESTING_FINAL_IMAGES_FOLDER + 'optPsf', optPsf)
+            np.save(self.TESTING_FINAL_IMAGES_FOLDER + 'optPsf_final', optPsf_final)
         else:
             pass
 
@@ -1710,12 +1717,14 @@ class ZernikeFitterPFS(object):
         # - increase size by 1 if needed
         if (size_of_optPsf_cut_downsampled % 2) == 0:
             im1 = galsim.Image(optPsf_cut, copy=True, scale=1)
+            im1.setCenter(0, 0)
             interpolated_image = galsim._InterpolatedImage(im1, x_interpolant=galsim.Lanczos(5, True))
             optPsf_cut_downsampled = interpolated_image.\
                 drawImage(nx=size_of_optPsf_cut_downsampled + 1, ny=size_of_optPsf_cut_downsampled + 1,
                           scale=(oversampling_original / oversampling), method='no_pixel').array
         else:
             im1 = galsim.Image(optPsf_cut, copy=True, scale=1)
+            im1.setCenter(0, 0)
             interpolated_image = galsim._InterpolatedImage(im1, x_interpolant=galsim.Lanczos(5, True))
             optPsf_cut_downsampled = interpolated_image.\
                 drawImage(nx=size_of_optPsf_cut_downsampled, ny=size_of_optPsf_cut_downsampled,
@@ -1741,10 +1750,10 @@ class ZernikeFitterPFS(object):
         if self.verbosity == 1:
             logging.info('Postprocessing parameters are:')
             logging.info(str(['grating_lines', 'scattering_slope', 'scattering_amplitude',
-                       'pixel_effect', 'fiber_r']))
+                              'pixel_effect', 'fiber_r']))
             logging.info(str([param_values['grating_lines'], param_values['scattering_slope'],
-                  param_values['scattering_amplitude'], param_values['pixel_effect'],
-                  param_values['fiber_r']]))
+                              param_values['scattering_amplitude'], param_values['pixel_effect'],
+                              param_values['fiber_r']]))
 
         ##########################################
         # 1. scattered light
@@ -1753,7 +1762,6 @@ class ZernikeFitterPFS(object):
                                                                       param_values['scattering_slope'],
                                                                       param_values['scattering_amplitude'],
                                                                       dithering=self.dithering)
-
 
         ##########################################
         # 2. convolution with fiber
@@ -1799,8 +1807,8 @@ class ZernikeFitterPFS(object):
                                           PSF_DIRECTORY=self.PSF_DIRECTORY)
         time_end_single = time.time()
         if self.verbosity == 1:
-            logging.info('Time for postprocessing up to single_Psf_position protocol is: ' +
-                  str(time_end_single - time_start_single))
+            logging.info('Time for postprocessing up to single_Psf_position protocol is: '
+                         + str(time_end_single - time_start_single))
 
         #  run the code for centering
         time_start_single = time.time()
@@ -1813,21 +1821,22 @@ class ZernikeFitterPFS(object):
                                                                 self.image_mask,
                                                                 v_flux=param_values['flux'],
                                                                 double_sources=self.double_sources,
-                                                                double_sources_positions_ratios= #noqa: E251
+                                                                double_sources_positions_ratios=  # noqa: E251
                                                                 self.double_sources_positions_ratios,
                                                                 verbosity=self.verbosity,
-                                                                explicit_psf_position= #noqa: E251
+                                                                explicit_psf_position=  # noqa: E251
                                                                 self.explicit_psf_position,
                                                                 use_only_chi=self.use_only_chi,
                                                                 use_center_of_flux=self.use_center_of_flux)
         time_end_single = time.time()
 
         if self.verbosity == 1:
-            logging.info('Time for single_Psf_position protocol is ' + str(time_end_single - time_start_single))
+            logging.info('Time for single_Psf_position protocol is '
+                         + str(time_end_single - time_start_single))
 
         if self.verbosity == 1:
             logging.info('Sucesfully created optPsf_final')
-
+        print(self.save)
         if self.save == 1:
             np.save(self.TESTING_FINAL_IMAGES_FOLDER + 'optPsf_cut', optPsf_cut)
             np.save(self.TESTING_FINAL_IMAGES_FOLDER + 'optPsf_cut_downsampled', optPsf_cut_downsampled)
@@ -1850,7 +1859,7 @@ class ZernikeFitterPFS(object):
 
         if return_intermediate_images:
             return optPsf_final, psf_position
-        
+
     def apply_scattered_light(self, image, oversampling,
                               scattering_slope, scattering_amplitude, dithering):
         """Add scattered light to optical psf
@@ -1990,12 +1999,12 @@ class ZernikeFitterPFS(object):
             effective number of grating lines in the spectrograph
         dithering: `int`
             dithering
-            
+
         Returns
         ----------
         image_grating_convolved : `np.array`, (N, N)
             image convolved with the grating effect
-            
+
         Notes
         ----------
         This code assumes that 15 microns covers wavelength range of 0.07907 nm
@@ -2003,8 +2012,8 @@ class ZernikeFitterPFS(object):
         """
         grating_kernel = np.ones((image.shape[0], 1), dtype=np.float32)
         for i in range(len(grating_kernel)):
-            grating_kernel[i] = Ifun16Ne((i - int(image.shape[0] / 2)) * 0.07907 * 10**-9 /
-                                         (dithering * oversampling) + wavelength * 10**-9,
+            grating_kernel[i] = Ifun16Ne((i - int(image.shape[0] / 2)) * 0.07907 * 10**-9
+                                         / (dithering * oversampling) + wavelength * 10**-9,
                                          wavelength * 10**-9, grating_lines)
         grating_kernel = grating_kernel / np.sum(grating_kernel)
 
@@ -2013,17 +2022,17 @@ class ZernikeFitterPFS(object):
 
     def _get_Pupil(self):
         """Create an image of the pupil
-        
+
         Parameters
         ----------
         params : `lmfit.Parameters` object or python dictionary
             Parameters describing the pupil model
-            
+
         Returns
         ----------
         pupil : `pupil`
             Instance of class PFSPupilFactory
-            
+
         Notes
         ----------
         Calls PFSPupilFactory class
@@ -2046,7 +2055,7 @@ class ZernikeFitterPFS(object):
             x_fiber=self.params['x_fiber'].value,
             y_fiber=self.params['y_fiber'].value,
             effective_ilum_radius=self.params['effective_ilum_radius'].value,
-            frd_sigma=self.params['frd_sigma'].value,#noqa: E
+            frd_sigma=self.params['frd_sigma'].value,  # noqa: E
             frd_lorentz_factor=self.params['frd_lorentz_factor'].value,
             det_vert=self.params['det_vert'].value,
             slitHolder_frac_dx=self.params['slitHolder_frac_dx'].value,
@@ -2056,7 +2065,7 @@ class ZernikeFitterPFS(object):
             misalign=self.params['misalign'].value,
             verbosity=self.verbosity)
 
-        point = [self.params['dxFocal'].value, self.params['dyFocal'].value]#noqa: E
+        point = [self.params['dxFocal'].value, self.params['dyFocal'].value]  # noqa: E
         pupil = Pupil_Image.getPupil(point)
 
         if self.save == 1:
@@ -2093,7 +2102,7 @@ class ZernikeFitterPFS(object):
             Image showing the illumination of the pupil
         wf_grid_rot : `np.array`
             Image showing the wavefront across the pupil
-            
+
         Notes
         ----------
         called by constructModelImage_PFS_naturalResolution
@@ -2109,31 +2118,31 @@ class ZernikeFitterPFS(object):
         time_start_single_1 = time.time()
         if self.verbosity == 1:
             logging.info('use_pupil_parameters: ' + str(self.use_pupil_parameters))
-            logging.info('pupil_parameters if you are explicity passing use_pupil_parameters: ' +
-                  str(self.pupil_parameters))
+            logging.info('pupil_parameters if you are explicity passing use_pupil_parameters: '
+                         + str(self.pupil_parameters))
 
         # parmeters ``i'' just to precision in the construction of ``pupil_parameters'' array
         # not sure why linter is complaining here with
         # ('...'.format(...) has unused arguments at position(s): 0)
         i = 4
         if self.use_pupil_parameters is None:
-            pupil_parameters = np.array([params['detFrac'.format(i)], #noqa: E
-                                         params['strutFrac'.format(i)], #noqa: E
-                                         params['dxFocal'.format(i)], #noqa: E
-                                         params['dyFocal'.format(i)], #noqa: E
-                                         params['slitFrac'.format(i)], #noqa: E
-                                         params['slitFrac_dy'.format(i)], #noqa: E
-                                         params['x_fiber'.format(i)], #noqa: E
-                                         params['y_fiber'.format(i)], #noqa: E
-                                         params['effective_ilum_radius'.format(i)], #noqa: E
-                                         params['frd_sigma'.format(i)], #noqa: E
-                                         params['frd_lorentz_factor'.format(i)], #noqa: E
-                                         params['det_vert'.format(i)], #noqa: E
-                                         params['slitHolder_frac_dx'.format(i)], #noqa: E
-                                         params['wide_0'.format(i)], #noqa: E
-                                         params['wide_23'.format(i)], #noqa: E
-                                         params['wide_43'.format(i)], #noqa: E
-                                         params['misalign'.format(i)]]) #noqa: E
+            pupil_parameters = np.array([params['detFrac'.format(i)],  # noqa: E
+                                         params['strutFrac'.format(i)],  # noqa: E
+                                         params['dxFocal'.format(i)],  # noqa: E
+                                         params['dyFocal'.format(i)],  # noqa: E
+                                         params['slitFrac'.format(i)],  # noqa: E
+                                         params['slitFrac_dy'.format(i)],  # noqa: E
+                                         params['x_fiber'.format(i)],  # noqa: E
+                                         params['y_fiber'.format(i)],  # noqa: E
+                                         params['effective_ilum_radius'.format(i)],  # noqa: E
+                                         params['frd_sigma'.format(i)],  # noqa: E
+                                         params['frd_lorentz_factor'.format(i)],  # noqa: E
+                                         params['det_vert'.format(i)],  # noqa: E
+                                         params['slitHolder_frac_dx'.format(i)],  # noqa: E
+                                         params['wide_0'.format(i)],  # noqa: E
+                                         params['wide_23'.format(i)],  # noqa: E
+                                         params['wide_43'.format(i)],  # noqa: E
+                                         params['misalign'.format(i)]])  # noqa: E
             self.pupil_parameters = pupil_parameters
         else:
             pupil_parameters = np.array(self.pupil_parameters)
@@ -2143,19 +2152,19 @@ class ZernikeFitterPFS(object):
         if self.verbosity == 1:
             logging.info(['detFrac', 'strutFrac', 'dxFocal', 'dyFocal', 'slitFrac', 'slitFrac_dy'])
             logging.info(['x_fiber', 'y_fiber', 'effective_ilum_radius', 'frd_sigma',
-                  'frd_lorentz_factor', 'det_vert', 'slitHolder_frac_dx'])
+                          'frd_lorentz_factor', 'det_vert', 'slitHolder_frac_dx'])
             logging.info(['wide_0', 'wide_23', 'wide_43', 'misalign'])
             logging.info('set of pupil_parameters I. : ' + str([params['detFrac'], params['strutFrac'],
-                                                         params['dxFocal'], params['dyFocal'],
-                                                         params['slitFrac'],  params['slitFrac_dy']]))
+                                                                params['dxFocal'], params['dyFocal'],
+                                                                params['slitFrac'], params['slitFrac_dy']]))
             logging.info('set of pupil_parameters II. : ' + str([params['x_fiber'], params['y_fiber'],
-                                                         params['effective_ilum_radius'],
-                                                         params['slitHolder_frac_dx'],
-                                                         params['frd_lorentz_factor'],
-                                                         params['det_vert'],
-                                                         params['slitHolder_frac_dx']]))
+                                                                 params['effective_ilum_radius'],
+                                                                 params['slitHolder_frac_dx'],
+                                                                 params['frd_lorentz_factor'],
+                                                                 params['det_vert'],
+                                                                 params['slitHolder_frac_dx']]))
             logging.info('set of pupil_parameters III. : ' + str([params['wide_0'], params['wide_23'],
-                                                           params['wide_43'], params['misalign']]))
+                                                                  params['wide_43'], params['misalign']]))
         time_start_single_2 = time.time()
 
         # initialize galsim.Aperature class
@@ -2170,12 +2179,13 @@ class ZernikeFitterPFS(object):
             if self.pupilExplicit is None:
                 logging.info('Requested pupil size is (pupil.size) [m]: ' + str(pupil.size))
                 logging.info('One pixel has size of (pupil.scale) [m]: ' + str(pupil.scale))
-                logging.info('Requested pupil has so many pixels (pupil_plane_im): ' +
-                      str(pupil.illuminated.astype(np.int16).shape))
+                logging.info('Requested pupil has so many pixels (pupil_plane_im): '
+                             + str(pupil.illuminated.astype(np.int16).shape))
             else:
                 logging.info('Supplied pupil size is (diam_sic) [m]: ' + str(self.diam_sic))
                 logging.info('One pixel has size of (diam_sic/npix) [m]: ' + str(self.diam_sic / self.npix))
-                logging.info('Requested pupil has so many pixels (pupilExplicit): ' + str(self.pupilExplicit.shape))
+                logging.info('Requested pupil has so many pixels (pupilExplicit): '
+                             + str(self.pupilExplicit.shape))
 
         time_end_single_2 = time.time()
         if self.verbosity == 1:
@@ -2197,16 +2207,17 @@ class ZernikeFitterPFS(object):
             ilum[lower_limit_of_ilum:higher_limit_of_ilum,
                  lower_limit_of_ilum:higher_limit_of_ilum] = ilum[lower_limit_of_ilum:higher_limit_of_ilum,
                                                                   lower_limit_of_ilum:higher_limit_of_ilum] *\
-                                                                  pupil.illuminated
+                pupil.illuminated
         else:
             ilum[lower_limit_of_ilum:higher_limit_of_ilum,
                  lower_limit_of_ilum:higher_limit_of_ilum] = ilum[lower_limit_of_ilum:higher_limit_of_ilum,
                                                                   lower_limit_of_ilum:higher_limit_of_ilum] *\
-                                                                  self.pupilExplicit.astype(np.float32)
+                self.pupilExplicit.astype(np.float32)
 
         if self.verbosity == 1:
-            logging.info('Size after padding zeros to 2x size and extra padding to get size suitable for FFT: ' +
-                  str(ilum.shape))
+            logging.info('Size after padding zeros to 2x size'
+                         + 'and extra padding to get size suitable for FFT: '
+                         + str(ilum.shape))
 
         # maximum extent of pupil image in units of radius of the pupil, needed for next step
         size_of_ilum_in_units_of_radius = ilum.shape[0] / self.npix
@@ -2226,9 +2237,9 @@ class ZernikeFitterPFS(object):
         else:
             if self.verbosity == 1:
                 logging.info('radiometric parameters are: ')
-                logging.info('x_ilum,y_ilum,radiometricEffect,radiometricExponent' +
-                      str([params['x_ilum'], params['y_ilum'],
-                           params['radiometricEffect'], params['radiometricExponent']]))
+                logging.info('x_ilum,y_ilum,radiometricEffect,radiometricExponent'
+                             + str([params['x_ilum'], params['y_ilum'],
+                                    params['radiometricEffect'], params['radiometricExponent']]))
 
             # add the change of flux between the entrance and exit pupil
             # end product is radiometricEffectArray
@@ -2236,14 +2247,14 @@ class ZernikeFitterPFS(object):
                                  size_of_ilum_in_units_of_radius, num=ilum.shape[0])
             xs, ys = np.meshgrid(points, points)
             _radius_coordinate = np.sqrt(
-                (xs - params['x_ilum'] * params['dxFocal']) ** 2 +
-                (ys - params['y_ilum'] * params['dyFocal']) ** 2)
+                (xs - params['x_ilum'] * params['dxFocal']) ** 2
+                + (ys - params['y_ilum'] * params['dyFocal']) ** 2)
 
             # change in v_0.14
             # ilumination to which radiometric effet has been applied, describing
             # difference betwen entrance and exit pupil
-            radiometricEffectArray = (1 + params['radiometricEffect'] *
-                                      _radius_coordinate**2)**(-params['radiometricExponent'])
+            radiometricEffectArray = (1 + params['radiometricEffect']
+                                      * _radius_coordinate**2)**(-params['radiometricExponent'])
             ilum_radiometric = np.nan_to_num(radiometricEffectArray * ilum, 0)
 
         # this is where you can introduce some apodization in the pupil image by using the line below
@@ -2260,22 +2271,21 @@ class ZernikeFitterPFS(object):
         # cut out central region, apply Gaussian on the center region and return to the full size image
         # done to spped up the calculation
         # noqa: E128 in order to keep informative names
-        ilum_radiometric_center_region = ilum_radiometric[(lower_limit_of_ilum -
-                                         int(np.ceil(3 * apodization_sigma))):(higher_limit_of_ilum + # noqa: E128
-                                         int(np.ceil(3 * apodization_sigma))),
-                                         (lower_limit_of_ilum - int(np.ceil(3 * apodization_sigma))):
-                                         (higher_limit_of_ilum + int(np.ceil(3 * apodization_sigma)))]
+        ilum_radiometric_center_region =\
+            ilum_radiometric[(lower_limit_of_ilum - int(np.ceil(3 * apodization_sigma))):
+                             (higher_limit_of_ilum + int(np.ceil(3 * apodization_sigma))),
+                             (lower_limit_of_ilum - int(np.ceil(3 * apodization_sigma))):
+                             (higher_limit_of_ilum + int(np.ceil(3 * apodization_sigma)))]
 
         ilum_radiometric_center_region_apodized = gaussian_filter(
             ilum_radiometric_center_region, sigma=apodization_sigma)
 
         ilum_radiometric_apodized = np.copy(ilum_radiometric)
-        ilum_radiometric_apodized[(lower_limit_of_ilum -
-                                   int(np.ceil(3 * apodization_sigma))):(higher_limit_of_ilum +
-                                   int(np.ceil(3 * apodization_sigma))), (lower_limit_of_ilum - # noqa: E128
-                                   int(np.ceil(3 * apodization_sigma))):(higher_limit_of_ilum +
-                                   int(np.ceil(3 * apodization_sigma)))] =\
-                                   ilum_radiometric_center_region_apodized
+        ilum_radiometric_apodized[(lower_limit_of_ilum - int(np.ceil(3 * apodization_sigma))):
+                                  (higher_limit_of_ilum + int(np.ceil(3 * apodization_sigma))),
+                                  (lower_limit_of_ilum - int(np.ceil(3 * apodization_sigma))):
+                                  (higher_limit_of_ilum + int(np.ceil(3 * apodization_sigma)))] =\
+        ilum_radiometric_center_region_apodized # noqa E:122
 
         time_end_single_4 = time.time()
         if self.verbosity == 1:
@@ -2313,13 +2323,13 @@ class ZernikeFitterPFS(object):
 
         time_end_single_3 = time.time()
         if self.verbosity == 1:
-            logging.info('Time for postprocessing pupil after _get_Pupil ' +
-                  str(time_end_single_3 - time_start_single_3))
+            logging.info('Time for postprocessing pupil after _get_Pupil '
+                         + str(time_end_single_3 - time_start_single_3))
 
         time_end_single_1 = time.time()
         if self.verbosity == 1:
-            logging.info('Time for pupil and illumination calculation is ' +
-                  str(time_end_single_1 - time_start_single_1))
+            logging.info('Time for pupil and illumination calculation is '
+                         + str(time_end_single_1 - time_start_single_1))
 
         ################################################################################
         # wavefront
@@ -2414,14 +2424,13 @@ class ZernikeFitterPFS(object):
             np.exp(2j * np.pi * wf_grid_rot[ilum_radiometric_apodized_bool])
 
         if self.verbosity == 1:
-            logging.info('Time for wavefront and wavefront/pupil combining is ' +
-                  str(time_end_single - time_start_single))
-            
-            
+            logging.info('Time for wavefront and wavefront/pupil combining is '
+                         + str(time_end_single - time_start_single))
+
         ################################################################################
         # exectute the FFT
         ################################################################################
-        #updated up to here
+        # updated up to here
         ######################################################################
 
         time_start_single = time.time()
@@ -2444,9 +2453,10 @@ class ZernikeFitterPFS(object):
                 np.save(self.TESTING_PUPIL_IMAGES_FOLDER + 'aperilluminated', aper.illuminated)
                 np.save(self.TESTING_PUPIL_IMAGES_FOLDER + 'ilum', ilum)
                 np.save(self.TESTING_PUPIL_IMAGES_FOLDER + 'ilum_radiometric', ilum_radiometric)
-                np.save(self.TESTING_PUPIL_IMAGES_FOLDER + 'ilum_radiometric_apodized', ilum_radiometric_apodized)
+                np.save(self.TESTING_PUPIL_IMAGES_FOLDER + 'ilum_radiometric_apodized',
+                        ilum_radiometric_apodized)
                 np.save(self.TESTING_PUPIL_IMAGES_FOLDER + 'ilum_radiometric_apodized_bool',
-                    ilum_radiometric_apodized_bool)
+                        ilum_radiometric_apodized_bool)
                 np.save(self.TESTING_WAVEFRONT_IMAGES_FOLDER + 'u_manual', u_manual)
                 np.save(self.TESTING_WAVEFRONT_IMAGES_FOLDER + 'v_manual', v_manual)
                 np.save(self.TESTING_WAVEFRONT_IMAGES_FOLDER + 'u', u)
@@ -2462,15 +2472,14 @@ class ZernikeFitterPFS(object):
             logging.info('Finished with _getOptPsf_naturalResolution')
             logging.info(' ')
 
-
         if not return_intermediate_images:
             return img_apod
         if return_intermediate_images:
             return img_apod, ilum[lower_limit_of_ilum:higher_limit_of_ilum,
                                   lower_limit_of_ilum:higher_limit_of_ilum], wf_grid_rot
 
-class LN_PFS_multi_same_spot(object):
 
+class LN_PFS_multi_same_spot(object):
     """!Class to compute quality of the multiple donut images,
     of the same spot taken at different defocuses
 
@@ -3032,12 +3041,10 @@ class LN_PFS_multi_same_spot(object):
                 allparametrization, list_of_defocuses=self.list_of_defocuses)
 
             if self.verbosity == 1:
-                logging.info('Starting LN_PFS_multi_same_spot for parameters-hash ' +
-                      str(hash(str(allparametrization.data))) +
-                      ' at ' +
-                      str(time.time()) +
-                      ' in thread ' +
-                      str(threading.get_ident()))
+                logging.info('Starting LN_PFS_multi_same_spot for parameters-hash '
+                             + str(hash(str(allparametrization.data)))
+                             + ' at ' + str(time.time()) + ' in thread '
+                             + str(threading.get_ident()))
 
         assert len(self.list_of_sci_images) == len(list_of_allparameters)
 
@@ -3229,7 +3236,6 @@ class LN_PFS_multi_same_spot(object):
                         use_only_chi=use_only_chi,
                         multi_background_factor=multi_background_factor)
 
-
                     likelihood_result = res_single_without_intermediate_images[0]
                     psf_position = res_single_with_intermediate_images[-1]
                     # logging.info(likelihood_result)
@@ -3267,8 +3273,8 @@ class LN_PFS_multi_same_spot(object):
 
         if self.verbosity == 1:
             logging.info('################################')
-            logging.info('Renormalized likelihoods returned per individual images are: ' +
-                  str(array_of_single_res / renormalization_of_var_sum))
+            logging.info('Renormalized likelihoods returned per individual images are: '
+                         + str(array_of_single_res / renormalization_of_var_sum))
             logging.info('Renormalization factors are: ' + str(renormalization_of_var_sum))
             logging.info('Mean renormalized likelihood is ' + str(mean_res_of_multi_same_spot))
             logging.info('array_of_psf_positions_output: ' + str(array_of_psf_positions_output))
@@ -3277,8 +3283,8 @@ class LN_PFS_multi_same_spot(object):
             # logging.info('Ending LN_PFS_multi_same_spot for parameters-hash '+
             # str(hash(str(allparametrization.data)))+' at '+str(time.time())+
             # ' in thread '+str(threading.get_ident()))
-            logging.info('Ending LN_PFS_multi_same_spot at time ' +
-                  str(time.time()) + ' in thread ' + str(threading.get_ident()))
+            logging.info('Ending LN_PFS_multi_same_spot at time '
+                         + str(time.time()) + ' in thread ' + str(threading.get_ident()))
             logging.info(' ')
 
         if not return_Images:
@@ -3619,17 +3625,18 @@ class Tokovinin_multi(object):
         """
 
         if self.verbosity >= 1:
-            logging.info('#########################################################################################')
-            logging.info('#########################################################################################')
+            logging.info('###############################################################################')
+            logging.info('###############################################################################')
             logging.info('Starting Tokovinin_algorithm_chi_multi with num_iter: ' + str(num_iter))
             logging.info('Tokovinin, return_Images: ' + str(return_Images))
             logging.info('Tokovinin, num_iter: ' + str(num_iter))
             logging.info('Tokovinin, use_only_chi: ' + str(use_only_chi))
             logging.info('Tokovinin, multi_background_factor: ' + str(multi_background_factor))
 
-            logging.info('allparameters_parametrization_proposal' + str(allparameters_parametrization_proposal))
-            logging.info('allparameters_parametrization_proposal.shape' +
-                  str(allparameters_parametrization_proposal.shape))
+            logging.info('allparameters_parametrization_proposal'
+                         + str(allparameters_parametrization_proposal))
+            logging.info('allparameters_parametrization_proposal.shape'
+                         + str(allparameters_parametrization_proposal.shape))
 
         list_of_sci_images = self.list_of_sci_images
         list_of_var_images = self.list_of_var_images
@@ -3653,14 +3660,13 @@ class Tokovinin_multi(object):
             else:
                 self.list_of_psf_positions = previous_best_result[-1][-1]
 
-        # logging.info('self.list_of_psf_positions in start of Tokovinin_multi'+str(self.list_of_psf_positions))
         ##########################################################################
         # Create initial modeling as basis for future effort
         # the outputs of this section are 0. pre_model_result, 1. model_results, 2. pre_images,
         # 3. pre_input_parameters, 4. chi_2_before_iteration_array, 5. list_of_psf_positions
         if self.verbosity >= 1:
             logging.info('list_of_defocuses analyzed: ' + str(list_of_defocuses_input_long))
-            
+
         # logging.info('list_of_sci_images'+str(list_of_sci_images))
         # logging.info('list_of_var_images'+str(list_of_var_images))
         # logging.info('list_of_mask_images'+str(list_of_mask_images))
@@ -3729,7 +3735,7 @@ class Tokovinin_multi(object):
             # logging.info(str( list_of_minchain))
             # logging.info('use_only_chi: '+str( use_only_chi))
             # logging.info('list_of_minchain: '+str( list_of_minchain))
-            
+
             pre_model_result, model_results, pre_images, pre_input_parameters, chi_2_before_iteration_array,\
                 list_of_psf_positions =\
                 model_multi(list_of_minchain, return_Images=True, use_only_chi=use_only_chi,
@@ -3786,8 +3792,8 @@ class Tokovinin_multi(object):
         nonwavefront_par = list_of_minchain[0][19:42]
         time_end_single = time.time()
         if self.verbosity >= 1:
-            logging.info('Total time taken for premodel analysis with num_iter ' + str(num_iter) +
-                  ' was  ' + str(time_end_single - time_start_single) + ' seconds')
+            logging.info('Total time taken for premodel analysis with num_iter ' + str(num_iter)
+                         + ' was  ' + str(time_end_single - time_start_single) + ' seconds')
             logging.info('chi_2_before_iteration is: ' + str(chi_2_before_iteration_array))
 
             logging.info('Ended premodel analysis ')
@@ -3818,11 +3824,8 @@ class Tokovinin_multi(object):
                 [mean_value_of_background_via_var, mean_value_of_background_via_sci])
             if self.verbosity > 1:
                 logging.info(
-                    str(multi_background_factor) +
-                    'x mean_value_of_background in image with index' +
-                    str(i) +
-                    ' is estimated to be: ' +
-                    str(mean_value_of_background))
+                    str(multi_background_factor) + 'x mean_value_of_background in image with index'
+                    + str(i) + ' is estimated to be: ' + str(mean_value_of_background))
 
             list_of_mean_value_of_background.append(mean_value_of_background)
 
@@ -3905,7 +3908,6 @@ class Tokovinin_multi(object):
             np.save('/tigress/ncaplar/Results/uber_I_' + str(num_iter),
                     uber_I)
 
-
         # March 14, 2022, adding just pure avoid of the run
         if up_to_which_z is False:
             # 0. likelihood averaged over all images (before the function)
@@ -3931,23 +3933,23 @@ class Tokovinin_multi(object):
 
             if previous_best_result is None:
                 return initial_model_result, initial_model_result,\
-                       list_of_initial_model_result, list_of_initial_model_result,\
-                       None, pre_images, pre_images,\
-                       allparameters_parametrization_proposal,\
-                       allparameters_parametrization_proposal,\
-                       list_of_initial_input_parameters, list_of_initial_input_parameters,\
-                       list_of_pre_chi2, list_of_pre_chi2,\
-                       list_of_psf_positions, list_of_psf_positions,\
-                       [None, None, None,None, None]
+                    list_of_initial_model_result, list_of_initial_model_result,\
+                    None, pre_images, pre_images,\
+                    allparameters_parametrization_proposal,\
+                    allparameters_parametrization_proposal,\
+                    list_of_initial_input_parameters, list_of_initial_input_parameters,\
+                    list_of_pre_chi2, list_of_pre_chi2,\
+                    list_of_psf_positions, list_of_psf_positions,\
+                    [None, None, None, None, None]
             else:
                 return initial_model_result, initial_model_result,\
-                      list_of_initial_model_result, list_of_initial_model_result,\
-                      None, pre_images, pre_images,\
-                      allparameters_parametrization_proposal,\
-                      allparameters_parametrization_proposal,\
-                     list_of_initial_input_parameters, list_of_initial_input_parameters,\
-                      list_of_pre_chi2, list_of_pre_chi2,\
-                     list_of_psf_positions, list_of_psf_positions
+                    list_of_initial_model_result, list_of_initial_model_result,\
+                    None, pre_images, pre_images,\
+                    allparameters_parametrization_proposal,\
+                    allparameters_parametrization_proposal,\
+                    list_of_initial_input_parameters, list_of_initial_input_parameters,\
+                    list_of_pre_chi2, list_of_pre_chi2,\
+                    list_of_psf_positions, list_of_psf_positions
 
         # set number of extra Zernike
         # number_of_extra_zernike=0
@@ -4018,24 +4020,20 @@ class Tokovinin_multi(object):
             # array_of_delta_global_parametrizations=array_of_delta_global_parametrizations/1
             array_of_delta_global_parametrizations = array_of_delta_global_parametrizations / 10
 
-            # array, randomized delta extra zernike
-            # array_of_delta_randomize=np.random.standard_normal(len(list_of_delta_z))*1.2+1
-            # array_of_delta_parametrizations_randomize=np.random.standard_normal(len(list_of_delta_z_parametrizations))*1
-            # array_of_delta_z_parametrizations=+np.array(list_of_delta_z_parametrizations)*array_of_delta_parametrizations_randomize
-
             if move_allparameters:
                 array_of_delta_all_parametrizations = np.concatenate(
                     (array_of_delta_z_parametrizations[0:19 * 2], array_of_delta_global_parametrizations,
                      array_of_delta_z_parametrizations[19 * 2:]))
 
             if self.save:
-                np.save('/tigress/ncaplar/Results/array_of_delta_z_parametrizations_' +
-                        str(num_iter) + '_' + str(iteration_number), array_of_delta_z_parametrizations)
-                np.save('/tigress/ncaplar/Results/array_of_delta_global_parametrizations_' +
-                        str(num_iter) + '_' + str(iteration_number), array_of_delta_global_parametrizations)
+                np.save('/tigress/ncaplar/Results/array_of_delta_z_parametrizations_'
+                        + str(num_iter) + '_' + str(iteration_number), array_of_delta_z_parametrizations)
+                np.save('/tigress/ncaplar/Results/array_of_delta_global_parametrizations_'
+                        + str(num_iter) + '_' + str(iteration_number), array_of_delta_global_parametrizations)
                 if move_allparameters:
-                    np.save('/tigress/ncaplar/Results/array_of_delta_all_parametrizations_' +
-                            str(num_iter) + '_' + str(iteration_number), array_of_delta_all_parametrizations)
+                    np.save('/tigress/ncaplar/Results/array_of_delta_all_parametrizations_'
+                            + str(num_iter) + '_' + str(iteration_number),
+                            array_of_delta_all_parametrizations)
 
             # initialize
             # if this is the first iteration of the iterative algorithm
@@ -4062,11 +4060,8 @@ class Tokovinin_multi(object):
             else:
                 # errors in the typechecker for 10 lines below are fine
                 if self.verbosity == 1:
-                    logging.info(
-                        'array_of_delta_z in ' +
-                        str(iteration_number) +
-                        ' ' +
-                        str(array_of_delta_z_parametrizations))
+                    logging.info('array_of_delta_z in ' + str(iteration_number) + ' '
+                                 + str(array_of_delta_z_parametrizations))
                 # code analysis programs might suggest that there is an error here, but everything is ok
                 # chi_2_before_iteration=np.copy(chi_2_after_iteration)
                 # copy wavefront from the end of the previous iteration
@@ -4110,25 +4105,19 @@ class Tokovinin_multi(object):
 
             if self.verbosity >= 1:
                 logging.info(
-                    'initial input parameters in iteration ' +
-                    str(iteration_number) +
-                    ' are: ' +
-                    str(initial_input_parameterization))
+                    'initial input parameters in iteration ' + str(iteration_number) + ' are: '
+                    + str(initial_input_parameterization))
                 logging.info(
-                    'moving input wavefront parameters in iteration ' +
-                    str(iteration_number) +
-                    ' by: ' +
-                    str(array_of_delta_z_parametrizations))
+                    'moving input wavefront parameters in iteration ' + str(iteration_number) + ' by: '
+                    + str(array_of_delta_z_parametrizations))
             if move_allparameters:
                 logging.info(
-                    'moving global input parameters in iteration ' +
-                    str(iteration_number) +
-                    ' by: ' +
-                    str(array_of_delta_global_parametrizations))
+                    'moving global input parameters in iteration ' + str(iteration_number) + ' by: '
+                    + str(array_of_delta_global_parametrizations))
 
             if self.save:
-                np.save('/tigress/ncaplar/Results/initial_input_parameterization_' +
-                        str(num_iter) + '_' + str(iteration_number), initial_input_parameterization)
+                np.save('/tigress/ncaplar/Results/initial_input_parameterization_'
+                        + str(num_iter) + '_' + str(iteration_number), initial_input_parameterization)
 
             # logging.info('len initial_input_parameterization '+str(len(initial_input_parameterization)))
 
@@ -4172,28 +4161,16 @@ class Tokovinin_multi(object):
 
             # initial_model_result,image_0,initial_input_parameters,pre_chi2=model(initial_input_parameters,return_Image=True,return_intermediate_images=False)
             if self.save:
-                np.save('/tigress/ncaplar/Results/list_of_initial_model_result_' +
-                        str(num_iter) + '_' + str(iteration_number), list_of_initial_model_result)
-                np.save(
-                    '/tigress/ncaplar/Results/list_of_image_0_' +
-                    str(num_iter) +
-                    '_' +
-                    str(iteration_number),
-                    list_of_image_0)
-                np.save('/tigress/ncaplar/Results/list_of_initial_input_parameters_' +
-                        str(num_iter) + '_' + str(iteration_number), list_of_initial_input_parameters)
-                np.save(
-                    '/tigress/ncaplar/Results/list_of_pre_chi2_' +
-                    str(num_iter) +
-                    '_' +
-                    str(iteration_number),
-                    list_of_pre_chi2)
-                np.save(
-                    '/tigress/ncaplar/Results/list_of_psf_positions_' +
-                    str(num_iter) +
-                    '_' +
-                    str(iteration_number),
-                    list_of_psf_positions)
+                np.save('/tigress/ncaplar/Results/list_of_initial_model_result_'
+                        + str(num_iter) + '_' + str(iteration_number), list_of_initial_model_result)
+                np.save('/tigress/ncaplar/Results/list_of_image_0_' + str(num_iter) + '_'
+                        + str(iteration_number), list_of_image_0)
+                np.save('/tigress/ncaplar/Results/list_of_initial_input_parameters_'
+                        + str(num_iter) + '_' + str(iteration_number), list_of_initial_input_parameters)
+                np.save('/tigress/ncaplar/Results/list_of_pre_chi2_' + str(num_iter) + '_'
+                        + str(iteration_number), list_of_pre_chi2)
+                np.save('/tigress/ncaplar/Results/list_of_psf_positions_' + str(num_iter) + '_'
+                        + str(iteration_number), list_of_psf_positions)
 
             ##########################################################################
             # divided model images by their standard deviations
@@ -4261,15 +4238,9 @@ class Tokovinin_multi(object):
 
             if len(list_of_flux_mask) > 1:
                 IM_start_focus = np.sum(
-                    np.abs(
-                        np.array(uber_I) -
-                        np.array(uber_M0))[
-                        position_focus_1:position_focus_2])
+                    np.abs(np.array(uber_I) - np.array(uber_M0))[position_focus_1:position_focus_2])
                 IM_start_std_focus = np.sum(
-                    np.abs(
-                        np.array(uber_I_std) -
-                        np.array(uber_M0_std))[
-                        position_focus_1:position_focus_2])
+                    np.abs(np.array(uber_I_std) - np.array(uber_M0_std))[position_focus_1:position_focus_2])
 
             # mean of differences of our images - should we use mean?; probably not... needs to be normalized?
             unitary_IM_start = np.mean(IM_start)
@@ -4277,10 +4248,10 @@ class Tokovinin_multi(object):
 
             # logging.info list_of_IM_start_std
             if self.verbosity == 1:
-                logging.info('np.sum(np.abs(I-M0)) before iteration ' + str(num_iter) +
-                      '_' + str(iteration_number) + ': ' + str(unitary_IM_start))
-                logging.info('np.sum(np.abs(I_std-M0_std)) before iteration ' + str(num_iter) +
-                      '_' + str(iteration_number) + ': ' + str(unitary_IM_start_std))
+                logging.info('np.sum(np.abs(I-M0)) before iteration ' + str(num_iter)
+                             + '_' + str(iteration_number) + ': ' + str(unitary_IM_start))
+                logging.info('np.sum(np.abs(I_std-M0_std)) before iteration ' + str(num_iter)
+                             + '_' + str(iteration_number) + ': ' + str(unitary_IM_start_std))
             # logging.info('np.sum(np.abs(I_std-M0_std)) before iteration '+str(iteration_number)+':
             # '+str(unitary_IM_start_std))
 
@@ -4372,10 +4343,8 @@ class Tokovinin_multi(object):
 
             if self.verbosity >= 1:
                 logging.info(
-                    'We are now inside of the pool loop number ' +
-                    str(iteration_number) +
-                    ' with num_iter: ' +
-                    str(num_iter))
+                    'We are now inside of the pool loop number ' + str(iteration_number)
+                    + ' with num_iter: ' + str(num_iter))
 
             # actually it is parametrization
             # list of (56-3)*2 sublists, each one with (56-3)*2 + 23 values
@@ -4398,8 +4367,8 @@ class Tokovinin_multi(object):
 
             # save the uber_list_of_input_parameters
             if self.save:
-                np.save('/tigress/ncaplar/Results/uber_list_of_input_parameters_' +
-                        str(num_iter) + '_' + str(iteration_number), uber_list_of_input_parameters)
+                np.save('/tigress/ncaplar/Results/uber_list_of_input_parameters_'
+                        + str(num_iter) + '_' + str(iteration_number), uber_list_of_input_parameters)
 
             # pass new model_multi that has fixed pos (October 6, 2020)
             # should have same paramter as staring model_multi, apart from
@@ -4454,7 +4423,8 @@ class Tokovinin_multi(object):
                 out1 = list(out1)
                 time_end = time.time()
                 if self.verbosity >= 1:
-                    logging.info('time_end-time_start for creating model_multi_out ' + str(time_end - time_start))
+                    logging.info('time_end-time_start for creating model_multi_out '
+                                 + str(time_end - time_start))
 
                 # normalization of the preinput run? (what did I mean by that)
                 pre_input_parameters = np.array(pre_input_parameters)
@@ -4499,8 +4469,8 @@ class Tokovinin_multi(object):
                     out_images_step = []
                     for lv in range(len(out_renormalization_parameters)):
                         out_images_step.append(
-                            out_images_pre_renormalization[lv] *
-                            out_renormalization_parameters[lv])
+                            out_images_pre_renormalization[lv]
+                            * out_renormalization_parameters[lv])
                     out_images.append(out_images_step)
 
                     out_parameters.append(out1[i][3])
@@ -4513,27 +4483,19 @@ class Tokovinin_multi(object):
 
                 time_end = time.time()
                 if self.verbosity >= 1:
-                    logging.info('time_end-time_start for whole model_multi_out ' + str(time_end - time_start))
+                    logging.info('time_end-time_start for whole model_multi_out '
+                                 + str(time_end - time_start))
 
                 if self.save:
                     np.save(
-                        '/tigress/ncaplar/Results/out_images_' +
-                        str(num_iter) +
-                        '_' +
-                        str(iteration_number),
-                        out_images)
+                        '/tigress/ncaplar/Results/out_images_' + str(num_iter) + '_'
+                        + str(iteration_number), out_images)
                     np.save(
-                        '/tigress/ncaplar/Results/out_parameters_' +
-                        str(num_iter) +
-                        '_' +
-                        str(iteration_number),
-                        out_parameters)
+                        '/tigress/ncaplar/Results/out_parameters_' + str(num_iter) + '_'
+                        + str(iteration_number), out_parameters)
                     np.save(
-                        '/tigress/ncaplar/Results/out_chi2_' +
-                        str(num_iter) +
-                        '_' +
-                        str(iteration_number),
-                        out_chi2)
+                        '/tigress/ncaplar/Results/out_chi2_' + str(num_iter) + '_'
+                        + str(iteration_number), out_chi2)
 
                 ##########################################################################
                 # Normalize created images
@@ -4593,11 +4555,8 @@ class Tokovinin_multi(object):
 
                 if self.save:
                     np.save(
-                        '/tigress/ncaplar/Results/uber_images_normalized_' +
-                        str(num_iter) +
-                        '_' +
-                        str(iteration_number),
-                        uber_images_normalized)
+                        '/tigress/ncaplar/Results/uber_images_normalized_' + str(num_iter) + '_'
+                        + str(iteration_number), uber_images_normalized)
 
                 # np.save('/tigress/ncaplar/Results/uber_images_normalized_std_'+str(num_iter)+'_'+str(iteration_number),\
                 #        uber_images_normalized_std)
@@ -4612,24 +4571,24 @@ class Tokovinin_multi(object):
 
                 if self.verbosity >= 1:
                     logging.info('images_normalized (uber).shape: ' + str(uber_images_normalized.shape))
-                    logging.info('array_of_delta_z_parametrizations[:,None].shape' +
-                          str(array_of_delta_z_parametrizations[:, None].shape))
+                    logging.info('array_of_delta_z_parametrizations[:,None].shape'
+                                 + str(array_of_delta_z_parametrizations[:, None].shape))
                 # equation A1 from Tokovinin 2006
                 # new model minus old model
                 if move_allparameters:
-                    H = np.transpose(np.array((uber_images_normalized - uber_M0)) /
-                                     array_of_delta_all_parametrizations[:, None])
+                    H = np.transpose(np.array((uber_images_normalized - uber_M0))
+                                     / array_of_delta_all_parametrizations[:, None])
                     # H_std=np.transpose(np.array((uber_images_normalized_std-uber_M0_std))/\
                     #    array_of_delta_z_parametrizations[:,None])
-                    H_std = np.transpose(np.array((uber_images_normalized - uber_M0)) /
-                                         array_of_delta_all_parametrizations[:, None]) /\
+                    H_std = np.transpose(np.array((uber_images_normalized - uber_M0))
+                                         / array_of_delta_all_parametrizations[:, None]) /\
                         uber_std.ravel()[:, None]
                 else:
-                    H = np.transpose(np.array((uber_images_normalized - uber_M0)) /
-                                     array_of_delta_z_parametrizations[:, None])
+                    H = np.transpose(np.array((uber_images_normalized - uber_M0))
+                                     / array_of_delta_z_parametrizations[:, None])
                     # H_std=np.transpose(np.array((uber_images_normalized_std-uber_M0_std))/array_of_delta_z_parametrizations[:,None])
-                    H_std = np.transpose(np.array((uber_images_normalized - uber_M0)) /
-                                         array_of_delta_z_parametrizations[:, None]) /\
+                    H_std = np.transpose(np.array((uber_images_normalized - uber_M0))
+                                         / array_of_delta_z_parametrizations[:, None]) /\
                         uber_std.ravel()[:, None]
 
                 array_of_delta_z_parametrizations_None = np.copy(array_of_delta_z_parametrizations[:, None])
@@ -4640,12 +4599,12 @@ class Tokovinin_multi(object):
             # end of creating H
 
             if self.save and previous_best_result is None:
-                np.save('/tigress/ncaplar/Results/array_of_delta_z_parametrizations_None_' +
-                        str(num_iter) + '_' + str(iteration_number), array_of_delta_z_parametrizations_None)
+                np.save('/tigress/ncaplar/Results/array_of_delta_z_parametrizations_None_'
+                        + str(num_iter) + '_' + str(iteration_number),
+                        array_of_delta_z_parametrizations_None)
 
             if self.save:
-                np.save('/tigress/ncaplar/Results/H_' + str(num_iter) + '_' + str(iteration_number),
-                        H)
+                np.save('/tigress/ncaplar/Results/H_' + str(num_iter) + '_' + str(iteration_number), H)
             if self.save:
                 np.save('/tigress/ncaplar/Results/H_std_' + str(num_iter) + '_' + str(iteration_number),
                         H_std)
@@ -4693,11 +4652,13 @@ class Tokovinin_multi(object):
             """
 
             if self.verbosity >= 1:
-                logging.info('first_proposal_Tokovnin[:5] is: ' + str(first_proposal_Tokovnin[:8 * 2]))
-                logging.info('first_proposal_Tokovnin_std[:5] is: ' + str(first_proposal_Tokovnin_std[:8 * 2]))
+                logging.info('first_proposal_Tokovnin[:5] is: '
+                             + str(first_proposal_Tokovnin[:8 * 2]))
+                logging.info('first_proposal_Tokovnin_std[:5] is: '
+                             + str(first_proposal_Tokovnin_std[:8 * 2]))
                 try:
-                    logging.info('ratio is of proposed to initial parameters (std) is: ' +
-                          str(first_proposal_Tokovnin_std / array_of_delta_z_parametrizations))
+                    logging.info('ratio is of proposed to initial parameters (std) is: '
+                                 + str(first_proposal_Tokovnin_std / array_of_delta_z_parametrizations))
                 except BaseException:
                     pass
 
@@ -4714,7 +4675,7 @@ class Tokovinin_multi(object):
                 # them to the limit values
                 # noqa: E501 - breaking line limit in order to keep informative names
                 global_parametrization_proposal_after_iteration_before_global_check =\
-                    allparameters_parametrization_proposal_after_iteration_before_global_check[19 * 2:19 * 2 + 23]  #noqa: E501
+                    allparameters_parametrization_proposal_after_iteration_before_global_check[19 * 2:19 * 2 + 23]  # noqa: E501
                 checked_global_parameters = check_global_parameters(
                     global_parametrization_proposal_after_iteration_before_global_check, test_print=1)
 
@@ -4775,22 +4736,14 @@ class Tokovinin_multi(object):
 
             if self.save:
                 np.save(
-                    '/tigress/ncaplar/Results/first_proposal_Tokovnin' +
-                    str(num_iter) +
-                    '_' +
-                    str(iteration_number),
-                    first_proposal_Tokovnin)
+                    '/tigress/ncaplar/Results/first_proposal_Tokovnin' + str(num_iter) + '_'
+                    + str(iteration_number), first_proposal_Tokovnin)
                 np.save(
-                    '/tigress/ncaplar/Results/first_proposal_Tokovnin_std' +
-                    str(num_iter) +
-                    '_' +
-                    str(iteration_number),
-                    first_proposal_Tokovnin_std)
+                    '/tigress/ncaplar/Results/first_proposal_Tokovnin_std' + str(num_iter) + '_'
+                    + str(iteration_number), first_proposal_Tokovnin_std)
                 np.save(
-                    '/tigress/ncaplar/Results/allparameters_parametrization_proposal_after_iteration_' +
-                    str(num_iter) +
-                    '_' +
-                    str(iteration_number),
+                    '/tigress/ncaplar/Results/allparameters_parametrization_proposal_after_iteration_'
+                    + str(num_iter) + '_' + str(iteration_number),
                     allparameters_parametrization_proposal_after_iteration)
 
             #########################
@@ -4808,10 +4761,10 @@ class Tokovinin_multi(object):
                 multi_background_factor=multi_background_factor)
 
             if self.verbosity >= 1:
-                logging.info('allparameters_parametrization_proposal_after_iteration ' +
-                      str(allparameters_parametrization_proposal_after_iteration[0:5]))
-                logging.info('list_of_parameters_after_iteration[0][0:5] ' +
-                      str(list_of_parameters_after_iteration[0][0:5]))
+                logging.info('allparameters_parametrization_proposal_after_iteration '
+                             + str(allparameters_parametrization_proposal_after_iteration[0:5]))
+                logging.info('list_of_parameters_after_iteration[0][0:5] '
+                             + str(list_of_parameters_after_iteration[0][0:5]))
 
             final_model_result, list_of_final_model_result, list_of_image_final,\
                 list_of_finalinput_parameters, list_of_after_chi2, list_of_final_psf_positions = res_multi
@@ -4832,28 +4785,22 @@ class Tokovinin_multi(object):
 
             time_end_final = time.time()
             if self.verbosity >= 1:
-                logging.info('Total time taken for final iteration was ' + str(time_end_final -
-                      time_start_final) + ' seconds with num_iter: ' + str(num_iter))
+                logging.info('Total time taken for final iteration was ' + str(time_end_final
+                                                                               - time_start_final)
+                             + ' seconds with num_iter: ' + str(num_iter))
 
             if self.save:
-                np.save('/tigress/ncaplar/Results/list_of_final_model_result_' +
-                        str(num_iter) + '_' + str(iteration_number), list_of_final_model_result)
+                np.save('/tigress/ncaplar/Results/list_of_final_model_result_'
+                        + str(num_iter) + '_' + str(iteration_number), list_of_final_model_result)
                 np.save(
-                    '/tigress/ncaplar/Results/list_of_image_final_' +
-                    str(num_iter) +
-                    '_' +
-                    str(iteration_number),
-                    list_of_image_final)
-                np.save('/tigress/ncaplar/Results/list_of_finalinput_parameters_' +
-                        str(num_iter) + '_' + str(iteration_number), list_of_finalinput_parameters)
-                np.save(
-                    '/tigress/ncaplar/Results/list_of_after_chi2_' +
-                    str(num_iter) +
-                    '_' +
-                    str(iteration_number),
-                    list_of_after_chi2)
-                np.save('/tigress/ncaplar/Results/list_of_final_psf_positions_' +
-                        str(num_iter) + '_' + str(iteration_number), list_of_final_psf_positions)
+                    '/tigress/ncaplar/Results/list_of_image_final_' + str(num_iter) + '_'
+                    + str(iteration_number), list_of_image_final)
+                np.save('/tigress/ncaplar/Results/list_of_finalinput_parameters_'
+                        + str(num_iter) + '_' + str(iteration_number), list_of_finalinput_parameters)
+                np.save('/tigress/ncaplar/Results/list_of_after_chi2_' + str(num_iter) + '_'
+                        + str(iteration_number), list_of_after_chi2)
+                np.save('/tigress/ncaplar/Results/list_of_final_psf_positions_'
+                        + str(num_iter) + '_' + str(iteration_number), list_of_final_psf_positions)
 
             if self.verbosity >= 1:
                 logging.info('list_of_final_psf_positions : ' + str(list_of_psf_positions))
@@ -4903,22 +4850,16 @@ class Tokovinin_multi(object):
 
             if self.save:
                 np.save(
-                    '/tigress/ncaplar/Results/uber_M_final_' +
-                    str(num_iter) +
-                    '_' +
-                    str(iteration_number),
-                    uber_M_final)
+                    '/tigress/ncaplar/Results/uber_M_final_' + str(num_iter) + '_'
+                    + str(iteration_number), uber_M_final)
                 np.save(
-                    '/tigress/ncaplar/Results/uber_M_final_std_' +
-                    str(num_iter) +
-                    '_' +
-                    str(iteration_number),
-                    uber_M_final_std)
+                    '/tigress/ncaplar/Results/uber_M_final_std_' + str(num_iter) + '_'
+                    + str(iteration_number), uber_M_final_std)
             if self.save:
-                np.save('/tigress/ncaplar/Results/uber_M_final_linear_prediction_' +
-                        str(num_iter) + '_' + str(iteration_number), uber_M_final_linear_prediction)
-                np.save('/tigress/ncaplar/Results/uber_M_final_std_linear_prediction_' +
-                        str(num_iter) + '_' + str(iteration_number), uber_M_final_std_linear_prediction)
+                np.save('/tigress/ncaplar/Results/uber_M_final_linear_prediction_'
+                        + str(num_iter) + '_' + str(iteration_number), uber_M_final_linear_prediction)
+                np.save('/tigress/ncaplar/Results/uber_M_final_std_linear_prediction_'
+                        + str(num_iter) + '_' + str(iteration_number), uber_M_final_std_linear_prediction)
 
             ####
             # Seeing if there is an improvment
@@ -4934,83 +4875,75 @@ class Tokovinin_multi(object):
 
             # linear prediction versions
             IM_final_linear_prediction = np.sum(
-                np.abs(
-                    np.array(uber_I) -
-                    np.array(uber_M_final_linear_prediction)))
+                np.abs(np.array(uber_I) - np.array(uber_M_final_linear_prediction)))
             # std version
             IM_final_std_linear_prediction = np.sum(
-                np.abs(
-                    np.array(uber_I_std) -
-                    np.array(uber_M_final_std_linear_prediction)))
+                np.abs(np.array(uber_I_std) - np.array(uber_M_final_std_linear_prediction)))
 
             # do a separate check on the improvment measure for the image in focus, when applicable
             if len(list_of_flux_mask) > 1:
                 IM_final_focus = np.sum(
-                    np.abs(
-                        np.array(uber_I) -
-                        np.array(uber_M_final))[
-                        position_focus_1:position_focus_2])
+                    np.abs(np.array(uber_I) - np.array(uber_M_final))[position_focus_1:position_focus_2])
                 IM_final_std_focus = np.sum(
-                    np.abs(
-                        np.array(uber_I_std) -
-                        np.array(uber_M_final_std))[
-                        position_focus_1:position_focus_2])
+                    np.abs(np.array(uber_I_std)
+                           - np.array(uber_M_final_std))[position_focus_1:position_focus_2])
 
             if self.verbosity >= 1:
-                logging.info('I-M_start before iteration ' + str(iteration_number) +
-                      ' with num_iter ' + str(num_iter) + ': ' + str(IM_start))
-                logging.info('I-M_final after iteration ' + str(iteration_number) +
-                      ' with num_iter ' + str(num_iter) + ': ' + str(IM_final))
-                logging.info('IM_final_linear_prediction after iteration ' + str(iteration_number) +
-                      ' with num_iter ' + str(num_iter) + ': ' + str(IM_final_linear_prediction))
+                logging.info('I-M_start before iteration ' + str(iteration_number)
+                             + ' with num_iter ' + str(num_iter) + ': ' + str(IM_start))
+                logging.info('I-M_final after iteration ' + str(iteration_number)
+                             + ' with num_iter ' + str(num_iter) + ': ' + str(IM_final))
+                logging.info('IM_final_linear_prediction after iteration ' + str(iteration_number)
+                             + ' with num_iter ' + str(num_iter) + ': ' + str(IM_final_linear_prediction))
                 if len(list_of_flux_mask) > 1:
-                    logging.info('I-M_start_focus before iteration ' + str(iteration_number) +
-                          ' with num_iter ' + str(num_iter) + ': ' + str(IM_start_focus))
-                    logging.info('I-M_final_focus after iteration ' + str(iteration_number) +
-                          ' with num_iter ' + str(num_iter) + ': ' + str(IM_final_focus))
+                    logging.info('I-M_start_focus before iteration ' + str(iteration_number)
+                                 + ' with num_iter ' + str(num_iter) + ': ' + str(IM_start_focus))
+                    logging.info('I-M_final_focus after iteration ' + str(iteration_number)
+                                 + ' with num_iter ' + str(num_iter) + ': ' + str(IM_final_focus))
 
-                logging.info('I_std-M_start_std after iteration ' + str(iteration_number) +
-                      ' with num_iter ' + str(num_iter) + ': ' + str(IM_start_std))
-                logging.info('I_std-M_final_std after iteration ' + str(iteration_number) +
-                      ' with num_iter ' + str(num_iter) + ': ' + str(IM_final_std))
-                logging.info('IM_final_std_linear_prediction after iteration ' + str(iteration_number) +
-                      ' with num_iter ' + str(num_iter) + ': ' + str(IM_final_std_linear_prediction))
+                logging.info('I_std-M_start_std after iteration ' + str(iteration_number)
+                             + ' with num_iter ' + str(num_iter) + ': ' + str(IM_start_std))
+                logging.info('I_std-M_final_std after iteration ' + str(iteration_number)
+                             + ' with num_iter ' + str(num_iter) + ': ' + str(IM_final_std))
+                logging.info('IM_final_std_linear_prediction after iteration ' + str(iteration_number)
+                             + ' with num_iter ' + str(num_iter) + ': ' + str(IM_final_std_linear_prediction))
                 if len(list_of_flux_mask) > 1:
-                    logging.info('I-M_start_focus_std before iteration ' + str(iteration_number) +
-                          ' with num_iter ' + str(num_iter) + ': ' + str(IM_start_std_focus))
-                    logging.info('I-M_final_focus_std after iteration ' + str(iteration_number) +
-                          ' with num_iter ' + str(num_iter) + ': ' + str(IM_final_std_focus))
+                    logging.info('I-M_start_focus_std before iteration ' + str(iteration_number)
+                                 + ' with num_iter ' + str(num_iter) + ': ' + str(IM_start_std_focus))
+                    logging.info('I-M_final_focus_std after iteration ' + str(iteration_number)
+                                 + ' with num_iter ' + str(num_iter) + ': ' + str(IM_final_std_focus))
 
-                logging.info('Likelihood before iteration ' + str(iteration_number) +
-                      ' with num_iter ' + str(num_iter) + ': ' + str(initial_model_result))
-                logging.info('Likelihood after iteration ' + str(iteration_number) +
-                      ' with num_iter ' + str(num_iter) + ': ' + str(final_model_result))
+                logging.info('Likelihood before iteration ' + str(iteration_number)
+                             + ' with num_iter ' + str(num_iter) + ': ' + str(initial_model_result))
+                logging.info('Likelihood after iteration ' + str(iteration_number)
+                             + ' with num_iter ' + str(num_iter) + ': ' + str(final_model_result))
 
                 logging.info(
-                    'Likelihood before iteration  ' +
-                    str(iteration_number) +
-                    ' with num_iter ' +
-                    str(num_iter) +
-                    ', per image: ' +
-                    str(list_of_initial_model_result))
+                    'Likelihood before iteration  '
+                    + str(iteration_number)
+                    + ' with num_iter '
+                    + str(num_iter)
+                    + ', per image: '
+                    + str(list_of_initial_model_result))
                 logging.info(
-                    'Likelihood after iteration ' +
-                    str(iteration_number) +
-                    ' with num_iter ' +
-                    str(num_iter) +
-                    ', per image: ' +
-                    str(list_of_final_model_result))
+                    'Likelihood after iteration '
+                    + str(iteration_number)
+                    + ' with num_iter '
+                    + str(num_iter)
+                    + ', per image: '
+                    + str(list_of_final_model_result))
 
                 # logging.info('chi_2_after_iteration/chi_2_before_iteration '+
                 # str(chi_2_after_iteration/chi_2_before_iteration ))
-                logging.info('IM_final/IM_start with num_iter ' + str(num_iter) + ': ' + str(IM_final / IM_start))
-                logging.info('IM_final_std/IM_start_std with num_iter ' +
-                      str(num_iter) + ': ' + str(IM_final_std / IM_start_std))
+                logging.info('IM_final/IM_start with num_iter ' + str(num_iter)
+                             + ': ' + str(IM_final / IM_start))
+                logging.info('IM_final_std/IM_start_std with num_iter '
+                             + str(num_iter) + ': ' + str(IM_final_std / IM_start_std))
                 if len(list_of_flux_mask) > 1:
-                    logging.info('IM_final_focus/IM_start_focus with num_iter ' +
-                          str(num_iter) + ': ' + str(IM_final_focus / IM_start_focus))
-                    logging.info('IM_final_std_focus/IM_start_std_focus with num_iter ' +
-                          str(num_iter) + ': ' + str(IM_final_std_focus / IM_start_std_focus))
+                    logging.info('IM_final_focus/IM_start_focus with num_iter '
+                                 + str(num_iter) + ': ' + str(IM_final_focus / IM_start_focus))
+                    logging.info('IM_final_std_focus/IM_start_std_focus with num_iter '
+                                 + str(num_iter) + ': ' + str(IM_final_std_focus / IM_start_std_focus))
 
                 logging.info('#########################################################')
 
@@ -5030,22 +4963,21 @@ class Tokovinin_multi(object):
                     condition_for_improvment = True
 
             if self.verbosity >= 1:
-                logging.info('condition_for_improvment in iteration ' + str(iteration_number) +
-                      ' with num_iter ' + str(num_iter) + ': ' + str(condition_for_improvment))
+                logging.info('condition_for_improvment in iteration ' + str(iteration_number)
+                             + ' with num_iter ' + str(num_iter) + ': ' + str(condition_for_improvment))
             if condition_for_improvment:
                 # when the quality measure did improve
-                did_chi_2_improve = 1 #noqa
+                did_chi_2_improve = 1  # noqa
                 number_of_non_decreses.append(0)
                 if self.verbosity >= 1:
-                    logging.info('number_of_non_decreses:' +
-                          str(number_of_non_decreses))
-                    logging.info('current value of number_of_non_decreses is: ' +
-                          str(np.sum(number_of_non_decreses)))
-                    logging.info('#################################################################################')
-                    logging.info('#################################################################################')
+                    logging.info('number_of_non_decreses:' + str(number_of_non_decreses))
+                    logging.info('current value of number_of_non_decreses is: '
+                                 + str(np.sum(number_of_non_decreses)))
+                    logging.info('#########################################')
+                    logging.info('#########################################')
             else:
                 # when the quality measure did not improve
-                did_chi_2_improve = 0 #noqa
+                did_chi_2_improve = 0  # noqa
                 # resetting all parameters
                 if move_allparameters:
                     all_wavefront_z_parametrization_new = np.copy(all_wavefront_z_parametrization_old)
@@ -5062,10 +4994,10 @@ class Tokovinin_multi(object):
                 number_of_non_decreses.append(1)
                 if self.verbosity >= 1:
                     logging.info('number_of_non_decreses:' + str(number_of_non_decreses))
-                    logging.info('current value of number_of_non_decreses is: ' +
-                          str(np.sum(number_of_non_decreses)))
-                    logging.info('#################################################################################')
-                    logging.info('#################################################################################')
+                    logging.info('current value of number_of_non_decreses is: '
+                                 + str(np.sum(number_of_non_decreses)))
+                    logging.info('#######################################################')
+                    logging.info('#######################################################')
 
                 final_model_result = initial_model_result
                 list_of_final_model_result = list_of_initial_model_result
@@ -5320,11 +5252,9 @@ class Tokovinin_multi(object):
 
         # create the array of how wavefront changes the uber_model by multiply the changes with new ratios
         array_of_wavefront_changes = np.transpose(
-            ratio_of_parametrizations *
-            np.array(
-                uber_images_normalized_previous_best -
-                uber_M0_previous_best) /
-            (array_of_delta_parametrizations_None_previous_best))
+            ratio_of_parametrizations
+            * np.array(uber_images_normalized_previous_best - uber_M0_previous_best)
+            / (array_of_delta_parametrizations_None_previous_best))
 
         # difference between current model image and previous model image
 
@@ -5523,9 +5453,6 @@ class LN_PFS_single(object):
         if use_pupil_parameters is not None:
             assert pupil_parameters is not None
 
-        # logging.info('double_sources in ln_pfs_single: '+str(double_sources))
-        # logging.info('double_sources_positions_ratios in ln_pfs_single: '+str(double_sources_positions_ratios))
-        # logging.info('type(double_sources): '+str(type(double_sources)))
         if double_sources is not None and bool(double_sources) is not False:
             assert np.sum(np.abs(double_sources_positions_ratios)) > 0
 
@@ -5788,7 +5715,7 @@ class LN_PFS_single(object):
         # custom_var_image = p1(sci_image)
 
         # I am using lambda expression to avoid superflous definition of quadratic function
-        f = lambda x, *p: p[0] * x**2 + p[1] * x + p[2] #noqa : E373
+        f = lambda x, *p: p[0] * x**2 + p[1] * x + p[2]  # noqa : E373
         popt, pcov = scipy.optimize.curve_fit(f, sci_pixels, var_pixels, [0, 0, np.min(var_pixels)],
                                               bounds=([-np.inf, -np.inf, np.min(var_pixels)],
                                                       [np.inf, np.inf, np.inf]))
@@ -5812,7 +5739,7 @@ class LN_PFS_single(object):
         """
 
         # I am using lambda expression to avoid superflous definition of quadratic function
-        f = lambda x, *p: p[0] * x**2 + p[1] * x + p[2] #noqa : E373
+        f = lambda x, *p: p[0] * x**2 + p[1] * x + p[2]  # noqa : E373
         custom_var_image = f(model_image, *popt)
         return custom_var_image
 
@@ -6069,8 +5996,8 @@ class LN_PFS_single(object):
         # that the code does not wander off in totally non physical region
         # det frac
         if globalparameters[0] < 0.6 or globalparameters[0] > 0.8:
-            logging.info('globalparameters[0] outside limits; value: ' +
-                  str(globalparameters[0])) if test_print == 1 else False
+            logging.info('globalparameters[0] outside limits; value: '
+                         + str(globalparameters[0])) if test_print == 1 else False
             return -np.inf
 
         # strut frac
@@ -6169,8 +6096,8 @@ class LN_PFS_single(object):
             logging.info('globalparameters[12] outside limits') if test_print == 1 else False
             return -np.inf
         if globalparameters[12] > 1.0:
-            logging.info('globalparameters[12] outside limits with value ' +
-                  str(globalparameters[12])) if test_print == 1 else False
+            logging.info('globalparameters[12] outside limits with value '
+                         + str(globalparameters[12])) if test_print == 1 else False
             return -np.inf
 
         # frd_sigma
@@ -6369,7 +6296,8 @@ class LN_PFS_single(object):
 
                 modelImg = modelImg * flux
                 if self.verbosity == 1:
-                    logging.info('Internally fitting for flux; multiplying all values in the model by ' + str(flux))
+                    logging.info('Internally fitting for flux; multiplying all values in the model by '
+                                 + str(flux))
             else:
                 pass
 
@@ -6398,28 +6326,22 @@ class LN_PFS_single(object):
         if self.verbosity:
             logging.info('Finished with lnlike_Neven')
             if not use_only_chi:
-                logging.info('chi_2_almost/d.o.f is ' +
-                      str(chi_2_almost_dof) +
-                      '; chi_2_almost_max_dof is ' +
-                      str(chi_2_almost_max_dof) +
-                      '; log(improvment) is ' +
-                      str(np.log10(chi_2_almost_dof /
-                                   chi_2_almost_max_dof)))
+                logging.info('chi_2_almost/d.o.f is ' + str(chi_2_almost_dof)
+                             + '; chi_2_almost_max_dof is ' + str(chi_2_almost_max_dof)
+                             + '; log(improvment) is '
+                             + str(np.log10(chi_2_almost_dof / chi_2_almost_max_dof)))
             else:
-                logging.info('chi_almost/d.o.f is ' +
-                      str(chi_2_almost_dof) +
-                      '; chi_almost_max_dof is ' +
-                      str(chi_2_almost_max_dof) +
-                      '; log(improvment) is ' +
-                      str(np.log10(chi_2_almost_dof /
-                                   chi_2_almost_max_dof)))
+                logging.info('chi_almost/d.o.f is ' + str(chi_2_almost_dof)
+                             + '; chi_almost_max_dof is ' + str(chi_2_almost_max_dof)
+                             + '; log(improvment) is '
+                             + str(np.log10(chi_2_almost_dof / chi_2_almost_max_dof)))
 
             logging.info('The `likelihood` reported is: ' + str(res))
             # logging.info('multiprocessing.current_process() ' +
             #       str(current_process()) + ' thread ' + str(threading.get_ident()))
             # logging.info(str(platform.uname()))
-            logging.info('Time for lnlike_Neven function in thread ' + str(threading.get_ident()) +
-                  ' is: ' + str(time_lnlike_end - time_lnlike_start) + str(' seconds'))
+            logging.info('Time for lnlike_Neven function in thread ' + str(threading.get_ident())
+                         + ' is: ' + str(time_lnlike_end - time_lnlike_start) + str(' seconds'))
             logging.info(' ')
 
         if not return_Image:
@@ -6517,12 +6439,12 @@ class PFSLikelihoodModule(object):
 class PsfPosition(object):
     """
     Class that deals with positioning the PSF model in respect to the data
-    
+
     Function find_single_realization_min_cut enables the fit to the data
     """
 
     def __init__(self, image, oversampling, size_natural_resolution, simulation_00=False,
-                verbosity=0, save=None, PSF_DIRECTORY=None):
+                 verbosity=0, save=None, PSF_DIRECTORY=None):
         """
         Parameters
         -----------------
@@ -6549,7 +6471,7 @@ class PsfPosition(object):
             save = 0
         self.save = save
         self.PSF_DIRECTORY = PSF_DIRECTORY
-        
+
         if self.PSF_DIRECTORY is not None:
             self.TESTING_FOLDER = self.PSF_DIRECTORY + 'Testing/'
             self.TESTING_PUPIL_IMAGES_FOLDER = self.TESTING_FOLDER + 'Pupil_Images/'
@@ -6559,25 +6481,22 @@ class PsfPosition(object):
     @staticmethod
     def cut_Centroid_of_natural_resolution_image(image, size_natural_resolution, oversampling, dx, dy):
         """Cut the central part from a larger oversampled image
-        
+
         @param image                          input image
         @param size_natural_resolution        size of new image in natural units
         @param oversampling                   oversampling
-        
+
         @returns                              central part of the input image
         """
-        positions_from_where_to_start_cut = [int(len(image) / 2 -
-                                                 size_natural_resolution / 2 -
-                                                 dx * oversampling + 1),
-                                             int(len(image) / 2 -
-                                                 size_natural_resolution / 2 -
-                                                 dy * oversampling + 1)]
+        positions_from_where_to_start_cut = [int(len(image) / 2 - size_natural_resolution / 2
+                                                 - dx * oversampling + 1),
+                                             int(len(image) / 2 - size_natural_resolution / 2
+                                                 - dy * oversampling + 1)]
 
-        res = image[positions_from_where_to_start_cut[1]:positions_from_where_to_start_cut[1] +
-                    int(size_natural_resolution),
-                    positions_from_where_to_start_cut[0]:positions_from_where_to_start_cut[0] +
-                    int(size_natural_resolution)]
-
+        res = image[positions_from_where_to_start_cut[1]:positions_from_where_to_start_cut[1]
+                    + int(size_natural_resolution),
+                    positions_from_where_to_start_cut[0]:positions_from_where_to_start_cut[0]
+                    + int(size_natural_resolution)]
         return res
 
     def find_single_realization_min_cut(
@@ -6716,7 +6635,8 @@ class PsfPosition(object):
                         simulation_00=simulation_00)[-1]
                     time_2 = time.time()
                     if self.verbosity == 1:
-                        logging.info('time_2-time_1 for initial_complete_realization: ' + str(time_2 - time_1))
+                        logging.info('time_2-time_1 for initial_complete_realization: '
+                                     + str(time_2 - time_1))
 
                     # center of the light for the first realization, set at optical center
                     centroid_of_initial_complete_realization = find_centroid_of_flux(
@@ -6724,18 +6644,18 @@ class PsfPosition(object):
 
                     # determine offset between the initial guess and the data
                     offset_initial_and_sci = - \
-                        ((np.array(find_centroid_of_flux(initial_complete_realization)) -
-                          np.array(find_centroid_of_flux(sci_image))))
+                        ((np.array(find_centroid_of_flux(initial_complete_realization))
+                          - np.array(find_centroid_of_flux(sci_image))))
 
                     if verbosity == 1:
-                        logging.info('centroid_of_initial_complete_realization ' +
-                              str(find_centroid_of_flux(initial_complete_realization)))
+                        logging.info('centroid_of_initial_complete_realization '
+                                     + str(find_centroid_of_flux(initial_complete_realization)))
                         logging.info('centroid_of_sci_image '+str(find_centroid_of_flux(sci_image)))
                         logging.info('offset_initial_and_sci: ' + str(offset_initial_and_sci))
                         logging.info('[x_primary, y_primary, y_secondary,ratio_secondary] / chi2 output')
                     if self.save == 1:
-                        np.save(self.TESTING_FINAL_IMAGES_FOLDER +
-                            'initial_complete_realization', initial_complete_realization)
+                        np.save(self.TESTING_FINAL_IMAGES_FOLDER
+                                + 'initial_complete_realization', initial_complete_realization)
 
                     # search for the best center using scipy ``shgo'' algorithm
                     # set the limits for the fitting procedure
@@ -6772,8 +6692,8 @@ class PsfPosition(object):
                             offset_initial_and_sci = -((np.array(find_centroid_of_flux(complete_realization))
                                                         - np.array(find_centroid_of_flux(sci_image))))
                             if verbosity == 1:
-                                logging.info('offset_initial_and_sci in step ' +
-                                      str(i) + ' ' + str(offset_initial_and_sci))
+                                logging.info('offset_initial_and_sci in step '
+                                             + str(i) + ' ' + str(offset_initial_and_sci))
                                 logging.info("###")
                             x_i, y_i = offset_initial_and_sci * oversampling
 
@@ -6827,7 +6747,7 @@ class PsfPosition(object):
 
                     # return the best result, based on the result of the conducted search
                     mean_res, single_realization_primary_renormalized,\
-                    single_realization_secondary_renormalized, complete_realization_renormalized \
+                        single_realization_secondary_renormalized, complete_realization_renormalized \
                         = self.create_complete_realization(primary_position_and_ratio_x,
                                                            return_full_result=True,
                                                            use_only_chi=use_only_chi,
@@ -6836,32 +6756,32 @@ class PsfPosition(object):
 
                     if self.save == 1:
                         np.save(
-                            self.TESTING_FINAL_IMAGES_FOLDER +
-                            'single_realization_primary_renormalized',
+                            self.TESTING_FINAL_IMAGES_FOLDER
+                            + 'single_realization_primary_renormalized',
                             single_realization_primary_renormalized)
                         np.save(
-                            self.TESTING_FINAL_IMAGES_FOLDER +
-                            'single_realization_secondary_renormalized',
+                            self.TESTING_FINAL_IMAGES_FOLDER
+                            + 'single_realization_secondary_renormalized',
                             single_realization_secondary_renormalized)
                         np.save(
-                            self.TESTING_FINAL_IMAGES_FOLDER +
-                            'complete_realization_renormalized',
+                            self.TESTING_FINAL_IMAGES_FOLDER
+                            + 'complete_realization_renormalized',
                             complete_realization_renormalized)
 
                     if self.verbosity == 1:
                         if simulation_00 != 1:
                             logging.info('We are fitting for only one source')
                             logging.info('One source fitting result is ' + str(primary_position_and_ratio_x))
-                            logging.info('type(complete_realization_renormalized)' +
-                                  str(type(complete_realization_renormalized[0][0])))
+                            logging.info('type(complete_realization_renormalized)'
+                                         + str(type(complete_realization_renormalized[0][0])))
 
                             centroid_of_complete_realization_renormalized = find_centroid_of_flux(
                                 complete_realization_renormalized)
 
                             # determine offset between the initial guess and the data
                             offset_final_and_sci = - \
-                                (np.array(centroid_of_complete_realization_renormalized) -
-                                 np.array(centroid_of_sci_image))
+                                (np.array(centroid_of_complete_realization_renormalized)
+                                 - np.array(centroid_of_sci_image))
 
                             logging.info('offset_final_and_sci: ' + str(offset_final_and_sci))
 
@@ -6869,9 +6789,8 @@ class PsfPosition(object):
 
                 # if you did pass explicit_psf_position for the solution evalute the code here
                 else:
-
                     mean_res, single_realization_primary_renormalized,\
-                    single_realization_secondary_renormalized, complete_realization_renormalized\
+                        single_realization_secondary_renormalized, complete_realization_renormalized\
                         = self.create_complete_realization(explicit_psf_position,
                                                            return_full_result=True,
                                                            use_only_chi=use_only_chi,
@@ -6879,42 +6798,37 @@ class PsfPosition(object):
 
                     if self.save == 1:
                         np.save(
-                            self.TESTING_FINAL_IMAGES_FOLDER +
-                            'single_realization_primary_renormalized',
+                            self.TESTING_FINAL_IMAGES_FOLDER + 'single_realization_primary_renormalized',
                             single_realization_primary_renormalized)
                         np.save(
-                            self.TESTING_FINAL_IMAGES_FOLDER +
-                            'single_realization_secondary_renormalized',
+                            self.TESTING_FINAL_IMAGES_FOLDER + 'single_realization_secondary_renormalized',
                             single_realization_secondary_renormalized)
                         np.save(
-                            self.TESTING_FINAL_IMAGES_FOLDER +
-                            'complete_realization_renormalized',
+                            self.TESTING_FINAL_IMAGES_FOLDER + 'complete_realization_renormalized',
                             complete_realization_renormalized)
 
                     if self.verbosity == 1:
                         if simulation_00 != 1:
                             logging.info('We are passing value for only one source')
                             logging.info('One source fitting result is ' + str(explicit_psf_position))
-                            logging.info('type(complete_realization_renormalized)' +
-                                  str(type(complete_realization_renormalized[0][0])))
+                            logging.info('type(complete_realization_renormalized)'
+                                         + str(type(complete_realization_renormalized[0][0])))
 
                     return complete_realization_renormalized, explicit_psf_position
 
         else:
             # TODO: need to make possible that you can pass your own values for double source!!!!
-
             # create one complete realization with default parameters - estimate
             # centroids and use that knowledge to put fitting limits in the next step
             centroid_of_sci_image = find_centroid_of_flux(sci_image)
-            # logging.info('initial double_sources_positions_ratios is: '+str(double_sources_positions_ratios))
             initial_complete_realization = self.create_complete_realization([0,
                                                                              0,
-                                                                             double_sources_positions_ratios[0] #noqa: E501
+                                                                             double_sources_positions_ratios[0]  # noqa: E501
                                                                              * self.oversampling,
-                                                                             double_sources_positions_ratios[1]], #noqa: E501
+                                                                             double_sources_positions_ratios[1]],  # noqa: E501
                                                                             return_full_result=True,
                                                                             use_only_chi=use_only_chi,
-                                                                            use_center_of_light= #noqa: E251
+                                                                            use_center_of_light=  # noqa: E251
                                                                             use_center_of_flux,
                                                                             simulation_00=simulation_00)[-1]
             centroid_of_initial_complete_realization = find_centroid_of_flux(initial_complete_realization)
@@ -7055,23 +6969,20 @@ class PsfPosition(object):
 
             if self.save == 1:
                 np.save(
-                    self.TESTING_FINAL_IMAGES_FOLDER +
-                    'single_realization_primary_renormalized',
+                    self.TESTING_FINAL_IMAGES_FOLDER + 'single_realization_primary_renormalized',
                     single_realization_primary_renormalized)
                 np.save(
-                    self.TESTING_FINAL_IMAGES_FOLDER +
-                    'single_realization_secondary_renormalized',
+                    self.TESTING_FINAL_IMAGES_FOLDER + 'single_realization_secondary_renormalized',
                     single_realization_secondary_renormalized)
                 np.save(
-                    self.TESTING_FINAL_IMAGES_FOLDER +
-                    'complete_realization_renormalized',
+                    self.TESTING_FINAL_IMAGES_FOLDER + 'complete_realization_renormalized',
                     complete_realization_renormalized)
 
             if self.verbosity == 1:
                 logging.info('We are fitting for two sources')
                 logging.info('Two source fitting result is ' + str(primary_secondary_position_and_ratio_x))
-                logging.info('type(complete_realization_renormalized)' +
-                      str(type(complete_realization_renormalized[0][0])))
+                logging.info('type(complete_realization_renormalized)'
+                             + str(type(complete_realization_renormalized[0][0])))
 
         return complete_realization_renormalized, primary_secondary_position_and_ratio_x
 
@@ -7186,27 +7097,27 @@ class PsfPosition(object):
                 [-(np.round(primary_offset_axis_0) - primary_offset_axis_0),
                  -np.round(primary_offset_axis_0)])
 
-        image_integer_offset = image[center_position +
-                                     int(shift_y_mod[1]) - 1 -
-                                     shape_of_oversampled_image:center_position +
-                                     int(shift_y_mod[1]) +
-                                     shape_of_oversampled_image + 1,
-                                     center_position +
-                                     int(shift_x_mod[1]) - 1 -
-                                     shape_of_oversampled_image: center_position +
-                                     int(shift_x_mod[1]) +
-                                     shape_of_oversampled_image + 1]
+        image_integer_offset = image[center_position
+                                     + int(shift_y_mod[1]) - 1
+                                     - shape_of_oversampled_image:center_position
+                                     + int(shift_y_mod[1])
+                                     + shape_of_oversampled_image + 1,
+                                     center_position
+                                     + int(shift_x_mod[1]) - 1
+                                     - shape_of_oversampled_image: center_position
+                                     + int(shift_x_mod[1])
+                                     + shape_of_oversampled_image + 1]
         if simulation_00:
-            image_integer_offset = image[center_position +
-                                         int(shift_y_mod[1]) - 1 -
-                                         shape_of_oversampled_image:center_position +
-                                         int(shift_y_mod[1]) +
-                                         shape_of_oversampled_image + 1 + 1,
-                                         center_position +
-                                         int(shift_x_mod[1]) - 1 -
-                                         shape_of_oversampled_image: center_position +
-                                         int(shift_x_mod[1]) +
-                                         shape_of_oversampled_image + 1 + 1]
+            image_integer_offset = image[center_position
+                                         + int(shift_y_mod[1]) - 1
+                                         - shape_of_oversampled_image:center_position
+                                         + int(shift_y_mod[1])
+                                         + shape_of_oversampled_image + 1 + 1,
+                                         center_position
+                                         + int(shift_x_mod[1]) - 1
+                                         - shape_of_oversampled_image: center_position
+                                         + int(shift_x_mod[1])
+                                         + shape_of_oversampled_image + 1 + 1]
             logging.info('image_integer_offset shape: ' + str(image_integer_offset.shape))
 
         image_integer_offset_lsst = lsst.afw.image.image.ImageD(image_integer_offset.astype('float64'))
@@ -7280,19 +7191,16 @@ class PsfPosition(object):
                     [-(np.round(secondary_offset_axis_0) - secondary_offset_axis_0),
                      -np.round(secondary_offset_axis_0)])
 
-            image_integer_offset = image[center_position +
-                                         int(shift_y_mod[1]) -
-                                         1 -
-                                         shape_of_oversampled_image:center_position +
-                                         int(shift_y_mod[1]) +
-                                         shape_of_oversampled_image +
-                                         2, center_position +
-                                         int(shift_x_mod[1]) -
-                                         1 -
-                                         shape_of_oversampled_image: center_position +
-                                         int(shift_x_mod[1]) +
-                                         shape_of_oversampled_image +
-                                         2]
+            image_integer_offset = image[center_position
+                                         + int(shift_y_mod[1]) - 1
+                                         - shape_of_oversampled_image:center_position
+                                         + int(shift_y_mod[1])
+                                         + shape_of_oversampled_image + 2,
+                                         center_position
+                                         + int(shift_x_mod[1]) - 1
+                                         - shape_of_oversampled_image: center_position
+                                         + int(shift_x_mod[1])
+                                         + shape_of_oversampled_image + 2]
 
             image_integer_offset_lsst = lsst.afw.image.image.ImageD(image_integer_offset.astype('float64'))
 
@@ -7336,14 +7244,9 @@ class PsfPosition(object):
             # time_2 = time.time()
             if self.verbosity == 1:
                 logging.info(
-                    'chi2 within shgo with use_only_chi ' +
-                    str(use_only_chi) +
-                    ' and use_center_of_light ' +
-                    str(use_center_of_light) +
-                    ' ' +
-                    str(x) +
-                    ' / ' +
-                    str(chi_2_almost_multi_values))
+                    'chi2 within shgo with use_only_chi ' + str(use_only_chi)
+                    + ' and use_center_of_light ' + str(use_center_of_light) + ' ' + str(x) + ' / '
+                    + str(chi_2_almost_multi_values))
                 # logging.info('time_2-time_1 for create_chi_2_almost_Psf_position: '+str(time_2-time_1))
             return chi_2_almost_multi_values
         else:
@@ -7364,19 +7267,19 @@ class PsfPosition(object):
                 np.save(self.TESTING_FINAL_IMAGES_FOLDER + 'image', image)
                 if ratio_secondary != 0:
                     np.save(self.TESTING_FINAL_IMAGES_FOLDER + 'image_full_for_secondary', image)
-                    np.save(self.TESTING_FINAL_IMAGES_FOLDER +
-                        'single_secondary_realization', single_secondary_realization)
-                np.save(self.TESTING_FINAL_IMAGES_FOLDER +
-                    'single_primary_realization', single_primary_realization)
-                np.save(self.TESTING_FINAL_IMAGES_FOLDER +
-                    'single_primary_realization_renormalized_within_create_complete_realization',
-                    single_primary_realization_renormalized)
-                np.save(self.TESTING_FINAL_IMAGES_FOLDER +
-                    'single_secondary_realization_renormalized_within_create_complete_realization',
-                    single_secondary_realization_renormalized)
-                np.save(self.TESTING_FINAL_IMAGES_FOLDER +
-                    'complete_realization_renormalized_within_create_complete_realization',
-                    complete_realization_renormalized)
+                    np.save(self.TESTING_FINAL_IMAGES_FOLDER
+                            + 'single_secondary_realization', single_secondary_realization)
+                np.save(self.TESTING_FINAL_IMAGES_FOLDER
+                        + 'single_primary_realization', single_primary_realization)
+                np.save(self.TESTING_FINAL_IMAGES_FOLDER
+                        + 'single_primary_realization_renormalized_within_create_complete_realization',
+                        single_primary_realization_renormalized)
+                np.save(self.TESTING_FINAL_IMAGES_FOLDER
+                        + 'single_secondary_realization_renormalized_within_create_complete_realization',
+                        single_secondary_realization_renormalized)
+                np.save(self.TESTING_FINAL_IMAGES_FOLDER
+                        + 'complete_realization_renormalized_within_create_complete_realization',
+                        complete_realization_renormalized)
 
             # should I modify this function to remove distance from physcial center of
             # mass when using that option
@@ -7394,20 +7297,18 @@ class PsfPosition(object):
                 if self.verbosity == 1:
                     logging.info('saving oversampled simulation_00 image')
                     # logging.info('I have to implement that again')
-                    logging.info('saving at ' +
-                        self.TESTING_FINAL_IMAGES_FOLDER +
-                        'single_primary_realization_oversampled')
-                    np.save(self.TESTING_FINAL_IMAGES_FOLDER +
-                        'single_primary_realization_oversampled_to_save',
-                        single_primary_realization_oversampled)
-                    np.save(self.TESTING_FINAL_IMAGES_FOLDER +
-                        'complete_realization_renormalized_to_save',
-                        single_primary_realization_oversampled)
+                    logging.info('saving at ' + self.TESTING_FINAL_IMAGES_FOLDER
+                                 + 'single_primary_realization_oversampled')
+                    np.save(self.TESTING_FINAL_IMAGES_FOLDER
+                            + 'single_primary_realization_oversampled_to_save',
+                            single_primary_realization_oversampled)
+                    np.save(self.TESTING_FINAL_IMAGES_FOLDER
+                            + 'complete_realization_renormalized_to_save',
+                            single_primary_realization_oversampled)
 
             return chi_2_almost_multi_values,\
                 single_primary_realization_renormalized, single_secondary_realization_renormalized,\
                 complete_realization_renormalized
-
 
     def create_chi_2_almost_Psf_position(self, modelImg, sci_image, var_image, mask_image,
                                          use_only_chi=False, use_center_of_light=False, simulation_00=False):
@@ -7467,8 +7368,8 @@ class PsfPosition(object):
 
                 distance_of_flux_center = np.sqrt(
                     np.sum((np.array(
-                            find_centroid_of_flux(modelImg_masked)) -
-                            np.array(
+                            find_centroid_of_flux(modelImg_masked))
+                            - np.array(
                             find_centroid_of_flux(sci_image_masked)))**2))
             else:
                 # if you pass both simulation_00 paramter and use_center_of_light=True,
@@ -7478,9 +7379,9 @@ class PsfPosition(object):
                     logging.info('sim00=True and center of light =true')
 
                 distance_of_flux_center = np.sqrt(
-                    np.sum((np.array(find_centroid_of_flux(modelImg_masked)) -
-                            np.array(np.array(np.ones((21, 21)).shape) /
-                            2 - 0.5))**2))
+                    np.sum((np.array(find_centroid_of_flux(modelImg_masked))
+                            - np.array(np.array(np.ones((21, 21)).shape)
+                                       / 2 - 0.5))**2))
             # logging.info('distance_of_flux_center: '+str(distance_of_flux_center))
             return distance_of_flux_center
 
@@ -7489,7 +7390,7 @@ class PsfPosition(object):
         Fills `crop` with values from `img` at `pos`,
         while accounting for the crop being off the edge of `img`.
         *Note:* negative values in `pos` are interpreted as-is, not as "from the end".
-        Taken from https://stackoverflow.com/questions/41153803/zero-padding-slice-past-end-of-array-in-numpy #noqa:E501
+        Taken from https://stackoverflow.com/questions/41153803/zero-padding-slice-past-end-of-array-in-numpy  # noqa:E501
         '''
         img_shape, pos, crop_shape = np.array(
             img.shape, dtype=int), np.array(
@@ -7509,6 +7410,7 @@ class PsfPosition(object):
         except TypeError:
             logging.info('TypeError in fill_crop function')
             pass
+
 
 class Zernike_estimation_preparation(object):
     """
@@ -7543,7 +7445,7 @@ class Zernike_estimation_preparation(object):
     """
 
     def __init__(self, list_of_labelInput, list_of_spots, dataset,
-                 list_of_arc, eps, nsteps, analysis_type = 'defocus',
+                 list_of_arc, eps, nsteps, analysis_type='defocus',
                  analysis_type_fiber=None):
 
         self.list_of_labelInput = list_of_labelInput
@@ -7641,7 +7543,6 @@ class Zernike_estimation_preparation(object):
         self.c1 = c1
         self.c2 = c2
 
-
         # names for paramters - names if we go up to z22
         columns22 = [
             'z4',
@@ -7704,9 +7605,6 @@ class Zernike_estimation_preparation(object):
 
         return self.particleCount, self.c1, self.c2
 
-
-
-
     def create_list_of_obs_from_list_of_label(self):
         """
 
@@ -7721,7 +7619,7 @@ class Zernike_estimation_preparation(object):
         """
         dataset = self.dataset
         list_of_labelInput = self.list_of_labelInput
-        #arc = self.list_of_arc[0]
+        # arc = self.list_of_arc[0]
 
         logging.info('self.list_of_arc: '+str(self.list_of_arc))
         ################################################
@@ -7729,7 +7627,8 @@ class Zernike_estimation_preparation(object):
         ################################################
 
         # What are the observations that can be analyzed
-        # This information is used to associate observation with their input labels (see definition of `label` below)
+        # This information is used to associate observation with their input labels
+        # (see definition of `label` below)
         # This is so that the initial parameters guess is correct
 
         list_of_obs_possibilites = []
@@ -7807,45 +7706,43 @@ class Zernike_estimation_preparation(object):
                                                  17023 + 96,
                                                  17023 + 48])
                 if arc == 'Ne':
-                    obs_possibilites = np.array([16238 +
-                                                 6, 16238 +
-                                                 12, 16238 +
-                                                 18, 16238 +
-                                                 24, 16238 +
-                                                 30, 16238 +
-                                                 36, 16238 +
-                                                 42, 16238 +
-                                                 48, 16238 +
-                                                 54, 16238 +
-                                                 60, 16238 +
-                                                 66, 16238 +
-                                                 72, 16238 +
-                                                 78, 16238 +
-                                                 84, 16238 +
-                                                 90, 16238 +
-                                                 96, 16238 +
-                                                 102, 16238 +
-                                                 54])
+                    obs_possibilites = np.array([16238 + 6,
+                                                 16238 + 12,
+                                                 16238 + 18,
+                                                 16238 + 24,
+                                                 16238 + 30,
+                                                 16238 + 36,
+                                                 16238 + 42,
+                                                 16238 + 48,
+                                                 16238 + 54,
+                                                 16238 + 60,
+                                                 16238 + 66,
+                                                 16238 + 72,
+                                                 16238 + 78,
+                                                 16238 + 84,
+                                                 16238 + 90,
+                                                 16238 + 96,
+                                                 16238 + 102,
+                                                 16238 + 54])
                 if arc == 'Kr':
-                    obs_possibilites = np.array([17310 +
-                                                 6, 17310 +
-                                                 12, 17310 +
-                                                 18, 17310 +
-                                                 24, 17310 +
-                                                 30, 17310 +
-                                                 36, 17310 +
-                                                 42, 17310 +
-                                                 48, 17310 +
-                                                 54, 17310 +
-                                                 60, 17310 +
-                                                 66, 17310 +
-                                                 72, 17310 +
-                                                 78, 17310 +
-                                                 84, 17310 +
-                                                 90, 17310 +
-                                                 96, 17310 +
-                                                 102, 17310 +
-                                                 54])
+                    obs_possibilites = np.array([17310 + 6,
+                                                 17310 + 12,
+                                                 17310 + 18,
+                                                 17310 + 24,
+                                                 17310 + 30,
+                                                 17310 + 36,
+                                                 17310 + 42,
+                                                 17310 + 48,
+                                                 17310 + 54,
+                                                 17310 + 60,
+                                                 17310 + 66,
+                                                 17310 + 72,
+                                                 17310 + 78,
+                                                 17310 + 84,
+                                                 17310 + 90,
+                                                 17310 + 96,
+                                                 17310 + 102,
+                                                 17310 + 54])
 
             # F/2.5 data
             if dataset == 3:
@@ -7869,88 +7766,84 @@ class Zernike_estimation_preparation(object):
                                                  19238 + 96,
                                                  19238 + 48])
                 elif arc == 'Ne':
-                    obs_possibilites = np.array([19472 +
-                                                 6, 19472 +
-                                                 12, 19472 +
-                                                 18, 19472 +
-                                                 24, 19472 +
-                                                 30, 19472 +
-                                                 36, 19472 +
-                                                 42, 19472 +
-                                                 48, 19472 +
-                                                 54, 19472 +
-                                                 60, 19472 +
-                                                 66, 19472 +
-                                                 72, 19472 +
-                                                 78, 19472 +
-                                                 84, 19472 +
-                                                 90, 19472 +
-                                                 96, 19472 +
-                                                 102, 19472 +
-                                                 54])
+                    obs_possibilites = np.array([19472 + 6,
+                                                 19472 + 12,
+                                                 19472 + 18,
+                                                 19472 + 24,
+                                                 19472 + 30,
+                                                 19472 + 36,
+                                                 19472 + 42,
+                                                 19472 + 48,
+                                                 19472 + 54,
+                                                 19472 + 60,
+                                                 19472 + 66,
+                                                 19472 + 72,
+                                                 19472 + 78,
+                                                 19472 + 84,
+                                                 19472 + 90,
+                                                 19472 + 96,
+                                                 19472 + 102,
+                                                 19472 + 54])
 
             # F/2.8 July data
             if dataset == 4:
                 if arc == 'HgAr':
-                    obs_possibilites = np.array([21346 +
-                                                 6, 21346 +
-                                                 12, 21346 +
-                                                 18, 21346 +
-                                                 24, 21346 +
-                                                 30, 21346 +
-                                                 36, 21346 +
-                                                 42, 21346 +
-                                                 48, 21346 +
-                                                 54, 21346 +
-                                                 60, 21346 +
-                                                 66, 21346 +
-                                                 72, 21346 +
-                                                 78, 21346 +
-                                                 84, 21346 +
-                                                 90, 21346 +
-                                                 96, 21346 +
-                                                 102, 21346 +
-                                                 48])
+                    obs_possibilites = np.array([21346 + 6,
+                                                 21346 + 12,
+                                                 21346 + 18,
+                                                 21346 + 24,
+                                                 21346 + 30,
+                                                 21346 + 36,
+                                                 21346 + 42,
+                                                 21346 + 48,
+                                                 21346 + 54,
+                                                 21346 + 60,
+                                                 21346 + 66,
+                                                 21346 + 72,
+                                                 21346 + 78,
+                                                 21346 + 84,
+                                                 21346 + 90,
+                                                 21346 + 96,
+                                                 21346 + 102,
+                                                 21346 + 48])
                 if arc == 'Ne':
-                    obs_possibilites = np.array([21550 +
-                                                 6, 21550 +
-                                                 12, 21550 +
-                                                 18, 21550 +
-                                                 24, 21550 +
-                                                 30, 21550 +
-                                                 36, 21550 +
-                                                 42, 21550 +
-                                                 48, 21550 +
-                                                 54, 21550 +
-                                                 60, 21550 +
-                                                 66, 21550 +
-                                                 72, 21550 +
-                                                 78, 21550 +
-                                                 84, 21550 +
-                                                 90, 21550 +
-                                                 96, 21550 +
-                                                 102, 21550 +
-                                                 54])
+                    obs_possibilites = np.array([21550 + 6,
+                                                 21550 + 12,
+                                                 21550 + 18,
+                                                 21550 + 24,
+                                                 21550 + 30,
+                                                 21550 + 36,
+                                                 21550 + 42,
+                                                 21550 + 48,
+                                                 21550 + 54,
+                                                 21550 + 60,
+                                                 21550 + 66,
+                                                 21550 + 72,
+                                                 21550 + 78,
+                                                 21550 + 84,
+                                                 21550 + 90,
+                                                 21550 + 96,
+                                                 21550 + 102,
+                                                 21550 + 54])
                 if arc == 'Kr':
-                    obs_possibilites = np.array([21754 +
-                                                 6, 21754 +
-                                                 12, 21754 +
-                                                 18, 21754 +
-                                                 24, 21754 +
-                                                 30, 21754 +
-                                                 36, 21754 +
-                                                 42, 21754 +
-                                                 48, 21754 +
-                                                 54, 21754 +
-                                                 60, 21754 +
-                                                 66, 21754 +
-                                                 72, 21754 +
-                                                 78, 21754 +
-                                                 84, 21754 +
-                                                 90, 21754 +
-                                                 96, 21754 +
-                                                 102, 21754 +
-                                                 54])
+                    obs_possibilites = np.array([21754 + 6,
+                                                 21754 + 12,
+                                                 21754 + 18,
+                                                 21754 + 24,
+                                                 21754 + 30,
+                                                 21754 + 36,
+                                                 21754 + 42,
+                                                 21754 + 48,
+                                                 21754 + 54,
+                                                 21754 + 60,
+                                                 21754 + 66,
+                                                 21754 + 72,
+                                                 21754 + 78,
+                                                 21754 + 84,
+                                                 21754 + 90,
+                                                 21754 + 96,
+                                                 21754 + 102,
+                                                 21754 + 54])
 
             # F/2.8 data, Subaru
             if dataset == 6:
@@ -8015,35 +7908,43 @@ class Zernike_estimation_preparation(object):
             # SM2 test data
             if dataset == 7:
                 if arc == 'Ar':
-                    obs_possibilites = np.array([27779, -
-                                                 999, 27683, -
-                                                 999, -
-                                                 999, -
-                                                 999, -
-                                                 999, -
-                                                 999, 27767, -
-                                                 999, -
-                                                 999, -
-                                                 999, -
-                                                 999, -
-                                                 999, 27698, -
-                                                 999, 27773, -
-                                                 999])
+                    obs_possibilites = np.array([27779,
+                                                 - 999,
+                                                 27683,
+                                                 - 999,
+                                                 - 999,
+                                                 - 999,
+                                                 - 999,
+                                                 - 999,
+                                                 27767,
+                                                 - 999,
+                                                 - 999,
+                                                 - 999,
+                                                 - 999,
+                                                 - 999,
+                                                 27698,
+                                                 - 999,
+                                                 27773,
+                                                 - 999])
                 if arc == 'Ne':
-                    obs_possibilites = np.array([27713, -
-                                                 999, 27683, -
-                                                 999, -
-                                                 999, -
-                                                 999, -
-                                                 999, -
-                                                 999, 27677, -
-                                                 999, -
-                                                 999, -
-                                                 999, -
-                                                 999, -
-                                                 999, 27698, -
-                                                 999, 27719, -
-                                                 999])
+                    obs_possibilites = np.array([27713,
+                                                 - 999,
+                                                 27683,
+                                                 - 999,
+                                                 - 999,
+                                                 - 999,
+                                                 - 999,
+                                                 - 999,
+                                                 27677,
+                                                 - 999,
+                                                 - 999,
+                                                 - 999,
+                                                 - 999,
+                                                 - 999,
+                                                 27698,
+                                                 - 999,
+                                                 27719,
+                                                 - 999])
                 # Krypton data not taken
                 # if arc == 'Kr':
                 #     obs_possibilites = np.array([34561, 34561+6, 34561+12, 34561+18, 34561+24, 34561+30,
@@ -8118,8 +8019,9 @@ class Zernike_estimation_preparation(object):
         logging.info('list_of_obs_possibilites: '+str(list_of_obs_possibilites))
         ##############################################
 
-        # associates each observation with the label describing movement of the hexapod and rough estimate of z4
-        z4Input_possibilites = np.array([28, 24.5, 21, 17.5, 14, 10.5, 7, 3.5, 0,
+        # associates each observation with the label
+        # describing movement of the hexapod and rough estimate of z4
+        z4Input_possibilites = np.array([28, 24.5, 21, 17.5, 14, 10.5, 7, 3.5, 0,  # noqa F841
                                          -3.5, -7, -10.5, -14, -17.5, -21, -24.5, -28, 0])
         label = ['m4', 'm35', 'm3', 'm25', 'm2', 'm15', 'm1', 'm05', '0',
                  'p05', 'p1', 'p15', 'p2', 'p25', 'p3', 'p35', 'p4', '0p']
@@ -8135,7 +8037,6 @@ class Zernike_estimation_preparation(object):
                 list_of_obs.append(obs_cleaned)
             list_of_obs_cleaned.append(list_of_obs)
 
-
         self.list_of_obs_cleaned = list_of_obs_cleaned
         # TODO: clean out this cheating here
         list_of_obs = list_of_obs_cleaned
@@ -8144,9 +8045,6 @@ class Zernike_estimation_preparation(object):
         logging.info('self.list_of_obs:'+str(self.list_of_obs))
         logging.info('list_of_obs_cleaned:'+str(list_of_obs_cleaned))
         return list_of_obs_cleaned
-
-
-
 
     def get_sci_var_mask_data(self):
         """
@@ -8185,34 +8083,17 @@ class Zernike_estimation_preparation(object):
             for obs in self.list_of_obs_cleaned[s]:
                 try:
                     sci_image = np.load(
-                        STAMPS_FOLDER +
-                        'sci' +
-                        str(obs) +
-                        str(single_number) +
-                        str(arc) +
-                        '_Stacked.npy')
+                        STAMPS_FOLDER + 'sci' + str(obs)
+                        + str(single_number) + str(arc) + '_Stacked.npy')
                     mask_image = np.load(
-                        STAMPS_FOLDER +
-                        'mask' +
-                        str(obs) +
-                        str(single_number) +
-                        str(arc) +
-                        '_Stacked.npy')
+                        STAMPS_FOLDER + 'mask' + str(obs)
+                        + str(single_number) + str(arc) + '_Stacked.npy')
                     var_image = np.load(
-                        STAMPS_FOLDER +
-                        'var' +
-                        str(obs) +
-                        str(single_number) +
-                        str(arc) +
-                        '_Stacked.npy')
+                        STAMPS_FOLDER + 'var' + str(obs)
+                        + str(single_number) + str(arc) + '_Stacked.npy')
                     logging.info(
-                        'sci_image loaded from: ' +
-                        STAMPS_FOLDER +
-                        'sci' +
-                        str(obs) +
-                        str(single_number) +
-                        str(arc) +
-                        '_Stacked.npy')
+                        'sci_image loaded from: ' + STAMPS_FOLDER + 'sci'
+                        + str(obs) + str(single_number) + str(arc) + '_Stacked.npy')
                 except Exception:
                     # change to that code does not fail and hang if the image is not found
                     # this will lead to pass statment in next step because
@@ -8221,8 +8102,9 @@ class Zernike_estimation_preparation(object):
                     sci_image = np.zeros((20, 20))
                     var_image = np.zeros((20, 20))
                     mask_image = np.zeros((20, 20))
-                    logging.info('not able to load image at: ' + str(STAMPS_FOLDER + 'sci' +
-                          str(obs) + str(single_number) + str(arc) + '_Stacked.npy'))
+                    logging.info('not able to load image at: ' + str(STAMPS_FOLDER + 'sci'
+                                                                     + str(obs) + str(single_number)
+                                                                     + str(arc) + '_Stacked.npy'))
 
                 # If there is no science image, do not add images
                 if int(np.sum(sci_image)) == 0:
@@ -8231,8 +8113,8 @@ class Zernike_estimation_preparation(object):
                 else:
                     # do not analyze images where a large fraction of the image is masked
                     if np.mean(mask_image) > 0.1:
-                        logging.info(str(np.mean(mask_image) * 100) +
-                              '% of image is masked... \
+                        logging.info(str(np.mean(mask_image) * 100)
+                                     + '% of image is masked... \
                               when it is more than 10% - exiting')
                         pass
                     else:
@@ -8245,10 +8127,10 @@ class Zernike_estimation_preparation(object):
                         # observation which are of good enough quality to be analyzed get added here
                         list_of_obs_cleaned.append(obs)
 
-            logging.info('for spot ' + str(self.list_of_spots[s]) + ' len of list_of_sci_images: ' +
-                  str(len(list_of_sci_images)))
-            logging.info('len of accepted images ' + str(len(list_of_obs_cleaned)) +
-                  ' / len of asked images ' + str(len(self.list_of_obs_cleaned[s])))
+            logging.info('for spot ' + str(self.list_of_spots[s]) + ' len of list_of_sci_images: '
+                         + str(len(list_of_sci_images)))
+            logging.info('len of accepted images ' + str(len(list_of_obs_cleaned))
+                         + ' / len of asked images ' + str(len(self.list_of_obs_cleaned[s])))
 
             # If there is no valid images imported, exit
             if list_of_sci_images == []:
@@ -8317,7 +8199,6 @@ class Zernike_estimation_preparation(object):
 
         return list_of_NAME_OF_CHAIN, list_of_NAME_OF_LIKELIHOOD_CHAIN
 
-
     def get_finalArc(self, arc, date_of_input='Sep0521', direct_or_interpolation='direct'):
         # TODO make it so you ont need to specify date of input if you only want finalArc
         DATAFRAMES_FOLDER = self.DATAFRAMES_FOLDER
@@ -8332,8 +8213,8 @@ class Zernike_estimation_preparation(object):
         # such as the position on the detector, wavelength, etc...
         # Ar (Argon)
         if str(arc) == 'Ar' or arc == 'HgAr':
-            with open(DATAFRAMES_FOLDER + 'results_of_fit_many_' + str(direct_or_interpolation) +
-                      '_Ar_from_' + str(date_of_input) + '.pkl', 'rb') as f:
+            with open(DATAFRAMES_FOLDER + 'results_of_fit_many_' + str(direct_or_interpolation)
+                      + '_Ar_from_' + str(date_of_input) + '.pkl', 'rb') as f:
                 results_of_fit_input_HgAr = pickle.load(f)
                 logging.info('results_of_fit_input_Ar is taken from: ' + str(f))
             # if before considering all fibers
@@ -8346,8 +8227,8 @@ class Zernike_estimation_preparation(object):
 
         # Ne (Neon)
         if str(arc) == 'Ne':
-            with open(DATAFRAMES_FOLDER + 'results_of_fit_many_' + str(direct_or_interpolation) +
-                      '_Ne_from_' + str(date_of_input) + '.pkl', 'rb') as f:
+            with open(DATAFRAMES_FOLDER + 'results_of_fit_many_' + str(direct_or_interpolation)
+                      + '_Ne_from_' + str(date_of_input) + '.pkl', 'rb') as f:
                 results_of_fit_input_Ne = pickle.load(f)
             logging.info('results_of_fit_input_Ne is taken from: ' + str(f))
             if dataset < 8:
@@ -8359,8 +8240,8 @@ class Zernike_estimation_preparation(object):
 
         # Kr (Krypton)
         if str(arc) == 'Kr':
-            with open(DATAFRAMES_FOLDER + 'results_of_fit_many_' + str(direct_or_interpolation) +
-                      '_Kr_from_' + str(date_of_input) + '.pkl', 'rb') as f:
+            with open(DATAFRAMES_FOLDER + 'results_of_fit_many_' + str(direct_or_interpolation)
+                      + '_Kr_from_' + str(date_of_input) + '.pkl', 'rb') as f:
                 results_of_fit_input_Kr = pickle.load(f)
             logging.info('results_of_fit_input_Kr is taken from: ' + str(f))
             if dataset < 8:
@@ -8406,12 +8287,11 @@ class Zernike_estimation_preparation(object):
 
         return array_of_wavelengths
 
-
     def create_parametrization_proposals(self, date_of_input,
                                          direct_or_interpolation='direct',
                                          twentytwo_or_extra=56):
         """
-        
+
 
         Parameters
         ----------
@@ -8426,23 +8306,19 @@ class Zernike_estimation_preparation(object):
         ----------
 
         Notes
-        ---------- 
+        ----------
         """
 
         list_of_spots = self. list_of_spots
-        dataset = self.dataset
-
-
-        DATAFRAMES_FOLDER = self.DATAFRAMES_FOLDER
-
-
+        # dataset = self.dataset
+        # DATAFRAMES_FOLDER = self.DATAFRAMES_FOLDER
 
         list_of_array_of_polyfit_1_parameterizations_proposal_shape_2d = []
 
         for s in range(len(list_of_spots)):
             arc = self.list_of_arc[s]
             finalArc = self.get_finalArc(arc, date_of_input=date_of_input,
-             direct_or_interpolation = direct_or_interpolation)
+                                         direct_or_interpolation=direct_or_interpolation)
             results_of_fit_input = self.results_of_fit_input
 
             single_number = list_of_spots[s]
@@ -8457,11 +8333,8 @@ class Zernike_estimation_preparation(object):
 
                 # check if your single_number is avaliable
 
-                logging.info('adding label ' +
-                      str(label) +
-                      ' with single_number ' +
-                      str(int(single_number)) +
-                      ' for creation of array_of_allparameters')
+                logging.info('adding label ' + str(label) + ' with single_number '
+                             + str(int(single_number)) + ' for creation of array_of_allparameters')
                 try:
                     if int(single_number) < 999:
                         logging.info(results_of_fit_input[label].index.astype(int))
@@ -8473,15 +8346,15 @@ class Zernike_estimation_preparation(object):
                                     type(results_of_fit_input[label].index[0])) == "<class 'numpy.str_'>":
                                 list_of_allparameters.append(
                                     results_of_fit_input[label].loc[str(single_number)].values)
-                                logging.info('results_of_fit_input[' + str(label) + '].loc[' +
-                                      str(int(single_number)) + '].values' + str(
+                                logging.info('results_of_fit_input[' + str(label) + '].loc['
+                                             + str(int(single_number)) + '].values' + str(
                                     results_of_fit_input[label].loc[str(single_number)].values))
                             else:
                                 # logging.info('results_of_fit_input[label]'+str(results_of_fit_input[label]))
                                 list_of_allparameters.append(
                                     results_of_fit_input[label].loc[int(single_number)].values)
-                                logging.info('results_of_fit_input[' + str(label) + '].loc[' +
-                                      str(int(single_number)) + '].values' + str(
+                                logging.info('results_of_fit_input[' + str(label) + '].loc['
+                                             + str(int(single_number)) + '].values' + str(
                                     results_of_fit_input[label].loc[int(single_number)].values))
                             list_of_defocuses.append(label)
 
@@ -8507,14 +8380,13 @@ class Zernike_estimation_preparation(object):
                             logging.info('checkpoint 2')
                             logging.info(position_x_single_number)
                             distance_of_avaliable_spots = np.abs(
-                                (x_positions - position_x_single_number)**2 +
-                                (y_positions - position_y_single_number)**2)
+                                (x_positions - position_x_single_number)**2
+                                + (y_positions - position_y_single_number)**2)
                             single_number_input =\
-                                distance_of_avaliable_spots[distance_of_avaliable_spots ==
+                                distance_of_avaliable_spots[distance_of_avaliable_spots ==  # noqa W504
                                                             np.min(distance_of_avaliable_spots)].index[0]
                             logging.info(
-                                'Nearest spot avaliable is: ' +
-                                str(single_number_input))
+                                'Nearest spot avaliable is: ' + str(single_number_input))
                             if isinstance(results_of_fit_input[label].index[0], str) or str(
                                     type(results_of_fit_input[label].index[0])) == "<class 'numpy.str_'>":
                                 list_of_allparameters.append(
@@ -8523,8 +8395,8 @@ class Zernike_estimation_preparation(object):
                                 list_of_allparameters.append(
                                     results_of_fit_input[label].loc[int(single_number_input)].values)
                             list_of_defocuses.append(label)
-                            logging.info('results_of_fit_input[' + str(label) + '].loc[' +
-                                  str(int(single_number_input)) + '].values' + str(
+                            logging.info('results_of_fit_input[' + str(label) + '].loc['
+                                         + str(int(single_number_input)) + '].values' + str(
                                 results_of_fit_input[label].loc[int(single_number_input)].values))
 
                             pass
@@ -8541,8 +8413,8 @@ class Zernike_estimation_preparation(object):
             logging.info('Variable twentytwo_or_extra: ' + str(twentytwo_or_extra))
             analysis_type = 'defocus'
             if analysis_type == 'defocus':
-                logging.info('Variable array_of_allparameters.shape: ' +
-                      str(array_of_allparameters.shape))
+                logging.info('Variable array_of_allparameters.shape: '
+                             + str(array_of_allparameters.shape))
 
                 # model_multi is only needed to create reasonable parametrizations and
                 # could possibly be avoided in future versions?
@@ -8584,7 +8456,7 @@ class Zernike_estimation_preparation(object):
 
         return array_of_array_of_polyfit_1_parameterizations_proposal_shape_2d
 
-    def create_init_parameters_for_particles(self,zmax_input=56,analysis_type = 'defocus',
+    def create_init_parameters_for_particles(self, zmax_input=56, analysis_type='defocus',
                                              analysis_type_fiber=None):
         """
         Create initial parameters for all particles
@@ -8594,7 +8466,7 @@ class Zernike_estimation_preparation(object):
         zmax_input: `int`
             Highest Zernike order in input?
 
-        analysis_type: `str` 
+        analysis_type: `str`
             fiber_par
             Zernike_par?
             ?
@@ -8615,12 +8487,9 @@ class Zernike_estimation_preparation(object):
         multi_var = self.multi_var
         logging.info('analysis_type_fiber: ' + str(analysis_type_fiber))
         logging.info(type(analysis_type_fiber))
-        logging.info(analysis_type_fiber is "fixed_fiber_par")
-        logging.info(analysis_type_fiber == "fixed_fiber_par")
-        logging.info(analysis_type_fiber is "fiber_par" or analysis_type_fiber is "fixed_fiber_par")
         if analysis_type_fiber == "fiber_par" or analysis_type_fiber == "fixed_fiber_par":
             # x_fiber, y_fiber, effective_radius_illumination, frd_sigma, frd_lorentz_factor
-            unified_index = [ 10, 11, 12, 13, 14]
+            unified_index = [10, 11, 12, 13, 14]
 
         ################################################
         # (8.) Create init parameters for particles
@@ -8637,7 +8506,7 @@ class Zernike_estimation_preparation(object):
         # z12, z13, z14, z15, z16, z17, z18, z19, z20, z21, z22
         # detFrac, strutFrac, dxFocal, dyFocal, slitFrac, slitFrac_dy
         # wide_0, wide_23, wide_43, misalign
-        # x_fiber, y_fiber, effective_radius_illumination, frd_sigma, frd_lorentz_factor, 
+        # x_fiber, y_fiber, effective_radius_illumination, frd_sigma, frd_lorentz_factor,
         # det_vert, slitHolder_frac_dx, grating_lines,
         # scattering_slope, scattering_amplitude
         # pixel_effect, fiber_r
@@ -8645,31 +8514,31 @@ class Zernike_estimation_preparation(object):
         if analysis_type_fiber == "fiber_par":
             # dont vary global illumination paramters or Zernike
             stronger_array_01 = np.array([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                                        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                                        0, 0, 0, 0, 0, 0,
-                                        0, 0, 0, 0,
-                                        1.2, 1.2, 1.2, 1.2, 1.2,
-                                        0,0, 1,
-                                        1, 1,
-                                        1, 0.6, 1])
+                                          0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                                          0, 0, 0, 0, 0, 0,
+                                          0, 0, 0, 0,
+                                          1.2, 1.2, 1.2, 1.2, 1.2,
+                                          0, 0, 1,
+                                          1, 1,
+                                          1, 0.6, 1])
         elif analysis_type_fiber == "fixed_fiber_par":
             logging.info('inside analysis_type_fiber')
             stronger_array_01 = np.array([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                                        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                                        1, 1, 1, 1, 1, 1,
-                                        1, 1, 1, 1,
-                                        0, 0, 0, 0, 0,
-                                        1,1, 1,
-                                        1, 1,
-                                        1, 0.6, 1])
+                                          0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                                          1, 1, 1, 1, 1, 1,
+                                          1, 1, 1, 1,
+                                          0, 0, 0, 0, 0,
+                                          1, 1, 1,
+                                          1, 1,
+                                          1, 0.6, 1])
         else:
             stronger_array_01 = np.array([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                                        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                                        1.2, 1.2, 1.2, 1.2, 1.2, 1.2,
-                                        1.2, 1.2, 1.2, 1.2,
-                                        1.2, 1.2, 1.2, 1.2, 1.2, 1.2,
-                                            1.2, 1.2,
-                                            1.2, 1.2, 1.2, 1.2, 1])
+                                          0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                                          1.2, 1.2, 1.2, 1.2, 1.2, 1.2,
+                                          1.2, 1.2, 1.2, 1.2,
+                                          1.2, 1.2, 1.2, 1.2, 1.2, 1.2,
+                                          1.2, 1.2,
+                                          1.2, 1.2, 1.2, 1.2, 1])
 
         # fix all of the properties that describe the fiber illumination
         # v051.b change
@@ -8711,8 +8580,8 @@ class Zernike_estimation_preparation(object):
             array_of_polyfit_1_parameterizations_proposal_shape_2d =\
                 array_of_array_of_polyfit_1_parameterizations_proposal_shape_2d[s]
             logging.info(
-                'array_of_polyfit_1_parameterizations_proposal_shape_2d: ' +
-                str(array_of_polyfit_1_parameterizations_proposal_shape_2d))
+                'array_of_polyfit_1_parameterizations_proposal_shape_2d: '
+                + str(array_of_polyfit_1_parameterizations_proposal_shape_2d))
             parInit1 = create_parInit(
                 allparameters_proposal=array_of_polyfit_1_parameterizations_proposal_shape_2d,
                 multi=multi_var,
@@ -8753,8 +8622,8 @@ class Zernike_estimation_preparation(object):
 
         # initialize the particles
         particle_likelihood = np.array([-9999999])
-        particle_position = np.zeros(paramCount)
-        particle_velocity = np.zeros(paramCount)
+        # particle_position = np.zeros(paramCount)
+        # particle_velocity = np.zeros(paramCount)
         best_particle_likelihood = particle_likelihood[0]
 
         #
@@ -8774,9 +8643,7 @@ class Zernike_estimation_preparation(object):
             list_of_best_particle_likelihood.append(best_particle_likelihood)
 
         return list_of_array_of_particle_position_proposal,\
-        list_of_array_of_particle_velocity_proposal, list_of_best_particle_likelihood,\
-        paramCount
-
+            list_of_array_of_particle_velocity_proposal, list_of_best_particle_likelihood, paramCount
 
 
 # ***********************
@@ -8823,7 +8690,7 @@ def create_popt_for_custom_var(sci_image, var_image, mask_image=None):
     # custom_var_image = p1(sci_image)
 
     # I am using lambda expression to avoid superflous definition of quadratic function
-    f = lambda x, *p: p[0] * x**2 + p[1] * x + p[2] #noqa : E373
+    f = lambda x, *p: p[0] * x**2 + p[1] * x + p[2]  # noqa : E373
     popt, pcov = scipy.optimize.curve_fit(f, sci_pixels, var_pixels, [0, 0, np.min(var_pixels)],
                                           bounds=([-np.inf, -np.inf, np.min(var_pixels)],
                                                   [np.inf, np.inf, np.inf]))
@@ -8847,7 +8714,7 @@ def create_custom_var_from_popt(model_image, popt):
         Recreated variance map
     """
     # I am using lambda expression to avoid superflous definition of quadratic function
-    f = lambda x, *p: p[0] * x**2 + p[1] * x + p[2] #noqa : E373
+    f = lambda x, *p: p[0] * x**2 + p[1] * x + p[2]  # noqa : E373
     custom_var_image = f(model_image, *popt)
     return custom_var_image
 
@@ -9342,7 +9209,7 @@ def create_parInit(allparameters_proposal, multi=None, pupil_parameters=None, al
                 logging.info('NameError!')
 
     try:
-        div_same = 10 
+        div_same = 10
 
         # detFrac always positive
         globalparameters_flat_0 = np.abs(
@@ -9816,8 +9683,7 @@ def custom_fftconvolve(array1, array2):
     fft_result = np.fft.fftshift(
         np.real(
             np.fft.irfft2(
-                np.fft.rfft2(array1) *
-                np.fft.rfft2(array2),
+                np.fft.rfft2(array1) * np.fft.rfft2(array2),
                 s=np.array(
                     array1.shape))))
     # ensure that the resulting shape is an odd nubmer, needed for fft convolutions later
@@ -9869,7 +9735,7 @@ def maxK(pupil_plane_size, lam, scale_unit=galsim.arcsec):
 
 def sky_scale(pupil_plane_size, lam, scale_unit=galsim.arcsec):
     """Return the image scale for this aperture at given wavelength
-    
+
     @param lam         Wavelength in nanometers.
     @param scale_unit  Units in which to return result [default: galsim.arcsec]
     @returns           Image scale.
@@ -10025,8 +9891,8 @@ def check_global_parameters(globalparameters, test_print=None, fit_for_flux=None
 
     # det frac
     if globalparameters[0] <= 0.6 or globalparameters[0] >= 0.8:
-        logging.info('globalparameters[0] outside limits; value: ' +
-              str(globalparameters[0])) if test_print == 1 else False
+        logging.info('globalparameters[0] outside limits; value: '
+                     + str(globalparameters[0])) if test_print == 1 else False
     if globalparameters[0] <= 0.6:
         globalparameters_output[0] = 0.6
     if globalparameters[0] > 0.8:
@@ -10243,4 +10109,4 @@ def move_parametrizations_from_2d_shape_to_1d_shape(allparameters_best_parametri
             allparameters_best_parametrization_shape_2d[:19].ravel(),
             allparameters_best_parametrization_shape_2d[19:-1][:, 1]))
 
-    return allparameters_best_parametrization_shape_1d #noqa: W292
+    return allparameters_best_parametrization_shape_1d  # noqa: W292
