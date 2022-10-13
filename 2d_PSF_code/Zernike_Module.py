@@ -646,6 +646,19 @@ class PupilFactory(object):
                           & ((self.u - p0[0]) * np.cos(angleRad)
                              + (self.v - p0[1]) * np.sin(angleRad) >= 0)] = True
 
+    def _pfiIlum(self, pupil):
+        """_summary_
+
+        Args:
+            pupil (_type_): _description_
+
+        Raises:
+            ValueError: _description_
+
+        Returns:
+            _type_: _description_
+        """
+
 
 class PFSPupilFactory(PupilFactory):
     """Pupil obscuration function factory for PFS
@@ -796,8 +809,9 @@ class PFSPupilFactory(PupilFactory):
 
         camX = thetaX * hscRate
         camY = thetaY * hscRate
-
-        # creating FRD effects
+        # ###############################
+        # Creating FRD effects
+        # ###############################
         single_element = np.linspace(-1, 1, len(pupil.illuminated), endpoint=True, dtype=np.float32)
         u_manual = np.tile(single_element, (len(single_element), 1))
         v_manual = np.transpose(u_manual)
@@ -809,8 +823,9 @@ class PFSPupilFactory(PupilFactory):
         pupil_frd = (1 / 2 * (scipy.special.erf((-center_distance + self.effective_ilum_radius) / sigma)
                               + scipy.special.erf((center_distance + self.effective_ilum_radius) / sigma)))
 
-        ################
+        # ###############################
         # Adding misaligment in this section
+        # ###############################
         time_misalign_start = time.time()
 
         position_of_center_0 = np.where(center_distance == np.min(center_distance))
@@ -887,7 +902,9 @@ class PFSPupilFactory(PupilFactory):
             logging.info('Time to execute illumination considerations due to misalignment '
                          + str(time_misalign_end - time_misalign_start))
 
-        ####
+        # ###############################
+        # Lorentz scattering
+        # ###############################
         pupil_lorentz = (np.arctan(2 * (self.effective_ilum_radius - center_distance) / (4 * sigma))
                          + np.arctan(2 * (self.effective_ilum_radius + center_distance) / (4 * sigma))) /\
                         (2 * np.arctan((2 * self.effective_ilum_radius) / (4 * sigma)))
@@ -2106,6 +2123,18 @@ class ZernikeFitterPFS(object):
         Notes
         ----------
         called by constructModelImage_PFS_naturalResolution
+
+        Illumination is handled in an unsatifactory manner at the moment.
+        The complex process is as follows:
+        1. get illumination from pupil.illuminated.
+        2. This gets passed to galsim.Aperture class
+        3. It gets extracted, !unchanged!, as ilum = aper.illuminated...
+        4. Apply radiometric effect (change between exit and entrance pupil)
+        and rename to ilum_radiometric - as we are currently not considering
+        this effect this is again unchanged!!!
+        5. Apply apodication - rename to ilum_radiometric_apodized
+        6. Create additional array like ilum_radiometric_apodized but has
+        boolean values -> ilum_radiometric_apodized_bool
         """
 
         if self.verbosity == 1:
@@ -2226,14 +2255,13 @@ class ZernikeFitterPFS(object):
             logging.info('size_of_ilum_in_units_of_radius: ' + str(size_of_ilum_in_units_of_radius))
 
         # do not caculate the ``radiometric effect (difference between entrance and exit pupil)
-        # if paramters are too small to make any difference
+        # if parameters are too small to make any difference
         # if that is the case just declare the ``ilum_radiometric'' to be the same as ilum
         # i.e., the illumination of the exit pupil is the same as the illumination of the entrance pupil
         if params['radiometricExponent'] < 0.01 or params['radiometricEffect'] < 0.01:
             if self.verbosity == 1:
                 logging.info('skiping ``radiometric effect\'\' ')
             ilum_radiometric = ilum
-
         else:
             if self.verbosity == 1:
                 logging.info('radiometric parameters are: ')
@@ -2417,7 +2445,7 @@ class ZernikeFitterPFS(object):
                 logging.info('creating wf_full_fake_0')
             wf_full_fake_0 = screens_fake_0.wavefront(u_manual, v_manual, None, 0)
 
-        # exponential of the wavefront
+        # exponential of the wavefront - ilumination of the pupil enters here as ilum_radiometric_apodized
         expwf_grid = np.zeros_like(ilum_radiometric_apodized_bool, dtype=np.complex64)
         expwf_grid[ilum_radiometric_apodized_bool] =\
             ilum_radiometric_apodized[ilum_radiometric_apodized_bool] *\
@@ -2428,10 +2456,8 @@ class ZernikeFitterPFS(object):
                          + str(time_end_single - time_start_single))
 
         ################################################################################
-        # exectute the FFT
+        # execute the FFT
         ################################################################################
-        # updated up to here
-        ######################################################################
 
         time_start_single = time.time()
         ftexpwf = np.fft.fftshift(scipy.fftpack.fft2(np.fft.fftshift(expwf_grid)))
@@ -5405,7 +5431,7 @@ class LN_PFS_single(object):
 
     def __init__(self, sci_image, var_image,
                  mask_image=None,
-                 wavelength=None, dithering=None, save=None, verbosity=None,
+                 wavelength=794, dithering=1, save=None, verbosity=None,
                  pupil_parameters=None, use_pupil_parameters=None, use_optPSF=None, use_wf_grid=None,
                  zmax=None, extraZernike=None, pupilExplicit=None, simulation_00=None,
                  double_sources=None, double_sources_positions_ratios=None, npix=None,
@@ -8789,7 +8815,7 @@ def find_centroid_of_flux(image, mask=None):
     x_center = (np.sum(I_x[:, 0] * I_x[:, 1]) / np.sum(I_x[:, 1]))
     y_center = (np.sum(I_y[:, 0] * I_y[:, 1]) / np.sum(I_y[:, 1]))
 
-    return(x_center, y_center)
+    return (x_center, y_center)
 
 
 def create_parInit(allparameters_proposal, multi=None, pupil_parameters=None, allparameters_proposal_err=None,
