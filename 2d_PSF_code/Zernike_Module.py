@@ -649,15 +649,49 @@ class PupilFactory(object):
     def _pfiIlum(self, pupil):
         """_summary_
 
-        Args:
-            pupil (_type_): _description_
-
-        Raises:
-            ValueError: _description_
-
-        Returns:
-            _type_: _description_
+        Parameters
+        ----------
+        pupil:
+            Pupil objects
+        fiber_id: `int`
+            Fiber id number
         """
+        # define distance from the center of the pupil
+        # something like r_dist = sqrt((self.u - p0[0])**2 + (self.v - p0[1])**2), where p0 is the center
+        # first attempt, keep p0 at 0,0
+        
+        #   Function to get 1d radial profile for a given fiber (pfiIlum_1d)
+        #    1. take /home/ncaplar/Tickets/PIPE2D-955/subarusb.csv, move to pandas dataframe, find an
+        #    appropriate storage for it (dev_2ddrp); Neven will check if there is a file without FRD or
+        #   if this one is without FRD
+        #   2. given fiber_id, find position on the focal plane - there is a function for that, Hassan can help
+        #   3. given radius, find angle (we just did this - it might in pfs_utils already -> check;
+        #    if not, file a ticket)
+        #   4. given angle on the focal plane get theoretical radial profile
+        #      4.b) interpolate radial profile, given input angle
+
+        # apply a function that gives 1d radial profile (pfiIlum_1d), on an array which is a function of distance from a center of the pupil (r_dist)
+        # pupil.illuminated = pupil.illuminated * pfiIlum_1d(r_dist)
+        
+    def _rad_to_angle(self, rad):
+        """Transform radius to an angle on the focal plane
+
+        Parameters
+        ----------
+        rad: `float`
+            Radial position of the fiber on the focal plane
+
+        Returns
+        ----------
+        ang: `float`
+            Angular position of the fiber on the focal plane
+        """
+        angles = [0, 6, 12, 18, 24, 30, 36, 42]
+        r = [0, 32.0183, 64.128, 96.4280, 129.0284, 162.0553, 195.6696, 230.0966]
+        z = np.polyfit(r, angles, deg=2)
+        p_rad_to_angle = np.poly1d(z)
+        ang = p_rad_to_angle(rad)
+        return ang
 
 
 class PFSPupilFactory(PupilFactory):
@@ -2132,7 +2166,7 @@ class ZernikeFitterPFS(object):
         4. Apply radiometric effect (change between exit and entrance pupil)
         and rename to ilum_radiometric - as we are currently not considering
         this effect this is again unchanged!!!
-        5. Apply apodication - rename to ilum_radiometric_apodized
+        5. Apply apodization - rename to ilum_radiometric_apodized
         6. Create additional array like ilum_radiometric_apodized but has
         boolean values -> ilum_radiometric_apodized_bool
         """
