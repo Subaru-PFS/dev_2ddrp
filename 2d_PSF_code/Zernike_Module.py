@@ -179,6 +179,7 @@ from scipy import signal
 from scipy.ndimage.filters import gaussian_filter
 import scipy.fftpack
 import scipy.misc
+from scipy.interpolate import interp2d
 from scipy.special import erf
 from astropy.convolution import Gaussian2DKernel
 from astropy.convolution import Tophat2DKernel
@@ -192,6 +193,7 @@ import traceback
 import threading
 # from multiprocessing import current_process
 import numpy as np
+import pandas as pd
 import os
 import time
 # import sys
@@ -206,6 +208,9 @@ os.environ["OMP_NUM_THREADS"] = "1"
 np.set_printoptions(suppress=True)
 np.seterr(divide='ignore', invalid='ignore')
 # logging.info(np.__config__)
+
+from pfs.utils.fiberids import FiberIds
+gfm = fiberIds()
 
 
 ########################################
@@ -672,7 +677,22 @@ class PupilFactory(object):
 
         # apply a function that gives 1d radial profile (pfiIlum_1d), on an array which is a function of distance from a center of the pupil (r_dist)
         # pupil.illuminated = pupil.illuminated * pfiIlum_1d(r_dist)
+
+    def _pfiIlum_1d(self, fiber_id):
+        """Return 1d radial profile for a given fiber
+
+        Parameters
+        ----------
+        fiber_id: `int`
+            Fiber id number
         
+        Returns
+        ----------
+        """
+        rad = gfm.data['rad'][fiber_id]  # fiberid - 1 ??
+        ang = self._rad_to_angle(rad)
+        return self._radial_profile(ang)
+
     def _rad_to_angle(self, rad):
         """Transform radius to an angle on the focal plane
 
@@ -692,6 +712,26 @@ class PupilFactory(object):
         p_rad_to_angle = np.poly1d(z)
         ang = p_rad_to_angle(rad)
         return ang
+
+    def _radial_profile(self, ang):
+        """Return 1d theoretical radial profile for a given angle of the fiber on the focal plane
+
+        Parameters
+        ----------
+        ang: `float`
+            Angular position of the fiber on the focal plane
+        
+        Returns
+        ----------
+        """
+        df_subarusb = pd.read_csv('/home/ncaplar/Tickets/PIPE2D-955/subarusb.csv', sep=',', header='infer', skiprows=0)
+        df_subarusb = df_subarusb[0:79]  # discarding NaNs
+        scale = 330. / 0.185  # modifiable
+        angles = [0, 6, 12, 18, 24, 30, 36, 42]
+        radius = df_subarusb[df_subarusb.columns[0]].values.astype('float') * scale
+        profile = df_subarusb[df_subarusb.columns[1:]].values.astype('float')
+        f = interp2d(angles, radius, profile, kind='linear')
+        return np.array([radius, f(ang, radius).T[0]])
 
 
 class PFSPupilFactory(PupilFactory):
