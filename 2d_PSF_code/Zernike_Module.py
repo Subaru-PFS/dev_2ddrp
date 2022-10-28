@@ -183,6 +183,7 @@ from scipy.interpolate import interp2d
 from scipy.special import erf
 from astropy.convolution import Gaussian2DKernel
 from astropy.convolution import Tophat2DKernel
+from scipy.interpolate import interp1d
 import lsst.afw.math
 import lsst.afw.image
 import lsst.afw
@@ -202,15 +203,17 @@ import socket
 import sys
 import pickle
 import logging
+
+# PFS imports
+from pfs.utils.fiberids import FiberIds
+gfm = FiberIds()
+
 os.environ["MKL_NUM_THREADS"] = "1"
 os.environ["NUMEXPR_NUM_THREADS"] = "1"
 os.environ["OMP_NUM_THREADS"] = "1"
 np.set_printoptions(suppress=True)
 np.seterr(divide='ignore', invalid='ignore')
 # logging.info(np.__config__)
-
-from pfs.utils.fiberids import FiberIds
-gfm = fiberIds()
 
 
 ########################################
@@ -651,32 +654,46 @@ class PupilFactory(object):
                           & ((self.u - p0[0]) * np.cos(angleRad)
                              + (self.v - p0[1]) * np.sin(angleRad) >= 0)] = True
 
-    def _pfiIlum(self, pupil):
-        """_summary_
+    def pfiIlum_2d(self, pupil, fiber_id, p0=(0, 0)):
+        """Apply PFI correction to the illumination
 
         Parameters
         ----------
-        pupil:
-            Pupil objects
         fiber_id: `int`
             Fiber id number
-        """
+
+        Notes
+        ----------
         # define distance from the center of the pupil
         # something like r_dist = sqrt((self.u - p0[0])**2 + (self.v - p0[1])**2), where p0 is the center
         # first attempt, keep p0 at 0,0
-        
+
         #   Function to get 1d radial profile for a given fiber (pfiIlum_1d)
         #    1. take /home/ncaplar/Tickets/PIPE2D-955/subarusb.csv, move to pandas dataframe, find an
         #    appropriate storage for it (dev_2ddrp); Neven will check if there is a file without FRD or
         #   if this one is without FRD
-        #   2. given fiber_id, find position on the focal plane - there is a function for that, Hassan can help
+        #   2. given fiber_id, find position on the focal plane - there is a function for that,
+        #  Hassan can help
         #   3. given radius, find angle (we just did this - it might in pfs_utils already -> check;
         #    if not, file a ticket)
         #   4. given angle on the focal plane get theoretical radial profile
         #      4.b) interpolate radial profile, given input angle
 
-        # apply a function that gives 1d radial profile (pfiIlum_1d), on an array which is a function of distance from a center of the pupil (r_dist)
+        # apply a function that gives 1d radial profile (pfiIlum_1d), on an array which is a function of
+        # distance from a center of the pupil (r_dist)
         # pupil.illuminated = pupil.illuminated * pfiIlum_1d(r_dist)
+        """
+        # array where each element is a distance from the p0 point
+        # where p0 is an arbitrary point placed in the pupil
+        p0 = (0, 0)
+        r_dist = np.sqrt((self.u - p0[0])**2 + (self.v - p0[1])**2)
+        # array with a difference between pfi ilumination and dcb illumination
+        pfiIlum_2d = self._pfiIlum_1dfun(fiber_id)(r_dist)
+        # apply the difference to the pupil.illumination
+        pupil.iluminated = pupil.illuminated * pfiIlum_2d
+
+    def _pfiIlum_1dfun(self, fiber_id):
+        return interp1d(self._pfiIlum_1d, fiber_id)
 
     def _pfiIlum_1d(self, fiber_id):
         """Return 1d radial profile for a given fiber
@@ -685,9 +702,10 @@ class PupilFactory(object):
         ----------
         fiber_id: `int`
             Fiber id number
-        
+
         Returns
         ----------
+        array
         """
         rad = gfm.data['rad'][fiber_id]  # fiberid - 1 ??
         ang = self._rad_to_angle(rad)
@@ -720,11 +738,12 @@ class PupilFactory(object):
         ----------
         ang: `float`
             Angular position of the fiber on the focal plane
-        
+
         Returns
         ----------
         """
-        df_subarusb = pd.read_csv('/home/ncaplar/Tickets/PIPE2D-955/subarusb.csv', sep=',', header='infer', skiprows=0)
+        df_subarusb = pd.read_csv('/home/ncaplar/Tickets/PIPE2D-955/subarusb.csv',
+                                  sep=',', header='infer', skiprows=0)
         df_subarusb = df_subarusb[0:79]  # discarding NaNs
         scale = 330. / 0.185  # modifiable
         angles = [0, 6, 12, 18, 24, 30, 36, 42]
@@ -758,6 +777,7 @@ class PFSPupilFactory(PupilFactory):
             frd_lorentz_factor,
             det_vert,
             slitHolder_frac_dx,
+            fiber_id=None,
             wide_0=0,
             wide_23=0,
             wide_43=0,
@@ -841,6 +861,7 @@ class PFSPupilFactory(PupilFactory):
         self._spiderStartPos = [np.array([0., 0.]), np.array([0., 0.]), np.array([0., 0.])]
         self._spiderAngles = [0, np.pi * 2 / 3, np.pi * 4 / 3]
         self.effective_ilum_radius = effective_ilum_radius
+        self.fiber_id = fiber_id
 
         self.wide_0 = wide_0
         self.wide_23 = wide_23
@@ -883,6 +904,15 @@ class PFSPupilFactory(PupilFactory):
 
         camX = thetaX * hscRate
         camY = thetaY * hscRate
+
+        # ###############################
+        # Adding PFI illumination
+        # ###############################
+
+        # it modifies pupil.illuminated
+        if self.fiber_id is not None:
+            self.pfiIlum_2d(pupil, self.fiber_id)
+
         # ###############################
         # Creating FRD effects
         # ###############################
@@ -987,7 +1017,7 @@ class PFSPupilFactory(PupilFactory):
         pupil.illuminated = (pupil_frd + 1 * self.frd_lorentz_factor
                              * pupil_lorentz) / (1 + self.frd_lorentz_factor)
 
-        # Cout out the acceptance angle of the camera
+        # Cut out the acceptance angle of the camera
         self._cutCircleExterior(pupil, (0.0, 0.0), subaruRadius)
 
         # Cut out detector shadow
@@ -1127,7 +1157,7 @@ class ZernikeFitterPFS(object):
                  zmaxInit=None, extraZernike=None, simulation_00=None, verbosity=None,
                  double_sources=None, double_sources_positions_ratios=None, test_run=None,
                  explicit_psf_position=None, use_only_chi=False, use_center_of_flux=False,
-                 PSF_DIRECTORY=None, *args):
+                 PSF_DIRECTORY=None, fiber_id=None, *args):
         """
         Parameters
         ----------
@@ -1220,7 +1250,8 @@ class ZernikeFitterPFS(object):
         Simple exampe with initial parameters, changing only one parameter
         >>> zmax = 22
         >>> single_image_analysis = ZernikeFitterPFS(zmaxInit = zmax,
-                                                     verbosity=1)
+                                                     verbosity=1,
+                                                     fiber_id =100)
         >>> single_image_analysis.initParams()
         >>> single_image_analysis.params['detFrac'] =\
             lmfit.Parameter(name='detFrac', value=0.70)
@@ -1282,6 +1313,7 @@ class ZernikeFitterPFS(object):
         self.use_only_chi = use_only_chi
         self.use_center_of_flux = use_center_of_flux
         self.flux = float(np.sum(image))
+        self.fiber_id = fiber_id
 
         try:
             if not explicit_psf_position:
@@ -2154,7 +2186,8 @@ class ZernikeFitterPFS(object):
             wide_23=self.params['wide_23'].value,
             wide_43=self.params['wide_43'].value,
             misalign=self.params['misalign'].value,
-            verbosity=self.verbosity)
+            verbosity=self.verbosity,
+            fiber_id=self.fiber_id)
 
         point = [self.params['dxFocal'].value, self.params['dyFocal'].value]  # noqa: E
         pupil = Pupil_Image.getPupil(point)
