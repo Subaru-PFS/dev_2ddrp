@@ -707,7 +707,7 @@ class PupilFactory(object):
         ----------
         array
         """
-        rad = gfm.data['rad'][fiber_id]  # fiberid - 1 ??
+        rad = gfm.data['rad'][fiber_id - 1]  # fiberid - 1 ??
         ang = self._rad_to_angle(rad)
         return self._radial_profile(ang)
 
