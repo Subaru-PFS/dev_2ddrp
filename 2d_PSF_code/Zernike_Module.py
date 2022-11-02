@@ -688,12 +688,13 @@ class PupilFactory(object):
         p0 = (0, 0)
         r_dist = np.sqrt((self.u - p0[0])**2 + (self.v - p0[1])**2)
         # array with a difference between pfi ilumination and dcb illumination
-        pfiIlum_2d = self._pfiIlum_1dfun(fiber_id)(r_dist)
+        pfiIlum_2d = self._pfiIlum_1dfun(fiber_id)(r_dist * 1000)
         # apply the difference to the pupil.illumination
-        pupil.iluminated = pupil.illuminated * pfiIlum_2d
+        pupil.illuminated = pupil.illuminated * pfiIlum_2d
 
     def _pfiIlum_1dfun(self, fiber_id):
-        return interp1d(self._pfiIlum_1d, fiber_id)
+        _data = self._pfiIlum_1d(fiber_id)
+        return interp1d(_data[0], _data[1], bounds_error=False, fill_value='extrapolate')
 
     def _pfiIlum_1d(self, fiber_id):
         """Return 1d radial profile for a given fiber
@@ -742,10 +743,11 @@ class PupilFactory(object):
         Returns
         ----------
         """
-        df_subarusb = pd.read_csv('/home/ncaplar/Tickets/PIPE2D-955/subarusb.csv',
+        df_subarusb = pd.read_csv('subarusb.csv',
                                   sep=',', header='infer', skiprows=0)
         df_subarusb = df_subarusb[0:79]  # discarding NaNs
-        scale = 330. / 0.185  # modifiable
+        # scale = 330. / 0.185  # modifiable
+        scale = 69.5 / 0.185
         angles = [0, 6, 12, 18, 24, 30, 36, 42]
         radius = df_subarusb[df_subarusb.columns[0]].values.astype('float') * scale
         profile = df_subarusb[df_subarusb.columns[1:]].values.astype('float')
@@ -924,8 +926,9 @@ class PFSPupilFactory(PupilFactory):
         frd_sigma = self.frd_sigma
         sigma = 2 * frd_sigma
 
-        pupil_frd = (1 / 2 * (scipy.special.erf((-center_distance + self.effective_ilum_radius) / sigma)
-                              + scipy.special.erf((center_distance + self.effective_ilum_radius) / sigma)))
+        pupil_frd = pupil.illuminated * \
+            (1 / 2 * (scipy.special.erf((-center_distance + self.effective_ilum_radius) / sigma)
+                      + scipy.special.erf((center_distance + self.effective_ilum_radius) / sigma)))
 
         # ###############################
         # Adding misaligment in this section
@@ -2420,7 +2423,7 @@ class ZernikeFitterPFS(object):
                                   (higher_limit_of_ilum + int(np.ceil(3 * apodization_sigma))),
                                   (lower_limit_of_ilum - int(np.ceil(3 * apodization_sigma))):
                                   (higher_limit_of_ilum + int(np.ceil(3 * apodization_sigma)))] =\
-        ilum_radiometric_center_region_apodized # noqa E:122
+        ilum_radiometric_center_region_apodized  # noqa E:122
 
         time_end_single_4 = time.time()
         if self.verbosity == 1:
@@ -4141,7 +4144,7 @@ class Tokovinin_multi(object):
             else:
                 # array_of_delta_z_parametrizations=first_proposal_Tokovnin/4
                 array_of_delta_z_parametrizations = np.maximum(
-                    array_of_delta_z_parametrizations, first_proposal_Tokovnin / 4) # noqa
+                    array_of_delta_z_parametrizations, first_proposal_Tokovnin / 4)  # noqa
 
             # this code might work with global parameters?
             array_of_delta_global_parametrizations = np.array([0.1, 0.02, 0.1, 0.1, 0.1, 0.1,
@@ -4199,15 +4202,15 @@ class Tokovinin_multi(object):
                 # chi_2_before_iteration=np.copy(chi_2_after_iteration)
                 # copy wavefront from the end of the previous iteration
 
-                all_wavefront_z_parametrization_old = np.copy(all_wavefront_z_parametrization_new) # noqa
+                all_wavefront_z_parametrization_old = np.copy(all_wavefront_z_parametrization_new)  # noqa
                 if move_allparameters:
-                    all_global_parametrization_old = np.copy(all_global_parametrization_new) # noqa
+                    all_global_parametrization_old = np.copy(all_global_parametrization_new)  # noqa
                 if self.verbosity >= 1:
-                    if did_chi_2_improve == 1: # noqa
+                    if did_chi_2_improve == 1:  # noqa
                         logging.info('did_chi_2_improve: yes')
                     else:
                         logging.info('did_chi_2_improve: no')
-                if did_chi_2_improve == 0: # noqa
+                if did_chi_2_improve == 0:  # noqa
                     thresh = thresh0
                 else:
                     thresh = thresh * 0.5
@@ -4799,7 +4802,7 @@ class Tokovinin_multi(object):
             if move_allparameters:
                 Tokovnin_proposal = np.zeros((129,))
                 # Tokovnin_proposal[non_singlular_parameters]=0.7*first_proposal_Tokovnin_std
-                Tokovnin_proposal[non_singlular_parameters] = 1 * first_proposal_Tokovnin_std # noqa
+                Tokovnin_proposal[non_singlular_parameters] = 1 * first_proposal_Tokovnin_std  # noqa
 
                 all_parametrization_new = np.copy(initial_input_parameterization)
                 allparameters_parametrization_proposal_after_iteration_before_global_check =\
