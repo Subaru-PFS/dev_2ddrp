@@ -688,7 +688,7 @@ class PupilFactory(object):
         p0 = (0, 0)
         r_dist = np.sqrt((self.u - p0[0])**2 + (self.v - p0[1])**2)
         # array with a difference between pfi ilumination and dcb illumination
-        pfiIlum_2d = self._pfiIlum_1d(fiber_id, r_dist * 1000)
+        pfiIlum_2d = self._pfiIlum_1d(fiber_id, r_dist)
         # apply the difference to the pupil.illumination
         pupil.illuminated = pupil.illuminated * pfiIlum_2d
 
@@ -702,6 +702,7 @@ class PupilFactory(object):
 
         Returns
         ----------
+        array
         """
         rad = gfm.data['rad'][fiber_id - 1]  # fiberid - 1 ??
         ang = self._rad_to_angle(rad)
@@ -744,7 +745,7 @@ class PupilFactory(object):
                                   sep=',', header='infer', skiprows=0)
         df_subarusb = df_subarusb[0:79]  # discarding NaNs
         # scale = 330. / 0.185  # modifiable
-        scale = 69.5 / 0.185
+        scale = self.pupilSize / 2 / 0.185
         angles = [0, 6, 12, 18, 24, 30, 36, 42]
         radius = df_subarusb[df_subarusb.columns[0]].values.astype('float') * scale
         profile = df_subarusb[df_subarusb.columns[1:]].values.astype('float')
