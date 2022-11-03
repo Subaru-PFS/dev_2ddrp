@@ -688,15 +688,11 @@ class PupilFactory(object):
         p0 = (0, 0)
         r_dist = np.sqrt((self.u - p0[0])**2 + (self.v - p0[1])**2)
         # array with a difference between pfi ilumination and dcb illumination
-        pfiIlum_2d = self._pfiIlum_1dfun(fiber_id)(r_dist * 1000)
+        pfiIlum_2d = self._pfiIlum_1d(fiber_id, r_dist * 1000)
         # apply the difference to the pupil.illumination
         pupil.illuminated = pupil.illuminated * pfiIlum_2d
 
-    def _pfiIlum_1dfun(self, fiber_id):
-        _data = self._pfiIlum_1d(fiber_id)
-        return interp1d(_data[0], _data[1], bounds_error=False, fill_value='extrapolate')
-
-    def _pfiIlum_1d(self, fiber_id):
+    def _pfiIlum_1d(self, fiber_id, r_dist):
         """Return 1d radial profile for a given fiber
 
         Parameters
@@ -706,11 +702,12 @@ class PupilFactory(object):
 
         Returns
         ----------
-        array
         """
         rad = gfm.data['rad'][fiber_id - 1]  # fiberid - 1 ??
         ang = self._rad_to_angle(rad)
-        return self._radial_profile(ang)
+        _data = self._radial_profile(ang)
+        _fun = interp1d(_data[0], _data[1], bounds_error=False, fill_value='extrapolate')
+        return _fun(r_dist)
 
     def _rad_to_angle(self, rad):
         """Transform radius to an angle on the focal plane
