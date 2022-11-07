@@ -741,7 +741,7 @@ class PupilFactory(object):
         Returns
         ----------
         """
-        df_subarusb = pd.read_csv('subarusb.csv',
+        df_subarusb = pd.read_csv('../data/subarusb.csv',
                                   sep=',', header='infer', skiprows=0)
         df_subarusb = df_subarusb[0:79]  # discarding NaNs
         # scale = 330. / 0.185  # modifiable
@@ -1547,7 +1547,7 @@ class ZernikeFitterPFS(object):
 
         # illumination due to fiber, parameters
         if x_ilumInit is None:
-            params.add('x_fiber', 1)
+            params.add('x_fiber', 0)
         else:
             params.add('x_fiber', x_fiberInit)
 
@@ -5544,7 +5544,8 @@ class LN_PFS_single(object):
                  zmax=None, extraZernike=None, pupilExplicit=None, simulation_00=None,
                  double_sources=None, double_sources_positions_ratios=None, npix=None,
                  fit_for_flux=None, test_run=None, explicit_psf_position=None,
-                 use_only_chi=False, use_center_of_flux=False):
+                 use_only_chi=False, use_center_of_flux=False,
+                 fiber_id=None):
         """
         @param sci_image                                science image, 2d array
         @param var_image                                variance image, 2d array,same size as sci_image
@@ -5724,6 +5725,8 @@ class LN_PFS_single(object):
 
             logging.info('explicit_psf_position in LN_PFS_single: '+str(explicit_psf_position))
             logging.info('supplied extra Zernike parameters (beyond zmax): ' + str(extraZernike))
+        
+        self.fiber_id = fiber_id
 
         """
         parameters that go into ZernikeFitterPFS
@@ -5735,7 +5738,9 @@ class LN_PFS_single(object):
              use_optPSF=None,use_wf_grid=None,
              zmaxInit=None,extraZernike=None,simulation_00=None,verbosity=None,
              double_sources=None,double_sources_positions_ratios=None,
-             test_run=None,explicit_psf_position=None,*args):
+             test_run=None,explicit_psf_position=None,
+             fiber_id=None,
+             *args):
         """
 
         # how are these two approaches different?
@@ -5764,7 +5769,8 @@ class LN_PFS_single(object):
                 test_run=test_run,
                 explicit_psf_position=explicit_psf_position,
                 use_only_chi=use_only_chi,
-                use_center_of_flux=use_center_of_flux)
+                use_center_of_flux=use_center_of_flux,
+                fiber_id=fiber_id)
             single_image_analysis.initParams(zmax)
             self.single_image_analysis = single_image_analysis
         else:
@@ -5785,7 +5791,8 @@ class LN_PFS_single(object):
                 test_run=test_run,
                 explicit_psf_position=explicit_psf_position,
                 use_only_chi=use_only_chi,
-                use_center_of_flux=use_center_of_flux)
+                use_center_of_flux=use_center_of_flux,
+                fiber_id=fiber_id)
 
             single_image_analysis.initParams(
                 zmax,
