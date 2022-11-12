@@ -741,7 +741,9 @@ class PupilFactory(object):
         Returns
         ----------
         """
-        df_subarusb = pd.read_csv('../data/subarusb.csv',
+        df_subarusb = pd.read_csv(os.path.join(os.path.dirname(__file__), 
+                                               'data/subarusb.csv'
+                                               ),
                                   sep=',', header='infer', skiprows=0)
         df_subarusb = df_subarusb[0:79]  # discarding NaNs
         # scale = 330. / 0.185  # modifiable
