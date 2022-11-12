@@ -1324,6 +1324,7 @@ class ZernikeFitterPFS(object):
 
         self.PSF_DIRECTORY = PSF_DIRECTORY
         ############################################################
+        """
         if self.PSF_DIRECTORY is None:
             # names of default directories where I often work
             if socket.gethostname() == 'IapetusUSA':
@@ -1333,6 +1334,7 @@ class ZernikeFitterPFS(object):
                 self.PSF_DIRECTORY = '/work/ncaplar/'
             else:
                 self.PSF_DIRECTORY = '/tigress/ncaplar/PFS/'
+        """
 
         if self.PSF_DIRECTORY is not None:
             self.TESTING_FOLDER = self.PSF_DIRECTORY + 'Testing/'
@@ -3495,6 +3497,7 @@ class Tokovinin_multi(object):
 
     def __init__(self, list_of_sci_images, list_of_var_images, list_of_mask_images=None,
                  wavelength=None, dithering=None, save=None, verbosity=None,
+                 DIRECTORY=None,
                  pupil_parameters=None, use_pupil_parameters=None, use_optPSF=None, list_of_wf_grid=None,
                  zmax=None, extraZernike=None, pupilExplicit=None, simulation_00=None,
                  double_sources=None, double_sources_positions_ratios=None, npix=None,
@@ -3660,6 +3663,7 @@ class Tokovinin_multi(object):
         self.wavelength = wavelength
         self.dithering = dithering
         self.save = save
+        self.DIRECTORY=DIRECTORY
         self.pupil_parameters = pupil_parameters
         self.use_pupil_parameters = use_pupil_parameters
         self.use_optPSF = use_optPSF
@@ -3909,17 +3913,17 @@ class Tokovinin_multi(object):
             logging.info('list_of_psf_positions at the input stage: ' + str(np.array(list_of_psf_positions)))
 
         if self.save:
-            np.save('/tigress/ncaplar/Results/allparameters_parametrization_proposal_' + str(num_iter),
+            np.save(self.DIRECTORY + 'Results/allparameters_parametrization_proposal_' + str(num_iter),
                     allparameters_parametrization_proposal)
-            np.save('/tigress/ncaplar/Results/pre_images_' + str(num_iter),
+            np.save(self.DIRECTORY + 'Results/pre_images_' + str(num_iter),
                     pre_images)
-            np.save('/tigress/ncaplar/Results/pre_input_parameters_' + str(num_iter),
+            np.save(self.DIRECTORY + 'Results/pre_input_parameters_' + str(num_iter),
                     pre_input_parameters)
-            np.save('/tigress/ncaplar/Results/list_of_sci_images_' + str(num_iter),
+            np.save(self.DIRECTORY + 'Results/list_of_sci_images_' + str(num_iter),
                     list_of_sci_images)
-            np.save('/tigress/ncaplar/Results/list_of_var_images_' + str(num_iter),
+            np.save(self.DIRECTORY + 'Results/list_of_var_images_' + str(num_iter),
                     list_of_var_images)
-            np.save('/tigress/ncaplar/Results/list_of_mask_images_' + str(num_iter),
+            np.save(self.DIRECTORY + 'Results/list_of_mask_images_' + str(num_iter),
                     list_of_mask_images)
 
         # extract the parameters which will not change in this function, i.e., non-wavefront parameters
@@ -4031,15 +4035,15 @@ class Tokovinin_multi(object):
         uber_I_std = uber_I / uber_std
 
         if self.save:
-            np.save('/tigress/ncaplar/Results/list_of_sci_images_' + str(num_iter),
+            np.save(self.DIRECTORY + 'Results/list_of_sci_images_' + str(num_iter),
                     list_of_sci_images)
-            np.save('/tigress/ncaplar/Results/list_of_mean_value_of_background_' + str(num_iter),
+            np.save(self.DIRECTORY + 'Results/list_of_mean_value_of_background_' + str(num_iter),
                     list_of_mean_value_of_background)
-            np.save('/tigress/ncaplar/Results/list_of_flux_mask_' + str(num_iter),
+            np.save(self.DIRECTORY + 'Results/list_of_flux_mask_' + str(num_iter),
                     list_of_flux_mask)
-            np.save('/tigress/ncaplar/Results/uber_std_' + str(num_iter),
+            np.save(self.DIRECTORY + 'Results/uber_std_' + str(num_iter),
                     uber_std)
-            np.save('/tigress/ncaplar/Results/uber_I_' + str(num_iter),
+            np.save(self.DIRECTORY + 'Results/uber_I_' + str(num_iter),
                     uber_I)
 
         # March 14, 2022, adding just pure avoid of the run
@@ -4160,12 +4164,12 @@ class Tokovinin_multi(object):
                      array_of_delta_z_parametrizations[19 * 2:]))
 
             if self.save:
-                np.save('/tigress/ncaplar/Results/array_of_delta_z_parametrizations_'
+                np.save(self.DIRECTORY + 'Results/array_of_delta_z_parametrizations_'
                         + str(num_iter) + '_' + str(iteration_number), array_of_delta_z_parametrizations)
-                np.save('/tigress/ncaplar/Results/array_of_delta_global_parametrizations_'
+                np.save(self.DIRECTORY + 'Results/array_of_delta_global_parametrizations_'
                         + str(num_iter) + '_' + str(iteration_number), array_of_delta_global_parametrizations)
                 if move_allparameters:
-                    np.save('/tigress/ncaplar/Results/array_of_delta_all_parametrizations_'
+                    np.save(self.DIRECTORY + 'Results/array_of_delta_all_parametrizations_'
                             + str(num_iter) + '_' + str(iteration_number),
                             array_of_delta_all_parametrizations)
 
@@ -4250,7 +4254,7 @@ class Tokovinin_multi(object):
                     + str(array_of_delta_global_parametrizations))
 
             if self.save:
-                np.save('/tigress/ncaplar/Results/initial_input_parameterization_'
+                np.save(self.DIRECTORY + 'Results/initial_input_parameterization_'
                         + str(num_iter) + '_' + str(iteration_number), initial_input_parameterization)
 
             # logging.info('len initial_input_parameterization '+str(len(initial_input_parameterization)))
@@ -4295,15 +4299,15 @@ class Tokovinin_multi(object):
 
             # initial_model_result,image_0,initial_input_parameters,pre_chi2=model(initial_input_parameters,return_Image=True,return_intermediate_images=False)
             if self.save:
-                np.save('/tigress/ncaplar/Results/list_of_initial_model_result_'
+                np.save(self.DIRECTORY + 'Results/list_of_initial_model_result_'
                         + str(num_iter) + '_' + str(iteration_number), list_of_initial_model_result)
-                np.save('/tigress/ncaplar/Results/list_of_image_0_' + str(num_iter) + '_'
+                np.save(self.DIRECTORY + 'Results/list_of_image_0_' + str(num_iter) + '_'
                         + str(iteration_number), list_of_image_0)
-                np.save('/tigress/ncaplar/Results/list_of_initial_input_parameters_'
+                np.save(self.DIRECTORY + 'Results/list_of_initial_input_parameters_'
                         + str(num_iter) + '_' + str(iteration_number), list_of_initial_input_parameters)
-                np.save('/tigress/ncaplar/Results/list_of_pre_chi2_' + str(num_iter) + '_'
+                np.save(self.DIRECTORY + 'Results/list_of_pre_chi2_' + str(num_iter) + '_'
                         + str(iteration_number), list_of_pre_chi2)
-                np.save('/tigress/ncaplar/Results/list_of_psf_positions_' + str(num_iter) + '_'
+                np.save(self.DIRECTORY + 'Results/list_of_psf_positions_' + str(num_iter) + '_'
                         + str(iteration_number), list_of_psf_positions)
 
             ##########################################################################
@@ -4356,9 +4360,9 @@ class Tokovinin_multi(object):
             self.uber_M0_std = uber_M0_std
 
             if self.save:
-                np.save('/tigress/ncaplar/Results/uber_M0_' + str(num_iter) + '_' + str(iteration_number),
+                np.save(self.DIRECTORY + 'Results/uber_M0_' + str(num_iter) + '_' + str(iteration_number),
                         uber_M0)
-                np.save('/tigress/ncaplar/Results/uber_M0_std_' + str(num_iter) + '_' + str(iteration_number),
+                np.save(self.DIRECTORY + 'Results/uber_M0_std_' + str(num_iter) + '_' + str(iteration_number),
                         uber_M0_std)
 
             ##########################################################################
@@ -4501,7 +4505,7 @@ class Tokovinin_multi(object):
 
             # save the uber_list_of_input_parameters
             if self.save:
-                np.save('/tigress/ncaplar/Results/uber_list_of_input_parameters_'
+                np.save(self.DIRECTORY + 'Results/uber_list_of_input_parameters_'
                         + str(num_iter) + '_' + str(iteration_number), uber_list_of_input_parameters)
 
             # pass new model_multi that has fixed pos (October 6, 2020)
@@ -4622,13 +4626,13 @@ class Tokovinin_multi(object):
 
                 if self.save:
                     np.save(
-                        '/tigress/ncaplar/Results/out_images_' + str(num_iter) + '_'
+                        self.DIRECTORY + 'Results/out_images_' + str(num_iter) + '_'
                         + str(iteration_number), out_images)
                     np.save(
-                        '/tigress/ncaplar/Results/out_parameters_' + str(num_iter) + '_'
+                        self.DIRECTORY + 'Results/out_parameters_' + str(num_iter) + '_'
                         + str(iteration_number), out_parameters)
                     np.save(
-                        '/tigress/ncaplar/Results/out_chi2_' + str(num_iter) + '_'
+                        self.DIRECTORY + 'Results/out_chi2_' + str(num_iter) + '_'
                         + str(iteration_number), out_chi2)
 
                 ##########################################################################
@@ -4689,7 +4693,7 @@ class Tokovinin_multi(object):
 
                 if self.save:
                     np.save(
-                        '/tigress/ncaplar/Results/uber_images_normalized_' + str(num_iter) + '_'
+                        self.DIRECTORY + 'Results/uber_images_normalized_' + str(num_iter) + '_'
                         + str(iteration_number), uber_images_normalized)
 
                 # np.save('/tigress/ncaplar/Results/uber_images_normalized_std_'+str(num_iter)+'_'+str(iteration_number),\
@@ -4733,14 +4737,14 @@ class Tokovinin_multi(object):
             # end of creating H
 
             if self.save and previous_best_result is None:
-                np.save('/tigress/ncaplar/Results/array_of_delta_z_parametrizations_None_'
+                np.save(self.DIRECTORY + 'Results/array_of_delta_z_parametrizations_None_'
                         + str(num_iter) + '_' + str(iteration_number),
                         array_of_delta_z_parametrizations_None)
 
             if self.save:
-                np.save('/tigress/ncaplar/Results/H_' + str(num_iter) + '_' + str(iteration_number), H)
+                np.save(self.DIRECTORY + 'Results/H_' + str(num_iter) + '_' + str(iteration_number), H)
             if self.save:
-                np.save('/tigress/ncaplar/Results/H_std_' + str(num_iter) + '_' + str(iteration_number),
+                np.save(self.DIRECTORY + 'Results/H_std_' + str(num_iter) + '_' + str(iteration_number),
                         H_std)
 
             first_proposal_Tokovnin, first_proposal_Tokovnin_std = self.create_first_proposal_Tokovnin(
@@ -4870,13 +4874,13 @@ class Tokovinin_multi(object):
 
             if self.save:
                 np.save(
-                    '/tigress/ncaplar/Results/first_proposal_Tokovnin' + str(num_iter) + '_'
+                    self.DIRECTORY + 'Results/first_proposal_Tokovnin' + str(num_iter) + '_'
                     + str(iteration_number), first_proposal_Tokovnin)
                 np.save(
-                    '/tigress/ncaplar/Results/first_proposal_Tokovnin_std' + str(num_iter) + '_'
+                    self.DIRECTORY + 'Results/first_proposal_Tokovnin_std' + str(num_iter) + '_'
                     + str(iteration_number), first_proposal_Tokovnin_std)
                 np.save(
-                    '/tigress/ncaplar/Results/allparameters_parametrization_proposal_after_iteration_'
+                    self.DIRECTORY + 'Results/allparameters_parametrization_proposal_after_iteration_'
                     + str(num_iter) + '_' + str(iteration_number),
                     allparameters_parametrization_proposal_after_iteration)
 
@@ -4924,16 +4928,16 @@ class Tokovinin_multi(object):
                              + ' seconds with num_iter: ' + str(num_iter))
 
             if self.save:
-                np.save('/tigress/ncaplar/Results/list_of_final_model_result_'
+                np.save(self.DIRECTORY + 'Results/list_of_final_model_result_'
                         + str(num_iter) + '_' + str(iteration_number), list_of_final_model_result)
                 np.save(
-                    '/tigress/ncaplar/Results/list_of_image_final_' + str(num_iter) + '_'
+                    self.DIRECTORY + 'Results/list_of_image_final_' + str(num_iter) + '_'
                     + str(iteration_number), list_of_image_final)
-                np.save('/tigress/ncaplar/Results/list_of_finalinput_parameters_'
+                np.save(self.DIRECTORY + 'Results/list_of_finalinput_parameters_'
                         + str(num_iter) + '_' + str(iteration_number), list_of_finalinput_parameters)
-                np.save('/tigress/ncaplar/Results/list_of_after_chi2_' + str(num_iter) + '_'
+                np.save(self.DIRECTORY + 'Results/list_of_after_chi2_' + str(num_iter) + '_'
                         + str(iteration_number), list_of_after_chi2)
-                np.save('/tigress/ncaplar/Results/list_of_final_psf_positions_'
+                np.save(self.DIRECTORY + 'Results/list_of_final_psf_positions_'
                         + str(num_iter) + '_' + str(iteration_number), list_of_final_psf_positions)
 
             if self.verbosity >= 1:
@@ -4984,15 +4988,15 @@ class Tokovinin_multi(object):
 
             if self.save:
                 np.save(
-                    '/tigress/ncaplar/Results/uber_M_final_' + str(num_iter) + '_'
+                    self.DIRECTORY + 'Results/uber_M_final_' + str(num_iter) + '_'
                     + str(iteration_number), uber_M_final)
                 np.save(
-                    '/tigress/ncaplar/Results/uber_M_final_std_' + str(num_iter) + '_'
+                    self.DIRECTORY + 'Results/uber_M_final_std_' + str(num_iter) + '_'
                     + str(iteration_number), uber_M_final_std)
             if self.save:
-                np.save('/tigress/ncaplar/Results/uber_M_final_linear_prediction_'
+                np.save(self.DIRECTORY + 'Results/uber_M_final_linear_prediction_'
                         + str(num_iter) + '_' + str(iteration_number), uber_M_final_linear_prediction)
-                np.save('/tigress/ncaplar/Results/uber_M_final_std_linear_prediction_'
+                np.save(self.DIRECTORY + 'Results/uber_M_final_std_linear_prediction_'
                         + str(num_iter) + '_' + str(iteration_number), uber_M_final_std_linear_prediction)
 
             ####
@@ -5545,6 +5549,7 @@ class LN_PFS_single(object):
                  double_sources=None, double_sources_positions_ratios=None, npix=None,
                  fit_for_flux=None, test_run=None, explicit_psf_position=None,
                  use_only_chi=False, use_center_of_flux=False,
+                 PSF_DIRECTORY=None,
                  fiber_id=None):
         """
         @param sci_image                                science image, 2d array
@@ -5726,6 +5731,8 @@ class LN_PFS_single(object):
             logging.info('explicit_psf_position in LN_PFS_single: '+str(explicit_psf_position))
             logging.info('supplied extra Zernike parameters (beyond zmax): ' + str(extraZernike))
         
+        self.PSF_DIRECTORY = PSF_DIRECTORY
+
         self.fiber_id = fiber_id
 
         """
@@ -5770,6 +5777,7 @@ class LN_PFS_single(object):
                 explicit_psf_position=explicit_psf_position,
                 use_only_chi=use_only_chi,
                 use_center_of_flux=use_center_of_flux,
+                PSF_DIRECTORY=PSF_DIRECTORY,
                 fiber_id=fiber_id)
             single_image_analysis.initParams(zmax)
             self.single_image_analysis = single_image_analysis
@@ -5792,6 +5800,7 @@ class LN_PFS_single(object):
                 explicit_psf_position=explicit_psf_position,
                 use_only_chi=use_only_chi,
                 use_center_of_flux=use_center_of_flux,
+                PSF_DIRECTORY=PSF_DIRECTORY,
                 fiber_id=fiber_id)
 
             single_image_analysis.initParams(
@@ -7587,7 +7596,8 @@ class Zernike_estimation_preparation(object):
 
     def __init__(self, list_of_labelInput, list_of_spots, dataset,
                  list_of_arc, eps, nsteps, analysis_type='defocus',
-                 analysis_type_fiber=None):
+                 analysis_type_fiber=None,
+                 DIRECTORY=None):
 
         self.list_of_labelInput = list_of_labelInput
         self.list_of_spots = list_of_spots
@@ -7597,6 +7607,7 @@ class Zernike_estimation_preparation(object):
         self.nsteps = nsteps
         self.analysis_type = analysis_type
         self.analysis_type_fiber = analysis_type_fiber
+        self.DIRECTORY = DIRECTORY
 
         # TODO : make this as input or deduce from the data
         self.multi_var = True
@@ -7612,40 +7623,53 @@ class Zernike_estimation_preparation(object):
         # folder containing the data taken with F/2.8 stop in April and May 2019
         # dataset 2
         if dataset == 2:
-            DATA_FOLDER = '/tigress/ncaplar/ReducedData/Data_May_28/'
+            #DATA_FOLDER = '/tigress/ncaplar/ReducedData/Data_May_28/'
+            #DATA_FOLDER = '/work/dev_2ddrp/ReducedData/'
+            pass
 
         # folder containing the data taken with F/2.8 stop in April and May 2019
         # dataset 3
         if dataset == 3:
-            DATA_FOLDER = '/tigress/ncaplar/ReducedData/Data_Jun_25/'
+            #DATA_FOLDER = '/tigress/ncaplar/ReducedData/Data_Jun_25/'
+            #DATA_FOLDER = '/work/dev_2ddrp/ReducedData/'
+            pass
 
         # folder containing the data taken with F/2.8 stop in July 2019
         # dataset 4 (defocu) and 5 (fine defocus)
         if dataset == 4 or dataset == 5:
-            DATA_FOLDER = '/tigress/ncaplar/ReducedData/Data_Aug_14/'
+            #DATA_FOLDER = '/tigress/ncaplar/ReducedData/Data_Aug_14/'
+            #DATA_FOLDER = '/work/dev_2ddrp/ReducedData/'
+            pass
 
         # folder contaning the data taken with F/2.8 stop in November 2020 on Subaru
         if dataset == 6:
-            DATA_FOLDER = '/tigress/ncaplar/ReducedData/Data_Nov_20/'
+            #DATA_FOLDER = '/tigress/ncaplar/ReducedData/Data_Nov_20/'
+            DATA_FOLDER = '/work/dev_2ddrp/ReducedData/Data_Nov_20/'
 
         # folder contaning the data taken with F/2.8 stop in June 2021, at LAM, on SM2
         if dataset == 7:
-            DATA_FOLDER = '/tigress/ncaplar/ReducedData/Data_May_21_2021/'
+            #DATA_FOLDER = '/tigress/ncaplar/ReducedData/Data_May_21_2021/'
+            #DATA_FOLDER = '/work/dev_2ddrp/ReducedData/'
+            pass
 
         # folder contaning the data taken with F/2.8 stop in June 2021, at Subaru
         # (21 fibers)
         if dataset == 8:
             if 'subaru' in socket.gethostname():
-                DATA_FOLDER = '/work/ncaplar/ReducedData/Data_May_25_2021/'
+                #DATA_FOLDER = '/work/ncaplar/ReducedData/Data_May_25_2021/'
+                DATA_FOLDER = '/work/dev_2ddrp/ReducedData/Data_May_25_2021/'
             else:
-                DATA_FOLDER = '/tigress/ncaplar/ReducedData/Data_May_25_2021/'
+                #DATA_FOLDER = '/tigress/ncaplar/ReducedData/Data_May_25_2021/'
+                pass
 
         STAMPS_FOLDER = DATA_FOLDER + 'Stamps_cleaned/'
         DATAFRAMES_FOLDER = DATA_FOLDER + 'Dataframes/'
         if 'subaru' in socket.gethostname():
-            RESULT_FOLDER = '/work/ncaplar/Results/'
+            #RESULT_FOLDER = '/work/ncaplar/Results/'
+            RESULT_FOLDER = self.DIRECTORY + 'Results/'
         else:
-            RESULT_FOLDER = '/tigress/ncaplar/Results/'
+            #RESULT_FOLDER = '/tigress/ncaplar/Results/'
+            pass
 
         self.STAMPS_FOLDER = STAMPS_FOLDER
         self.DATAFRAMES_FOLDER = DATAFRAMES_FOLDER
