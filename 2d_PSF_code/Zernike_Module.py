@@ -179,11 +179,11 @@ from scipy import signal
 from scipy.ndimage.filters import gaussian_filter
 import scipy.fftpack
 import scipy.misc
+from scipy.interpolate import interp1d
 from scipy.interpolate import interp2d
 from scipy.special import erf
 from astropy.convolution import Gaussian2DKernel
 from astropy.convolution import Tophat2DKernel
-from scipy.interpolate import interp1d
 import lsst.afw.math
 import lsst.afw.image
 import lsst.afw
@@ -661,36 +661,22 @@ class PupilFactory(object):
         ----------
         fiber_id: `int`
             Fiber id number
+        p0: 2-tuple
+            Center of the pupil
 
-        Notes
+        Returns
         ----------
-        # define distance from the center of the pupil
-        # something like r_dist = sqrt((self.u - p0[0])**2 + (self.v - p0[1])**2), where p0 is the center
-        # first attempt, keep p0 at 0,0
-
-        #   Function to get 1d radial profile for a given fiber (pfiIlum_1d)
-        #    1. take /home/ncaplar/Tickets/PIPE2D-955/subarusb.csv, move to pandas dataframe, find an
-        #    appropriate storage for it (dev_2ddrp); Neven will check if there is a file without FRD or
-        #   if this one is without FRD
-        #   2. given fiber_id, find position on the focal plane - there is a function for that,
-        #  Hassan can help
-        #   3. given radius, find angle (we just did this - it might in pfs_utils already -> check;
-        #    if not, file a ticket)
-        #   4. given angle on the focal plane get theoretical radial profile
-        #      4.b) interpolate radial profile, given input angle
-
-        # apply a function that gives 1d radial profile (pfiIlum_1d), on an array which is a function of
-        # distance from a center of the pupil (r_dist)
-        # pupil.illuminated = pupil.illuminated * pfiIlum_1d(r_dist)
+        None
+            Nothing returned. PFI correction applied to pupil.illuminated.
         """
         # array where each element is a distance from the p0 point
         # where p0 is an arbitrary point placed in the pupil
-        p0 = (0, 0)
         r_dist = np.sqrt((self.u - p0[0])**2 + (self.v - p0[1])**2)
         # array with a difference between pfi ilumination and dcb illumination
         pfiIlum_2d = self._pfiIlum_1d(fiber_id, r_dist)
         # apply the difference to the pupil.illumination
         pupil.illuminated = pupil.illuminated * pfiIlum_2d
+        return
 
     def _pfiIlum_1d(self, fiber_id, r_dist):
         """Return 1d radial profile for a given fiber
@@ -1326,7 +1312,6 @@ class ZernikeFitterPFS(object):
 
         self.PSF_DIRECTORY = PSF_DIRECTORY
         ############################################################
-        """
         if self.PSF_DIRECTORY is None:
             # names of default directories where I often work
             if socket.gethostname() == 'IapetusUSA':
@@ -1336,7 +1321,6 @@ class ZernikeFitterPFS(object):
                 self.PSF_DIRECTORY = '/work/ncaplar/'
             else:
                 self.PSF_DIRECTORY = '/tigress/ncaplar/PFS/'
-        """
 
         if self.PSF_DIRECTORY is not None:
             self.TESTING_FOLDER = self.PSF_DIRECTORY + 'Testing/'
@@ -3665,6 +3649,8 @@ class Tokovinin_multi(object):
         self.wavelength = wavelength
         self.dithering = dithering
         self.save = save
+        if DIRECTORY is None:
+            DIRECTORY = '/tigress/ncaplar/'
         self.DIRECTORY=DIRECTORY
         self.pupil_parameters = pupil_parameters
         self.use_pupil_parameters = use_pupil_parameters
@@ -7609,6 +7595,8 @@ class Zernike_estimation_preparation(object):
         self.nsteps = nsteps
         self.analysis_type = analysis_type
         self.analysis_type_fiber = analysis_type_fiber
+        if DIRECTORY is None:
+            DIRECTORY = '/tigress/ncaplar/'
         self.DIRECTORY = DIRECTORY
 
         # TODO : make this as input or deduce from the data
@@ -7625,34 +7613,29 @@ class Zernike_estimation_preparation(object):
         # folder containing the data taken with F/2.8 stop in April and May 2019
         # dataset 2
         if dataset == 2:
-            #DATA_FOLDER = '/tigress/ncaplar/ReducedData/Data_May_28/'
-            #DATA_FOLDER = '/work/dev_2ddrp/ReducedData/'
-            pass
+            DATA_FOLDER = '/tigress/ncaplar/ReducedData/Data_May_28/'
 
         # folder containing the data taken with F/2.8 stop in April and May 2019
         # dataset 3
         if dataset == 3:
-            #DATA_FOLDER = '/tigress/ncaplar/ReducedData/Data_Jun_25/'
-            #DATA_FOLDER = '/work/dev_2ddrp/ReducedData/'
-            pass
+            DATA_FOLDER = '/tigress/ncaplar/ReducedData/Data_Jun_25/'
 
         # folder containing the data taken with F/2.8 stop in July 2019
         # dataset 4 (defocu) and 5 (fine defocus)
         if dataset == 4 or dataset == 5:
-            #DATA_FOLDER = '/tigress/ncaplar/ReducedData/Data_Aug_14/'
-            #DATA_FOLDER = '/work/dev_2ddrp/ReducedData/'
-            pass
+            DATA_FOLDER = '/tigress/ncaplar/ReducedData/Data_Aug_14/'
 
         # folder contaning the data taken with F/2.8 stop in November 2020 on Subaru
         if dataset == 6:
-            #DATA_FOLDER = '/tigress/ncaplar/ReducedData/Data_Nov_20/'
-            DATA_FOLDER = '/work/dev_2ddrp/ReducedData/Data_Nov_20/'
+            if socket.gethostname() == 'pfsa-usr01-gb.subaru.nao.ac.jp' or \
+                socket.gethostname() == 'pfsa-usr02-gb.subaru.nao.ac.jp':
+                DATA_FOLDER = '/work/dev_2ddrp/ReducedData/Data_Nov_20/'
+            else:
+                DATA_FOLDER = '/tigress/ncaplar/ReducedData/Data_Nov_20/'
 
         # folder contaning the data taken with F/2.8 stop in June 2021, at LAM, on SM2
         if dataset == 7:
-            #DATA_FOLDER = '/tigress/ncaplar/ReducedData/Data_May_21_2021/'
-            #DATA_FOLDER = '/work/dev_2ddrp/ReducedData/'
-            pass
+            DATA_FOLDER = '/tigress/ncaplar/ReducedData/Data_May_21_2021/'
 
         # folder contaning the data taken with F/2.8 stop in June 2021, at Subaru
         # (21 fibers)
@@ -7661,8 +7644,7 @@ class Zernike_estimation_preparation(object):
                 #DATA_FOLDER = '/work/ncaplar/ReducedData/Data_May_25_2021/'
                 DATA_FOLDER = '/work/dev_2ddrp/ReducedData/Data_May_25_2021/'
             else:
-                #DATA_FOLDER = '/tigress/ncaplar/ReducedData/Data_May_25_2021/'
-                pass
+                DATA_FOLDER = '/tigress/ncaplar/ReducedData/Data_May_25_2021/'
 
         STAMPS_FOLDER = DATA_FOLDER + 'Stamps_cleaned/'
         DATAFRAMES_FOLDER = DATA_FOLDER + 'Dataframes/'
@@ -7670,8 +7652,7 @@ class Zernike_estimation_preparation(object):
             #RESULT_FOLDER = '/work/ncaplar/Results/'
             RESULT_FOLDER = self.DIRECTORY + 'Results/'
         else:
-            #RESULT_FOLDER = '/tigress/ncaplar/Results/'
-            pass
+            RESULT_FOLDER = '/tigress/ncaplar/Results/'
 
         self.STAMPS_FOLDER = STAMPS_FOLDER
         self.DATAFRAMES_FOLDER = DATAFRAMES_FOLDER
