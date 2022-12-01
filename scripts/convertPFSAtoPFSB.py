@@ -45,8 +45,8 @@ def extractRange(specification):
     for tt in tokens:
         if rangeMode:
             if first is None:
-                raise ValueError('Start value for rang is not set.')
-            for ii in range(first, int(tt)):
+                raise ValueError('Start value for range is not set.')
+            for ii in range(first, int(tt)+1):
                 out.append(ii)
             rangeMode = False
             continue
