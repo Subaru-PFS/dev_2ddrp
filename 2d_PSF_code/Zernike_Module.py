@@ -179,6 +179,8 @@ from scipy import signal
 from scipy.ndimage.filters import gaussian_filter
 import scipy.fftpack
 import scipy.misc
+from scipy.interpolate import interp1d
+from scipy.interpolate import interp2d
 from scipy.special import erf
 from astropy.convolution import Gaussian2DKernel
 from astropy.convolution import Tophat2DKernel
@@ -192,6 +194,7 @@ import traceback
 import threading
 # from multiprocessing import current_process
 import numpy as np
+import pandas as pd
 import os
 import time
 # import sys
@@ -200,6 +203,11 @@ import socket
 import sys
 import pickle
 import logging
+
+# PFS imports
+from pfs.utils.fiberids import FiberIds
+gfm = FiberIds()
+
 os.environ["MKL_NUM_THREADS"] = "1"
 os.environ["NUMEXPR_NUM_THREADS"] = "1"
 os.environ["OMP_NUM_THREADS"] = "1"
@@ -646,6 +654,92 @@ class PupilFactory(object):
                           & ((self.u - p0[0]) * np.cos(angleRad)
                              + (self.v - p0[1]) * np.sin(angleRad) >= 0)] = True
 
+    def pfiIlum_2d(self, pupil, fiber_id, p0=(0, 0)):
+        """Apply PFI correction to the illumination
+
+        Parameters
+        ----------
+        fiber_id: `int`
+            Fiber id number
+        p0: 2-tuple
+            Center of the pupil
+
+        Returns
+        ----------
+        None
+            Nothing returned. PFI correction applied to pupil.illuminated.
+        """
+        # array where each element is a distance from the p0 point
+        # where p0 is an arbitrary point placed in the pupil
+        r_dist = np.sqrt((self.u - p0[0])**2 + (self.v - p0[1])**2)
+        # array with a difference between pfi ilumination and dcb illumination
+        pfiIlum_2d = self._pfiIlum_1d(fiber_id, r_dist)
+        # apply the difference to the pupil.illumination
+        pupil.illuminated = pupil.illuminated * pfiIlum_2d
+        return
+
+    def _pfiIlum_1d(self, fiber_id, r_dist):
+        """Return 1d radial profile for a given fiber
+
+        Parameters
+        ----------
+        fiber_id: `int`
+            Fiber id number
+
+        Returns
+        ----------
+        array
+        """
+        rad = gfm.data['rad'][fiber_id - 1]  # fiberid - 1 ??
+        ang = self._rad_to_angle(rad)
+        _data = self._radial_profile(ang)
+        _fun = interp1d(_data[0], _data[1], bounds_error=False, fill_value='extrapolate')
+        return _fun(r_dist)
+
+    def _rad_to_angle(self, rad):
+        """Transform radius to an angle on the focal plane
+
+        Parameters
+        ----------
+        rad: `float`
+            Radial position of the fiber on the focal plane
+
+        Returns
+        ----------
+        ang: `float`
+            Angular position of the fiber on the focal plane
+        """
+        angles = [0, 6, 12, 18, 24, 30, 36, 42]
+        r = [0, 32.0183, 64.128, 96.4280, 129.0284, 162.0553, 195.6696, 230.0966]
+        z = np.polyfit(r, angles, deg=2)
+        p_rad_to_angle = np.poly1d(z)
+        ang = p_rad_to_angle(rad)
+        return ang
+
+    def _radial_profile(self, ang):
+        """Return 1d theoretical radial profile for a given angle of the fiber on the focal plane
+
+        Parameters
+        ----------
+        ang: `float`
+            Angular position of the fiber on the focal plane
+
+        Returns
+        ----------
+        """
+        df_subarusb = pd.read_csv(os.path.join(os.path.dirname(__file__), 
+                                               'data/subarusb.csv'
+                                               ),
+                                  sep=',', header='infer', skiprows=0)
+        df_subarusb = df_subarusb[0:79]  # discarding NaNs
+        # scale = 330. / 0.185  # modifiable
+        scale = self.pupilSize / 2 / 0.185
+        angles = [0, 6, 12, 18, 24, 30, 36, 42]
+        radius = df_subarusb[df_subarusb.columns[0]].values.astype('float') * scale
+        profile = df_subarusb[df_subarusb.columns[1:]].values.astype('float')
+        f = interp2d(angles, radius, profile, kind='linear')
+        return np.array([radius, f(ang, radius).T[0]])
+
 
 class PFSPupilFactory(PupilFactory):
     """Pupil obscuration function factory for PFS
@@ -671,6 +765,7 @@ class PFSPupilFactory(PupilFactory):
             frd_lorentz_factor,
             det_vert,
             slitHolder_frac_dx,
+            fiber_id=None,
             wide_0=0,
             wide_23=0,
             wide_43=0,
@@ -754,6 +849,7 @@ class PFSPupilFactory(PupilFactory):
         self._spiderStartPos = [np.array([0., 0.]), np.array([0., 0.]), np.array([0., 0.])]
         self._spiderAngles = [0, np.pi * 2 / 3, np.pi * 4 / 3]
         self.effective_ilum_radius = effective_ilum_radius
+        self.fiber_id = fiber_id
 
         self.wide_0 = wide_0
         self.wide_23 = wide_23
@@ -797,7 +893,17 @@ class PFSPupilFactory(PupilFactory):
         camX = thetaX * hscRate
         camY = thetaY * hscRate
 
-        # creating FRD effects
+        # ###############################
+        # Adding PFI illumination
+        # ###############################
+
+        # it modifies pupil.illuminated
+        if self.fiber_id is not None:
+            self.pfiIlum_2d(pupil, self.fiber_id)
+
+        # ###############################
+        # Creating FRD effects
+        # ###############################
         single_element = np.linspace(-1, 1, len(pupil.illuminated), endpoint=True, dtype=np.float32)
         u_manual = np.tile(single_element, (len(single_element), 1))
         v_manual = np.transpose(u_manual)
@@ -806,11 +912,13 @@ class PFSPupilFactory(PupilFactory):
         frd_sigma = self.frd_sigma
         sigma = 2 * frd_sigma
 
-        pupil_frd = (1 / 2 * (scipy.special.erf((-center_distance + self.effective_ilum_radius) / sigma)
-                              + scipy.special.erf((center_distance + self.effective_ilum_radius) / sigma)))
+        pupil_frd = pupil.illuminated * \
+            (1 / 2 * (scipy.special.erf((-center_distance + self.effective_ilum_radius) / sigma)
+                      + scipy.special.erf((center_distance + self.effective_ilum_radius) / sigma)))
 
-        ################
+        # ###############################
         # Adding misaligment in this section
+        # ###############################
         time_misalign_start = time.time()
 
         position_of_center_0 = np.where(center_distance == np.min(center_distance))
@@ -887,7 +995,9 @@ class PFSPupilFactory(PupilFactory):
             logging.info('Time to execute illumination considerations due to misalignment '
                          + str(time_misalign_end - time_misalign_start))
 
-        ####
+        # ###############################
+        # Lorentz scattering
+        # ###############################
         pupil_lorentz = (np.arctan(2 * (self.effective_ilum_radius - center_distance) / (4 * sigma))
                          + np.arctan(2 * (self.effective_ilum_radius + center_distance) / (4 * sigma))) /\
                         (2 * np.arctan((2 * self.effective_ilum_radius) / (4 * sigma)))
@@ -896,7 +1006,7 @@ class PFSPupilFactory(PupilFactory):
         pupil.illuminated = (pupil_frd + 1 * self.frd_lorentz_factor
                              * pupil_lorentz) / (1 + self.frd_lorentz_factor)
 
-        # Cout out the acceptance angle of the camera
+        # Cut out the acceptance angle of the camera
         self._cutCircleExterior(pupil, (0.0, 0.0), subaruRadius)
 
         # Cut out detector shadow
@@ -1036,7 +1146,7 @@ class ZernikeFitterPFS(object):
                  zmaxInit=None, extraZernike=None, simulation_00=None, verbosity=None,
                  double_sources=None, double_sources_positions_ratios=None, test_run=None,
                  explicit_psf_position=None, use_only_chi=False, use_center_of_flux=False,
-                 PSF_DIRECTORY=None, *args):
+                 PSF_DIRECTORY=None, fiber_id=None, *args):
         """
         Parameters
         ----------
@@ -1129,7 +1239,8 @@ class ZernikeFitterPFS(object):
         Simple exampe with initial parameters, changing only one parameter
         >>> zmax = 22
         >>> single_image_analysis = ZernikeFitterPFS(zmaxInit = zmax,
-                                                     verbosity=1)
+                                                     verbosity=1,
+                                                     fiber_id =100)
         >>> single_image_analysis.initParams()
         >>> single_image_analysis.params['detFrac'] =\
             lmfit.Parameter(name='detFrac', value=0.70)
@@ -1191,6 +1302,7 @@ class ZernikeFitterPFS(object):
         self.use_only_chi = use_only_chi
         self.use_center_of_flux = use_center_of_flux
         self.flux = float(np.sum(image))
+        self.fiber_id = fiber_id
 
         try:
             if not explicit_psf_position:
@@ -1423,7 +1535,7 @@ class ZernikeFitterPFS(object):
 
         # illumination due to fiber, parameters
         if x_ilumInit is None:
-            params.add('x_fiber', 1)
+            params.add('x_fiber', 0)
         else:
             params.add('x_fiber', x_fiberInit)
 
@@ -2063,7 +2175,8 @@ class ZernikeFitterPFS(object):
             wide_23=self.params['wide_23'].value,
             wide_43=self.params['wide_43'].value,
             misalign=self.params['misalign'].value,
-            verbosity=self.verbosity)
+            verbosity=self.verbosity,
+            fiber_id=self.fiber_id)
 
         point = [self.params['dxFocal'].value, self.params['dyFocal'].value]  # noqa: E
         pupil = Pupil_Image.getPupil(point)
@@ -2106,6 +2219,18 @@ class ZernikeFitterPFS(object):
         Notes
         ----------
         called by constructModelImage_PFS_naturalResolution
+
+        Illumination is handled in an unsatifactory manner at the moment.
+        The complex process is as follows:
+        1. get illumination from pupil.illuminated.
+        2. This gets passed to galsim.Aperture class
+        3. It gets extracted, !unchanged!, as ilum = aper.illuminated...
+        4. Apply radiometric effect (change between exit and entrance pupil)
+        and rename to ilum_radiometric - as we are currently not considering
+        this effect this is again unchanged!!!
+        5. Apply apodization - rename to ilum_radiometric_apodized
+        6. Create additional array like ilum_radiometric_apodized but has
+        boolean values -> ilum_radiometric_apodized_bool
         """
 
         if self.verbosity == 1:
@@ -2226,14 +2351,13 @@ class ZernikeFitterPFS(object):
             logging.info('size_of_ilum_in_units_of_radius: ' + str(size_of_ilum_in_units_of_radius))
 
         # do not caculate the ``radiometric effect (difference between entrance and exit pupil)
-        # if paramters are too small to make any difference
+        # if parameters are too small to make any difference
         # if that is the case just declare the ``ilum_radiometric'' to be the same as ilum
         # i.e., the illumination of the exit pupil is the same as the illumination of the entrance pupil
         if params['radiometricExponent'] < 0.01 or params['radiometricEffect'] < 0.01:
             if self.verbosity == 1:
                 logging.info('skiping ``radiometric effect\'\' ')
             ilum_radiometric = ilum
-
         else:
             if self.verbosity == 1:
                 logging.info('radiometric parameters are: ')
@@ -2285,7 +2409,7 @@ class ZernikeFitterPFS(object):
                                   (higher_limit_of_ilum + int(np.ceil(3 * apodization_sigma))),
                                   (lower_limit_of_ilum - int(np.ceil(3 * apodization_sigma))):
                                   (higher_limit_of_ilum + int(np.ceil(3 * apodization_sigma)))] =\
-        ilum_radiometric_center_region_apodized # noqa E:122
+        ilum_radiometric_center_region_apodized  # noqa E:122
 
         time_end_single_4 = time.time()
         if self.verbosity == 1:
@@ -2417,7 +2541,7 @@ class ZernikeFitterPFS(object):
                 logging.info('creating wf_full_fake_0')
             wf_full_fake_0 = screens_fake_0.wavefront(u_manual, v_manual, None, 0)
 
-        # exponential of the wavefront
+        # exponential of the wavefront - ilumination of the pupil enters here as ilum_radiometric_apodized
         expwf_grid = np.zeros_like(ilum_radiometric_apodized_bool, dtype=np.complex64)
         expwf_grid[ilum_radiometric_apodized_bool] =\
             ilum_radiometric_apodized[ilum_radiometric_apodized_bool] *\
@@ -2428,10 +2552,8 @@ class ZernikeFitterPFS(object):
                          + str(time_end_single - time_start_single))
 
         ################################################################################
-        # exectute the FFT
+        # execute the FFT
         ################################################################################
-        # updated up to here
-        ######################################################################
 
         time_start_single = time.time()
         ftexpwf = np.fft.fftshift(scipy.fftpack.fft2(np.fft.fftshift(expwf_grid)))
@@ -3361,6 +3483,7 @@ class Tokovinin_multi(object):
 
     def __init__(self, list_of_sci_images, list_of_var_images, list_of_mask_images=None,
                  wavelength=None, dithering=None, save=None, verbosity=None,
+                 DIRECTORY=None,
                  pupil_parameters=None, use_pupil_parameters=None, use_optPSF=None, list_of_wf_grid=None,
                  zmax=None, extraZernike=None, pupilExplicit=None, simulation_00=None,
                  double_sources=None, double_sources_positions_ratios=None, npix=None,
@@ -3526,6 +3649,9 @@ class Tokovinin_multi(object):
         self.wavelength = wavelength
         self.dithering = dithering
         self.save = save
+        if DIRECTORY is None:
+            DIRECTORY = '/tigress/ncaplar/'
+        self.DIRECTORY=DIRECTORY
         self.pupil_parameters = pupil_parameters
         self.use_pupil_parameters = use_pupil_parameters
         self.use_optPSF = use_optPSF
@@ -3775,17 +3901,17 @@ class Tokovinin_multi(object):
             logging.info('list_of_psf_positions at the input stage: ' + str(np.array(list_of_psf_positions)))
 
         if self.save:
-            np.save('/tigress/ncaplar/Results/allparameters_parametrization_proposal_' + str(num_iter),
+            np.save(self.DIRECTORY + 'Results/allparameters_parametrization_proposal_' + str(num_iter),
                     allparameters_parametrization_proposal)
-            np.save('/tigress/ncaplar/Results/pre_images_' + str(num_iter),
+            np.save(self.DIRECTORY + 'Results/pre_images_' + str(num_iter),
                     pre_images)
-            np.save('/tigress/ncaplar/Results/pre_input_parameters_' + str(num_iter),
+            np.save(self.DIRECTORY + 'Results/pre_input_parameters_' + str(num_iter),
                     pre_input_parameters)
-            np.save('/tigress/ncaplar/Results/list_of_sci_images_' + str(num_iter),
+            np.save(self.DIRECTORY + 'Results/list_of_sci_images_' + str(num_iter),
                     list_of_sci_images)
-            np.save('/tigress/ncaplar/Results/list_of_var_images_' + str(num_iter),
+            np.save(self.DIRECTORY + 'Results/list_of_var_images_' + str(num_iter),
                     list_of_var_images)
-            np.save('/tigress/ncaplar/Results/list_of_mask_images_' + str(num_iter),
+            np.save(self.DIRECTORY + 'Results/list_of_mask_images_' + str(num_iter),
                     list_of_mask_images)
 
         # extract the parameters which will not change in this function, i.e., non-wavefront parameters
@@ -3897,15 +4023,15 @@ class Tokovinin_multi(object):
         uber_I_std = uber_I / uber_std
 
         if self.save:
-            np.save('/tigress/ncaplar/Results/list_of_sci_images_' + str(num_iter),
+            np.save(self.DIRECTORY + 'Results/list_of_sci_images_' + str(num_iter),
                     list_of_sci_images)
-            np.save('/tigress/ncaplar/Results/list_of_mean_value_of_background_' + str(num_iter),
+            np.save(self.DIRECTORY + 'Results/list_of_mean_value_of_background_' + str(num_iter),
                     list_of_mean_value_of_background)
-            np.save('/tigress/ncaplar/Results/list_of_flux_mask_' + str(num_iter),
+            np.save(self.DIRECTORY + 'Results/list_of_flux_mask_' + str(num_iter),
                     list_of_flux_mask)
-            np.save('/tigress/ncaplar/Results/uber_std_' + str(num_iter),
+            np.save(self.DIRECTORY + 'Results/uber_std_' + str(num_iter),
                     uber_std)
-            np.save('/tigress/ncaplar/Results/uber_I_' + str(num_iter),
+            np.save(self.DIRECTORY + 'Results/uber_I_' + str(num_iter),
                     uber_I)
 
         # March 14, 2022, adding just pure avoid of the run
@@ -4008,7 +4134,7 @@ class Tokovinin_multi(object):
             else:
                 # array_of_delta_z_parametrizations=first_proposal_Tokovnin/4
                 array_of_delta_z_parametrizations = np.maximum(
-                    array_of_delta_z_parametrizations, first_proposal_Tokovnin / 4) # noqa
+                    array_of_delta_z_parametrizations, first_proposal_Tokovnin / 4)  # noqa
 
             # this code might work with global parameters?
             array_of_delta_global_parametrizations = np.array([0.1, 0.02, 0.1, 0.1, 0.1, 0.1,
@@ -4026,12 +4152,12 @@ class Tokovinin_multi(object):
                      array_of_delta_z_parametrizations[19 * 2:]))
 
             if self.save:
-                np.save('/tigress/ncaplar/Results/array_of_delta_z_parametrizations_'
+                np.save(self.DIRECTORY + 'Results/array_of_delta_z_parametrizations_'
                         + str(num_iter) + '_' + str(iteration_number), array_of_delta_z_parametrizations)
-                np.save('/tigress/ncaplar/Results/array_of_delta_global_parametrizations_'
+                np.save(self.DIRECTORY + 'Results/array_of_delta_global_parametrizations_'
                         + str(num_iter) + '_' + str(iteration_number), array_of_delta_global_parametrizations)
                 if move_allparameters:
-                    np.save('/tigress/ncaplar/Results/array_of_delta_all_parametrizations_'
+                    np.save(self.DIRECTORY + 'Results/array_of_delta_all_parametrizations_'
                             + str(num_iter) + '_' + str(iteration_number),
                             array_of_delta_all_parametrizations)
 
@@ -4066,15 +4192,15 @@ class Tokovinin_multi(object):
                 # chi_2_before_iteration=np.copy(chi_2_after_iteration)
                 # copy wavefront from the end of the previous iteration
 
-                all_wavefront_z_parametrization_old = np.copy(all_wavefront_z_parametrization_new) # noqa
+                all_wavefront_z_parametrization_old = np.copy(all_wavefront_z_parametrization_new)  # noqa
                 if move_allparameters:
-                    all_global_parametrization_old = np.copy(all_global_parametrization_new) # noqa
+                    all_global_parametrization_old = np.copy(all_global_parametrization_new)  # noqa
                 if self.verbosity >= 1:
-                    if did_chi_2_improve == 1: # noqa
+                    if did_chi_2_improve == 1:  # noqa
                         logging.info('did_chi_2_improve: yes')
                     else:
                         logging.info('did_chi_2_improve: no')
-                if did_chi_2_improve == 0: # noqa
+                if did_chi_2_improve == 0:  # noqa
                     thresh = thresh0
                 else:
                     thresh = thresh * 0.5
@@ -4116,7 +4242,7 @@ class Tokovinin_multi(object):
                     + str(array_of_delta_global_parametrizations))
 
             if self.save:
-                np.save('/tigress/ncaplar/Results/initial_input_parameterization_'
+                np.save(self.DIRECTORY + 'Results/initial_input_parameterization_'
                         + str(num_iter) + '_' + str(iteration_number), initial_input_parameterization)
 
             # logging.info('len initial_input_parameterization '+str(len(initial_input_parameterization)))
@@ -4161,15 +4287,15 @@ class Tokovinin_multi(object):
 
             # initial_model_result,image_0,initial_input_parameters,pre_chi2=model(initial_input_parameters,return_Image=True,return_intermediate_images=False)
             if self.save:
-                np.save('/tigress/ncaplar/Results/list_of_initial_model_result_'
+                np.save(self.DIRECTORY + 'Results/list_of_initial_model_result_'
                         + str(num_iter) + '_' + str(iteration_number), list_of_initial_model_result)
-                np.save('/tigress/ncaplar/Results/list_of_image_0_' + str(num_iter) + '_'
+                np.save(self.DIRECTORY + 'Results/list_of_image_0_' + str(num_iter) + '_'
                         + str(iteration_number), list_of_image_0)
-                np.save('/tigress/ncaplar/Results/list_of_initial_input_parameters_'
+                np.save(self.DIRECTORY + 'Results/list_of_initial_input_parameters_'
                         + str(num_iter) + '_' + str(iteration_number), list_of_initial_input_parameters)
-                np.save('/tigress/ncaplar/Results/list_of_pre_chi2_' + str(num_iter) + '_'
+                np.save(self.DIRECTORY + 'Results/list_of_pre_chi2_' + str(num_iter) + '_'
                         + str(iteration_number), list_of_pre_chi2)
-                np.save('/tigress/ncaplar/Results/list_of_psf_positions_' + str(num_iter) + '_'
+                np.save(self.DIRECTORY + 'Results/list_of_psf_positions_' + str(num_iter) + '_'
                         + str(iteration_number), list_of_psf_positions)
 
             ##########################################################################
@@ -4222,9 +4348,9 @@ class Tokovinin_multi(object):
             self.uber_M0_std = uber_M0_std
 
             if self.save:
-                np.save('/tigress/ncaplar/Results/uber_M0_' + str(num_iter) + '_' + str(iteration_number),
+                np.save(self.DIRECTORY + 'Results/uber_M0_' + str(num_iter) + '_' + str(iteration_number),
                         uber_M0)
-                np.save('/tigress/ncaplar/Results/uber_M0_std_' + str(num_iter) + '_' + str(iteration_number),
+                np.save(self.DIRECTORY + 'Results/uber_M0_std_' + str(num_iter) + '_' + str(iteration_number),
                         uber_M0_std)
 
             ##########################################################################
@@ -4367,7 +4493,7 @@ class Tokovinin_multi(object):
 
             # save the uber_list_of_input_parameters
             if self.save:
-                np.save('/tigress/ncaplar/Results/uber_list_of_input_parameters_'
+                np.save(self.DIRECTORY + 'Results/uber_list_of_input_parameters_'
                         + str(num_iter) + '_' + str(iteration_number), uber_list_of_input_parameters)
 
             # pass new model_multi that has fixed pos (October 6, 2020)
@@ -4488,13 +4614,13 @@ class Tokovinin_multi(object):
 
                 if self.save:
                     np.save(
-                        '/tigress/ncaplar/Results/out_images_' + str(num_iter) + '_'
+                        self.DIRECTORY + 'Results/out_images_' + str(num_iter) + '_'
                         + str(iteration_number), out_images)
                     np.save(
-                        '/tigress/ncaplar/Results/out_parameters_' + str(num_iter) + '_'
+                        self.DIRECTORY + 'Results/out_parameters_' + str(num_iter) + '_'
                         + str(iteration_number), out_parameters)
                     np.save(
-                        '/tigress/ncaplar/Results/out_chi2_' + str(num_iter) + '_'
+                        self.DIRECTORY + 'Results/out_chi2_' + str(num_iter) + '_'
                         + str(iteration_number), out_chi2)
 
                 ##########################################################################
@@ -4555,7 +4681,7 @@ class Tokovinin_multi(object):
 
                 if self.save:
                     np.save(
-                        '/tigress/ncaplar/Results/uber_images_normalized_' + str(num_iter) + '_'
+                        self.DIRECTORY + 'Results/uber_images_normalized_' + str(num_iter) + '_'
                         + str(iteration_number), uber_images_normalized)
 
                 # np.save('/tigress/ncaplar/Results/uber_images_normalized_std_'+str(num_iter)+'_'+str(iteration_number),\
@@ -4599,14 +4725,14 @@ class Tokovinin_multi(object):
             # end of creating H
 
             if self.save and previous_best_result is None:
-                np.save('/tigress/ncaplar/Results/array_of_delta_z_parametrizations_None_'
+                np.save(self.DIRECTORY + 'Results/array_of_delta_z_parametrizations_None_'
                         + str(num_iter) + '_' + str(iteration_number),
                         array_of_delta_z_parametrizations_None)
 
             if self.save:
-                np.save('/tigress/ncaplar/Results/H_' + str(num_iter) + '_' + str(iteration_number), H)
+                np.save(self.DIRECTORY + 'Results/H_' + str(num_iter) + '_' + str(iteration_number), H)
             if self.save:
-                np.save('/tigress/ncaplar/Results/H_std_' + str(num_iter) + '_' + str(iteration_number),
+                np.save(self.DIRECTORY + 'Results/H_std_' + str(num_iter) + '_' + str(iteration_number),
                         H_std)
 
             first_proposal_Tokovnin, first_proposal_Tokovnin_std = self.create_first_proposal_Tokovnin(
@@ -4666,7 +4792,7 @@ class Tokovinin_multi(object):
             if move_allparameters:
                 Tokovnin_proposal = np.zeros((129,))
                 # Tokovnin_proposal[non_singlular_parameters]=0.7*first_proposal_Tokovnin_std
-                Tokovnin_proposal[non_singlular_parameters] = 1 * first_proposal_Tokovnin_std # noqa
+                Tokovnin_proposal[non_singlular_parameters] = 1 * first_proposal_Tokovnin_std  # noqa
 
                 all_parametrization_new = np.copy(initial_input_parameterization)
                 allparameters_parametrization_proposal_after_iteration_before_global_check =\
@@ -4736,13 +4862,13 @@ class Tokovinin_multi(object):
 
             if self.save:
                 np.save(
-                    '/tigress/ncaplar/Results/first_proposal_Tokovnin' + str(num_iter) + '_'
+                    self.DIRECTORY + 'Results/first_proposal_Tokovnin' + str(num_iter) + '_'
                     + str(iteration_number), first_proposal_Tokovnin)
                 np.save(
-                    '/tigress/ncaplar/Results/first_proposal_Tokovnin_std' + str(num_iter) + '_'
+                    self.DIRECTORY + 'Results/first_proposal_Tokovnin_std' + str(num_iter) + '_'
                     + str(iteration_number), first_proposal_Tokovnin_std)
                 np.save(
-                    '/tigress/ncaplar/Results/allparameters_parametrization_proposal_after_iteration_'
+                    self.DIRECTORY + 'Results/allparameters_parametrization_proposal_after_iteration_'
                     + str(num_iter) + '_' + str(iteration_number),
                     allparameters_parametrization_proposal_after_iteration)
 
@@ -4790,16 +4916,16 @@ class Tokovinin_multi(object):
                              + ' seconds with num_iter: ' + str(num_iter))
 
             if self.save:
-                np.save('/tigress/ncaplar/Results/list_of_final_model_result_'
+                np.save(self.DIRECTORY + 'Results/list_of_final_model_result_'
                         + str(num_iter) + '_' + str(iteration_number), list_of_final_model_result)
                 np.save(
-                    '/tigress/ncaplar/Results/list_of_image_final_' + str(num_iter) + '_'
+                    self.DIRECTORY + 'Results/list_of_image_final_' + str(num_iter) + '_'
                     + str(iteration_number), list_of_image_final)
-                np.save('/tigress/ncaplar/Results/list_of_finalinput_parameters_'
+                np.save(self.DIRECTORY + 'Results/list_of_finalinput_parameters_'
                         + str(num_iter) + '_' + str(iteration_number), list_of_finalinput_parameters)
-                np.save('/tigress/ncaplar/Results/list_of_after_chi2_' + str(num_iter) + '_'
+                np.save(self.DIRECTORY + 'Results/list_of_after_chi2_' + str(num_iter) + '_'
                         + str(iteration_number), list_of_after_chi2)
-                np.save('/tigress/ncaplar/Results/list_of_final_psf_positions_'
+                np.save(self.DIRECTORY + 'Results/list_of_final_psf_positions_'
                         + str(num_iter) + '_' + str(iteration_number), list_of_final_psf_positions)
 
             if self.verbosity >= 1:
@@ -4850,15 +4976,15 @@ class Tokovinin_multi(object):
 
             if self.save:
                 np.save(
-                    '/tigress/ncaplar/Results/uber_M_final_' + str(num_iter) + '_'
+                    self.DIRECTORY + 'Results/uber_M_final_' + str(num_iter) + '_'
                     + str(iteration_number), uber_M_final)
                 np.save(
-                    '/tigress/ncaplar/Results/uber_M_final_std_' + str(num_iter) + '_'
+                    self.DIRECTORY + 'Results/uber_M_final_std_' + str(num_iter) + '_'
                     + str(iteration_number), uber_M_final_std)
             if self.save:
-                np.save('/tigress/ncaplar/Results/uber_M_final_linear_prediction_'
+                np.save(self.DIRECTORY + 'Results/uber_M_final_linear_prediction_'
                         + str(num_iter) + '_' + str(iteration_number), uber_M_final_linear_prediction)
-                np.save('/tigress/ncaplar/Results/uber_M_final_std_linear_prediction_'
+                np.save(self.DIRECTORY + 'Results/uber_M_final_std_linear_prediction_'
                         + str(num_iter) + '_' + str(iteration_number), uber_M_final_std_linear_prediction)
 
             ####
@@ -5405,12 +5531,14 @@ class LN_PFS_single(object):
 
     def __init__(self, sci_image, var_image,
                  mask_image=None,
-                 wavelength=None, dithering=None, save=None, verbosity=None,
+                 wavelength=794, dithering=1, save=None, verbosity=None,
                  pupil_parameters=None, use_pupil_parameters=None, use_optPSF=None, use_wf_grid=None,
                  zmax=None, extraZernike=None, pupilExplicit=None, simulation_00=None,
                  double_sources=None, double_sources_positions_ratios=None, npix=None,
                  fit_for_flux=None, test_run=None, explicit_psf_position=None,
-                 use_only_chi=False, use_center_of_flux=False):
+                 use_only_chi=False, use_center_of_flux=False,
+                 PSF_DIRECTORY=None,
+                 fiber_id=None):
         """
         @param sci_image                                science image, 2d array
         @param var_image                                variance image, 2d array,same size as sci_image
@@ -5590,6 +5718,10 @@ class LN_PFS_single(object):
 
             logging.info('explicit_psf_position in LN_PFS_single: '+str(explicit_psf_position))
             logging.info('supplied extra Zernike parameters (beyond zmax): ' + str(extraZernike))
+        
+        self.PSF_DIRECTORY = PSF_DIRECTORY
+
+        self.fiber_id = fiber_id
 
         """
         parameters that go into ZernikeFitterPFS
@@ -5601,7 +5733,9 @@ class LN_PFS_single(object):
              use_optPSF=None,use_wf_grid=None,
              zmaxInit=None,extraZernike=None,simulation_00=None,verbosity=None,
              double_sources=None,double_sources_positions_ratios=None,
-             test_run=None,explicit_psf_position=None,*args):
+             test_run=None,explicit_psf_position=None,
+             fiber_id=None,
+             *args):
         """
 
         # how are these two approaches different?
@@ -5630,7 +5764,9 @@ class LN_PFS_single(object):
                 test_run=test_run,
                 explicit_psf_position=explicit_psf_position,
                 use_only_chi=use_only_chi,
-                use_center_of_flux=use_center_of_flux)
+                use_center_of_flux=use_center_of_flux,
+                PSF_DIRECTORY=PSF_DIRECTORY,
+                fiber_id=fiber_id)
             single_image_analysis.initParams(zmax)
             self.single_image_analysis = single_image_analysis
         else:
@@ -5651,7 +5787,9 @@ class LN_PFS_single(object):
                 test_run=test_run,
                 explicit_psf_position=explicit_psf_position,
                 use_only_chi=use_only_chi,
-                use_center_of_flux=use_center_of_flux)
+                use_center_of_flux=use_center_of_flux,
+                PSF_DIRECTORY=PSF_DIRECTORY,
+                fiber_id=fiber_id)
 
             single_image_analysis.initParams(
                 zmax,
@@ -7446,7 +7584,8 @@ class Zernike_estimation_preparation(object):
 
     def __init__(self, list_of_labelInput, list_of_spots, dataset,
                  list_of_arc, eps, nsteps, analysis_type='defocus',
-                 analysis_type_fiber=None):
+                 analysis_type_fiber=None,
+                 DIRECTORY=None):
 
         self.list_of_labelInput = list_of_labelInput
         self.list_of_spots = list_of_spots
@@ -7456,6 +7595,9 @@ class Zernike_estimation_preparation(object):
         self.nsteps = nsteps
         self.analysis_type = analysis_type
         self.analysis_type_fiber = analysis_type_fiber
+        if DIRECTORY is None:
+            DIRECTORY = '/tigress/ncaplar/'
+        self.DIRECTORY = DIRECTORY
 
         # TODO : make this as input or deduce from the data
         self.multi_var = True
@@ -7485,7 +7627,11 @@ class Zernike_estimation_preparation(object):
 
         # folder contaning the data taken with F/2.8 stop in November 2020 on Subaru
         if dataset == 6:
-            DATA_FOLDER = '/tigress/ncaplar/ReducedData/Data_Nov_20/'
+            if socket.gethostname() == 'pfsa-usr01-gb.subaru.nao.ac.jp' or \
+                socket.gethostname() == 'pfsa-usr02-gb.subaru.nao.ac.jp':
+                DATA_FOLDER = '/work/dev_2ddrp/ReducedData/Data_Nov_20/'
+            else:
+                DATA_FOLDER = '/tigress/ncaplar/ReducedData/Data_Nov_20/'
 
         # folder contaning the data taken with F/2.8 stop in June 2021, at LAM, on SM2
         if dataset == 7:
@@ -7495,14 +7641,16 @@ class Zernike_estimation_preparation(object):
         # (21 fibers)
         if dataset == 8:
             if 'subaru' in socket.gethostname():
-                DATA_FOLDER = '/work/ncaplar/ReducedData/Data_May_25_2021/'
+                #DATA_FOLDER = '/work/ncaplar/ReducedData/Data_May_25_2021/'
+                DATA_FOLDER = '/work/dev_2ddrp/ReducedData/Data_May_25_2021/'
             else:
                 DATA_FOLDER = '/tigress/ncaplar/ReducedData/Data_May_25_2021/'
 
         STAMPS_FOLDER = DATA_FOLDER + 'Stamps_cleaned/'
         DATAFRAMES_FOLDER = DATA_FOLDER + 'Dataframes/'
         if 'subaru' in socket.gethostname():
-            RESULT_FOLDER = '/work/ncaplar/Results/'
+            #RESULT_FOLDER = '/work/ncaplar/Results/'
+            RESULT_FOLDER = self.DIRECTORY + 'Results/'
         else:
             RESULT_FOLDER = '/tigress/ncaplar/Results/'
 
@@ -8789,7 +8937,7 @@ def find_centroid_of_flux(image, mask=None):
     x_center = (np.sum(I_x[:, 0] * I_x[:, 1]) / np.sum(I_x[:, 1]))
     y_center = (np.sum(I_y[:, 0] * I_y[:, 1]) / np.sum(I_y[:, 1]))
 
-    return(x_center, y_center)
+    return (x_center, y_center)
 
 
 def create_parInit(allparameters_proposal, multi=None, pupil_parameters=None, allparameters_proposal_err=None,
