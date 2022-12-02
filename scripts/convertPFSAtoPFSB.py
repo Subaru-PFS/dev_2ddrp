@@ -6,6 +6,7 @@ This is useful for testing 2DDRP following the implementation of PIPE2D-668.
 """
 from astropy.io import fits
 from astropy.io.fits.header import Header
+from astropy.io.fits.hdu.image import ImageHDU
 import numpy as np
 import argparse
 import os
@@ -14,9 +15,20 @@ import glob
 from typing import List
 
 
-# FIXME: use argument parser in pipe_base
 def extractRange(specification: str) -> List[int]:
+    """ Expands shorthand specification of a range of visis to the full list
+     eg: '123..126' to [123,124,125,126].
 
+    Parameters
+    ----------
+    specification : `str`
+        range of visits, in shorthand notation.
+
+    Returns
+    -------
+    visits : `List` [`int`]
+        expanded visits.
+    """
     if (specification[0] == '^' or
         specification[0] == '.' or
         specification[-1] == '^' or
@@ -64,12 +76,37 @@ def extractRange(specification: str) -> List[int]:
 
 
 def copyCard(headerIn: Header, headerOut: Header, key: str) -> None:
+    """Copies a FITS card from one header to another.
+
+    Parameters
+    ----------
+    headerIn : `astropy.io.fits.Header`
+        input header
+    headerOut : `astropy.io.fits.Header`
+        output header
+
+    """
     if key not in headerIn:
         raise ValueError(f'key [{key}] doesnt exist in original header')
     headerOut[key] = headerIn[key]
 
 
-def createImageHDU(name, data):
+def createImageHDU(name: str, data: np.ndarray) -> ImageHDU:
+    """Creates an Image HDU instance based in the input name and data
+
+    Parameters
+    ----------
+    name : `str`
+        Name of HDU
+    data : numpy.ndarray
+        data to populate image
+
+    Returns
+    -------
+    imageHDU : `astropy.io.fits.hdu.image.ImageHDU`
+        populated image HDU object.
+    """
+
     imageHDU = fits.ImageHDU(name=name, data=data)
     imageHDU.header["INHERIT"] = True
     # resetImage1.header['W_H4READ'] = 0
@@ -78,6 +115,17 @@ def createImageHDU(name, data):
 
 
 def convert(inPFSA: str, ccdImageFile: str, outPFSB: str) -> None:
+    """Converts input PFxA data to PFxB
+
+    Parameters
+    ----------
+    inPFSA : `str`
+        Name of input PFxA file containing header information.
+    ccdImageFile : `str`
+        Name of file containing actual image data to be written.
+    outPFSB : `str`
+        Name of output PFxB file containing reformatted information.
+    """
 
     pfsaImageHDUIn = None
     with fits.open(inPFSA) as hdul:
