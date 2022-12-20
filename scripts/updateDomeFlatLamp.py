@@ -3,8 +3,6 @@ import pandas as pd
 
 def main():
     visits = getVisits()
-
-    #  visits = [1,2,3,5,7,8,10]
     ranges = process(visits)
 
     print(f'There are {len(ranges)} groups found: {ranges}')
@@ -35,7 +33,6 @@ def process(visits):
     visitStart = None
     visitEnd = None
     for count, visit in visits.iteritems():
-    # for visit in visits:
         if not visitStart:
             visitStart = visit
             visitEnd = visit
@@ -63,11 +60,15 @@ def handle(visitStart, visitEnd, ranges):
 
 def convert(ranges):
     fileName = 'snippet.py'
+    visitBuffer = []
     with open(fileName, 'w') as file:
         for visitStart, visitEnd in ranges:
             if not visitEnd:
-                file.write(f'self.add("S", [{visitStart}], W_AITQTH=True)\n')
+                visitBuffer.append(visitStart)
             else:
+                if visitBuffer:
+                    file.write(f'self.add("S", {visitBuffer}, W_AITQTH=True)\n')
+                    visitBuffer = []
                 file.write(f'self.add("S", list(range({visitStart}, {visitEnd} + 1)), W_AITQTH=True)\n')
     print(f'Code snippet written out to {fileName}.')
 
