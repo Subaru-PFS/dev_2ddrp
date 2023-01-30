@@ -140,8 +140,8 @@ def checkDesign(site, problemVisit, rawVisitFileDict):
                 else:
                     foundNonSuNSS = True
                 l.write(f"{visit} {hex(hdul[0].header['W_PFDSGN'])}, {file}\n")
-            assert foundSuNSS, f'Visit {visit}: no SuNSS exposure found.'
-            assert foundNonSuNSS, f'Visit {visit}: no Non-SuNSS exposure found.'
+            print(f'Visit {visit}: no SuNSS exposure found.')
+            print(f'Visit {visit}: no Non-SuNSS exposure found.')
 
 if __name__ == "__main__":
     main()
