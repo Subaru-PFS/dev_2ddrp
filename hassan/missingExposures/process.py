@@ -1,25 +1,32 @@
 from astropy.io import fits
 import re
+import logging
 
 regexRaw = ".*PFSA([0-9]{6})([0-9])([0-9]).fits"
 regexIngested = ".*PFSA([0-9]{6})([a-z][0-9]).fits"
 
 
 def main():
-    # site='hilo'
-    site='pu'
-    visitStart = 81866 # 2022-11-14 exposure
-    # visitStart = 84574 # ALF suggestion
+
+    logging.basicConfig()
+    logging.getLogger().setLevel(logging.INFO)
+
+    site='hilo'
+    # site='pu'
+    # visitStart = 81866 # 2022-11-14 exposure
+    visitStart = 84574 # ALF suggestion
 
     rawVisitDict, rawVisitFileDict = readRawVisits(site, visitStart)
-    print(f'rawVisits={len(rawVisitDict)}')
+    logging.debug(f'rawVisits={len(rawVisitDict)}')
 
     ingestedVisitDict = readIngestedVisits(site)
-    print(f'ingestedVisits={len(ingestedVisitDict)}')
+    logging.debug(f'ingestedVisits={len(ingestedVisitDict)}')
 
     problemVisits = findProblemVisits(rawVisitDict, ingestedVisitDict)
-    groupVisits(problemVisits)
+    groups = groupVisits(problemVisits)
     checkDesign(site, problemVisits, rawVisitFileDict)
+    writeSummary(site, groups, problemVisits, rawVisitFileDict)
+
 
 def readRawVisits(site, visitStart):
     arm = {1: 'b', 2:'r', 3:'n', 4:'m'}
@@ -69,24 +76,24 @@ def findProblemVisits(rawVisitDict, ingestedVisitDict):
     problemVisits = set()
     for visit, rawDetectors in rawVisitDict.items():
         if not visit in ingestedVisitDict:
-            print(f'{visit} is in raw visit list, but not in ingested list')
+            logging.debug(f'{visit} is in raw visit list, but not in ingested list')
             continue
         detectors = ingestedVisitDict[visit]
         if len(detectors) < len(rawDetectors):
-            print(f'Ingestion problem found with visit {visit}: raw detectors = {rawDetectors}, '
+            logging.debug(f'Ingestion problem found with visit {visit}: raw detectors = {rawDetectors}, '
                   f'but ingested = {detectors}')
             problemVisits.add(visit)
 
-    print(f'There are {len(problemVisits)} problematic visits: {problemVisits}')
+    logging.info(f'There are {len(problemVisits)} problematic visits.')
+    logging.debug(f'The problematic visits are: {problemVisits}')
     return problemVisits
 
 def groupVisits(problemVisits):
-    print(f'There are {len(problemVisits)} problematic visits.')
     if len(problemVisits) == 0:
-        print('No problematic visits to provide fixHeader or query for.')
+        logging.info('No problematic visits to provide fixHeader or query for.')
         return
     # Group contiguous visits from problemVisit set
-    print('Grouping problem visits:')
+    logging.info('Grouping problem visits..')
     groups = []
     startValue = None
     endValue = None
@@ -96,7 +103,7 @@ def groupVisits(problemVisits):
             startValue = ii
             endValue = ii
             continue
-        # print(f'ii:{ii}, startValue:{startValue} endValue:{endValue}')
+        # logging.info(f'ii:{ii}, startValue:{startValue} endValue:{endValue}')
         if ii == endValue + 1:
             endValue = ii
             continue
@@ -104,32 +111,54 @@ def groupVisits(problemVisits):
         startValue = ii
         endValue = ii
     groups.append((startValue, endValue))
-    print(f'Number of groups: {len(groups)}')
-    print(groups)
-    print()
-    print("Add this to pfs_utils headerFixes.py:\n")
-    for start, end in groups:
-        print(f"self.add(\"S\", self.inclRange({start}, {end}), W_PFDSGN=0x5cab8319135e443f)")
+    return groups
 
-    query = "select * from raw where "
-    first = True
-    for start, end in groups:
-        if first:
-            query += f"(visit between {start} and {end})"
-            first = False
-            continue
-        query += f" OR (visit between {start} and {end})"
+def writeSummary(site, groups, problemVisits, rawVisitFileDict):
 
-    query += ";"
-    print(f"Use this to query the registry:\n{query}")
+    summaryFile = f'summary_{site}.txt'
+    with open(summaryFile, 'w') as f:
+        f.write(f'Problematic visits ({len(problemVisits)}): {problemVisits}')
+        f.write(f'Number of groups: {len(groups)}')
+        f.write(f'{groups}')
+        f.write('\n')
+        f.write("Add this to pfs_utils headerFixes.py:\n\n")
+        f.write(f'designIdDCBSuNSS = 0x5cab8319135e443f\n')
+        for start, end in groups:
+            f.write(f"self.add(\"S\", self.inclRange({start}, {end}), W_PFDSGN=designIdDCBSuNSS)\n")
+        f.write('\n')
+
+        query = "select * from raw where "
+        first = True
+        for start, end in groups:
+            if first:
+                query += f"(visit between {start} and {end})"
+                first = False
+                continue
+            query += f" OR (visit between {start} and {end})"
+
+        query += ";"
+        f.write(f"Use this to query the registry:\n{query}")
+
+    filesToIngest = ""
+    for visit in problemVisits:
+        for file in rawVisitFileDict[visit]:
+            filesToIngest += f' {file}'
+
+    ingestCommandFile = f'ingest_{site}.sh'
+    with open(ingestCommandFile, 'w') as f:
+        f.write('ingestPfsImages.py /work/hassans/raw-repo  --pfsConfigDir /work/hassans/raw-repo/pfsConfig --mode=copy ')
+        f.write(f'{filesToIngest} --config clobber=True\n')
+
+    logging.info(f'Look at {summaryFile} and {ingestCommandFile} for summary and commands to use.')
+
 
 def checkDesign(site, problemVisit, rawVisitFileDict):
     with open(f'visitDesign_{site}.csv', 'w') as l:
 
         for visit in problemVisit:
-            print(f'Checking for SuNSS exp for visit {visit}..')
+            logging.debug(f'Checking for SuNSS exp for visit {visit}..')
             if not visit in rawVisitFileDict:
-                print(f'visit {visit} not in rawExposuresDict')
+                logging.debug(f'visit {visit} not in rawExposuresDict')
                 continue
             foundSuNSS = False
             foundNonSuNSS = False
@@ -140,8 +169,8 @@ def checkDesign(site, problemVisit, rawVisitFileDict):
                 else:
                     foundNonSuNSS = True
                 l.write(f"{visit} {hex(hdul[0].header['W_PFDSGN'])}, {file}\n")
-            print(f'Visit {visit}: no SuNSS exposure found.')
-            print(f'Visit {visit}: no Non-SuNSS exposure found.')
+            logging.debug(f'Visit {visit}: no SuNSS exposure found.')
+            logging.debug(f'Visit {visit}: no Non-SuNSS exposure found.')
 
 if __name__ == "__main__":
     main()
