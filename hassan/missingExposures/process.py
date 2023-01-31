@@ -23,6 +23,10 @@ def main():
     logging.debug(f'ingestedVisits={len(ingestedVisitDict)}')
 
     problemVisits = findProblemVisits(rawVisitDict, ingestedVisitDict)
+    if len(problemVisits) == 0:
+        logging.info('No problematic visits to provide fixHeader or query for.')
+        return
+
     groups = groupVisits(problemVisits)
     checkDesign(site, problemVisits, rawVisitFileDict)
     writeSummary(site, groups, problemVisits, rawVisitFileDict)
