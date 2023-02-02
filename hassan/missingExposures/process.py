@@ -11,8 +11,8 @@ def main():
     logging.basicConfig()
     logging.getLogger().setLevel(logging.INFO)
 
-    site='hilo'
-    # site='pu'
+    # site='hilo'
+    site='pu'
     # visitStart = 81866 # 2022-11-14 exposure
     visitStart = 84574 # ALF suggestion
 
@@ -36,7 +36,7 @@ def readRawVisits(site, visitStart):
     arm = {1: 'b', 2:'r', 3:'n', 4:'m'}
     rawVisitDict = dict()
     rawVisitFileDict = dict()
-    with open(f'raw-exposures-{site}.txt', 'r') as f:
+    with open(f'raw_exposures_{site}.txt', 'r') as f:
         for file in f:
             match = re.search(regexRaw, file)
             if match:
