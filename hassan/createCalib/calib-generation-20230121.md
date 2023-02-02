@@ -1,3 +1,8 @@
+# Environment
+    Using pfs_pipe2d w.2023.04 with following modifications:
+        pfs_utils commit d56f9d2 (tickets/INSTRM-1846)
+        And obs_pfs 6a4fac8 (master, incl PIPE2D-1138)
+
 # Set up useful variables
     ROOTDIR=/work/drp
     CALIBDIR=/work/hassans/createCalib/CALIB-dev
