@@ -11,8 +11,8 @@ def main():
     logging.basicConfig()
     logging.getLogger().setLevel(logging.INFO)
 
-    # site='hilo'
-    site='pu'
+    site='hilo'
+    # site='pu'
     # visitStart = 81866 # 2022-11-14 exposure
     visitStart = 84574 # ALF suggestion
 
@@ -28,7 +28,7 @@ def main():
         return
 
     groups = groupVisits(problemVisits)
-    checkDesign(site, problemVisits, rawVisitFileDict)
+    # checkDesign(site, problemVisits, rawVisitFileDict)
     writeSummary(site, groups, problemVisits, rawVisitFileDict)
 
 
@@ -121,9 +121,8 @@ def writeSummary(site, groups, problemVisits, rawVisitFileDict):
 
     summaryFile = f'summary_{site}.txt'
     with open(summaryFile, 'w') as f:
-        f.write(f'Problematic visits ({len(problemVisits)}): {problemVisits}')
-        f.write(f'Number of groups: {len(groups)}')
-        f.write(f'{groups}')
+        f.write(f'Problematic visits ({len(problemVisits)}): {problemVisits}\n')
+        f.write(f'Groups: ({len(groups)}): {groups}\n')
         f.write('\n')
         f.write("Add this to pfs_utils headerFixes.py:\n\n")
         f.write(f'designIdDCBSuNSS = 0x5cab8319135e443f\n')
