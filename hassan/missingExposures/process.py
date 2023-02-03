@@ -81,6 +81,7 @@ def findProblemVisits(rawVisitDict, ingestedVisitDict):
     for visit, rawDetectors in rawVisitDict.items():
         if not visit in ingestedVisitDict:
             logging.debug(f'{visit} is in raw visit list, but not in ingested list')
+            problemVisits.add(visit)
             continue
         detectors = ingestedVisitDict[visit]
         if len(detectors) < len(rawDetectors):
