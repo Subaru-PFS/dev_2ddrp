@@ -141,7 +141,7 @@ def writeSummary(site, groups, problemVisits, rawVisitFileDict):
             query += f" OR (visit between {start} and {end})"
 
         query += ";"
-        f.write(f"Use this to query the registry:\n{query}")
+        f.write(f"Use this to query the registry:\n{query}\n\n")
 
     filesToIngest = ""
     for visit in problemVisits:
