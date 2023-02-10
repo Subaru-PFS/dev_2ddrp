@@ -1,7 +1,7 @@
 # Environment
-    Using pfs_pipe2d w.2023.04 with following modifications:
-        pfs_utils commit d56f9d2 (tickets/INSTRM-1846)
-        And obs_pfs 6a4fac8 (master, incl PIPE2D-1138)
+###    Using pfs_pipe2d w.2023.04 with following modifications:
+###    pfs_utils commit d56f9d2 (tickets/INSTRM-1846)
+###    And obs_pfs 6a4fac8 (master, incl PIPE2D-1138)
 
 # Set up useful variables
     ROOTDIR=/work/drp
@@ -50,15 +50,22 @@
 
 # FIXME add m3 visits
 # Create FiberProfiles (m)
+## m1
     nohup constructFiberProfiles.py $ROOTDIR --calib=$CALIBDIR --rerun=$RERUNDIR/fiberProfiles_m --doraise --batch-type=none --cores=1 --id visit=80621..80640 arm=m spectrograph=1 --config isr.doFlat=False profiles.profileRadius=3 > $LOGDIR/fiberProfiles-m1.log 2>&1 &
+## m3
+    nohup constructFiberProfiles.py $ROOTDIR --calib=$CALIBDIR --rerun=$RERUNDIR/fiberProfiles_m --doraise --batch-type=none --cores=1 --id visit=83689..83694 arm=m spectrograph=3 --config isr.doFlat=False profiles.profileRadius=3 > $LOGDIR/fiberProfiles-m3.log 2>&1 &
 ## Ingest FiberProfiles, removing previous
-    sqlite3 $CALIBDIR/calibRegistry.sqlite3 'delete FROM fiberProfiles WHERE arm="m" AND spectrograph in (1, 3)'
-    \rm $CALIBDIR/FIBERPROFILES/pfsFiberProfiles-*{m}{1,3}.fits
-    ingestPfsCalibs.py $ROOTDIR --calib $CALIBDIR $RERUNDIR/fiberProfiles_m/FIBERPROFILES/pfsFiberProfiles-2022-09-27-080631-m1.fits  --validity 100000 --mode=copy -c clobber=True
+    sqlite3 $CALIBDIR/calibRegistry.sqlite3 'delete FROM fiberProfiles WHERE arm="m" AND spectrograph in (1,3)'
+    \rm $CALIBDIR/FIBERPROFILES/pfsFiberProfiles-*m{1,3}.fits
+    ingestPfsCalibs.py $ROOTDIR --calib $CALIBDIR $RERUNDIR/fiberProfiles_m/FIBERPROFILES/pfsFiberProfiles-*m{1,3}.fits  --validity 100000 --mode=copy -c clobber=True
 
-# Create DetectorMaps (m)
+# Create DetectorMaps
+## m1
     nohup reduceArc.py $ROOTDIR --calib=$CALIBDIR --rerun=$RERUNDIR/detectorMap_m --id visit=79994..79997^80631..80640 arm=m spectrograph=1 -j 20 -c reduceExposure.isr.doFlat=False fitDetectorMap.doSlitOffsets=True > $LOGDIR/reduceArc-m.log 2>&1 &
+## m3
+    nohup reduceArc.py $ROOTDIR --calib=$CALIBDIR --rerun=$RERUNDIR/detectorMap_m --id visit=83637..83651^84090..84092 arm=m spectrograph=3 -j 20 -c reduceExposure.isr.doFlat=False fitDetectorMap.doSlitOffsets=True > $LOGDIR/reduceArc-m3.log 2>&1 &
+
 ## Ingest DetectorMaps, removing previous
-    sqlite3 $CALIBDIR/calibRegistry.sqlite3 'DELETE FROM fiberprofiles WHERE arm = "m" AND spectrograph = 1'
-    \rm $CALIBDIR/DETECTORMAP/*m1.fits
-    ingestPfsCalibs.py $ROOTDIR --calib $CALIBDIR $RERUNDIR/detectorMap-m/DETECTORMAP/pfsDetectorMap-061162-m1.fits --mode=copy --validity 100000 -c clobber=True
+    sqlite3 $CALIBDIR/calibRegistry.sqlite3 'DELETE FROM detectorMap WHERE arm = "m" AND spectrograph in (1,3)'
+    \rm $CALIBDIR/DETECTORMAP/*m{1,3}.fits
+    ingestPfsCalibs.py $ROOTDIR --calib $CALIBDIR $RERUNDIR/detectorMap_m/DETECTORMAP/pfsDetectorMap-*m{1,3}.fits --mode=copy --validity 100000 -c clobber=True
