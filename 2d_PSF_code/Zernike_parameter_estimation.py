@@ -49,7 +49,7 @@ from functools import partial
 # User has to manualy the version number in order to ensure
 # that the verions used is the one the user expects.
 # This is somewhat extreme, but potentially saves a lot of trouble
-assert Zernike_Module.__version__ == '0.51e', "Zernike_Module version is not as expected"
+assert Zernike_Module.__version__ == '0.52', "Zernike_Module version is not as expected"
 
 os.environ["MKL_NUM_THREADS"] = "1"
 os.environ["NUMEXPR_NUM_THREADS"] = "1"
