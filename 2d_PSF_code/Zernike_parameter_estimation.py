@@ -519,7 +519,7 @@ Zernike_estimation_preparation_instance = \
     Zernike_estimation_preparation(list_of_labelInput=list_of_labelInput,
                                    list_of_spots=list_of_spots, dataset=dataset,
                                    list_of_arc=list_of_arc, eps=eps, nsteps=nsteps,
-                                   analysis_type=analysis_type,analysis_type_fiber=analysis_type_fiber)
+                                   analysis_type=analysis_type, analysis_type_fiber=analysis_type_fiber)
 
 particleCount, c1, c2 = Zernike_estimation_preparation_instance.return_auxiliary_info()
 
@@ -671,7 +671,7 @@ print('print check just before the pool of workers is created')
 if 'subaru' in socket.gethostname():
     pool = Pool(32)
 else:
-    #pool = Pool(processes=multiprocessing.cpu_count())
+    # pool = Pool(processes=multiprocessing.cpu_count())
     pool = Pool(processes=20)
 print('print check just after the pool of workers is created')
 
@@ -812,8 +812,9 @@ for i in range(len(list_of_obs_cleaned)):
 # Modified April 1
 list_of_array_of_particle_position_proposal, list_of_array_of_particle_velocity_proposal,\
     list_of_best_particle_likelihood, paramCount =\
-    Zernike_estimation_preparation_instance.create_init_parameters_for_particles(zmax_input=twentytwo_or_extra, 
-    analysis_type=analysis_type, analysis_type_fiber=analysis_type_fiber)
+    Zernike_estimation_preparation_instance.create_init_parameters_for_particles(
+        zmax_input=twentytwo_or_extra, 
+        analysis_type=analysis_type, analysis_type_fiber=analysis_type_fiber)
     
 if analysis_type_fiber == 'fiber_par':
     up_to_which_z_var = False
@@ -844,7 +845,7 @@ for s in range(len(list_of_spots)):
         previous_best_result=None,
         use_only_chi=True,
         multi_background_factor=3,
-        up_to_which_z = up_to_which_z_var))
+        up_to_which_z=up_to_which_z_var))
 
 time_end_initial = time.time()
 print('Time for the initial evaluation is ' +
@@ -916,7 +917,7 @@ for step in range(nsteps):
             previous_best_result=list_of_best_result[s],
             use_only_chi=True,
             multi_background_factor=array_of_multi_background_factors[step],
-            up_to_which_z = up_to_which_z_var),
+            up_to_which_z=up_to_which_z_var),
             list_of_array_of_particle_position_proposal[s])
         out2 = np.array(list(out1))
         list_of_out2.append(out2)
@@ -929,7 +930,6 @@ for step in range(nsteps):
 
     # save ?
     # np.save(RESULT_FOLDER + 'list_of_out2_' + str(step), list_of_out2)
-
 
     ################################################
     # (11.) Create swarm
@@ -1069,7 +1069,7 @@ for step in range(nsteps):
                     previous_best_result=None,
                     use_only_chi=True,
                     multi_background_factor=array_of_multi_background_factors[step],
-                    up_to_which_z = up_to_which_z_var)
+                    up_to_which_z=up_to_which_z_var)
 
             time_end_best = time.time()
 
@@ -1170,7 +1170,7 @@ for step in range(nsteps):
             cog_vel = c1 * \
                 np.random.uniform(0, 1, size=paramCount) * (particle_position - particle_position)
             # change in 0.45
-            #soc_vel = c2 * array_of_velocity_modifiers[s] * (best_particle_position - particle_position)
+            # soc_vel = c2 * array_of_velocity_modifiers[s] * (best_particle_position - particle_position)
             soc_vel = c2 * array_of_velocity_modifiers * (best_particle_position - particle_position)
             proposed_particle_velocity = part_vel + cog_vel + soc_vel
 
@@ -1301,4 +1301,4 @@ for s in range(len(list_of_spots)):
 
 sys.stdout.flush()
 pool.close()
-sys.exit(0) # noqa: W292
+sys.exit(0)  # noqa: W292
