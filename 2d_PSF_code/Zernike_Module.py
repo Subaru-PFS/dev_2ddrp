@@ -1948,7 +1948,7 @@ class ZernikeFitterPFS(object):
 
         if self.verbosity == 1:
             logging.info('Sucesfully created optPsf_final')
-        print(self.save)
+
         if self.save == 1:
             np.save(self.TESTING_FINAL_IMAGES_FOLDER + 'optPsf_cut', optPsf_cut)
             np.save(self.TESTING_FINAL_IMAGES_FOLDER + 'optPsf_cut_downsampled', optPsf_cut_downsampled)
