@@ -727,7 +727,7 @@ class PupilFactory(object):
         Returns
         ----------
         """
-        df_subarusb = pd.read_csv(os.path.join(os.path.dirname(__file__), 
+        df_subarusb = pd.read_csv(os.path.join(os.path.dirname(__file__),
                                                'data/subarusb.csv'
                                                ),
                                   sep=',', header='infer', skiprows=0)
@@ -1948,7 +1948,7 @@ class ZernikeFitterPFS(object):
 
         if self.verbosity == 1:
             logging.info('Sucesfully created optPsf_final')
-        print(self.save)
+
         if self.save == 1:
             np.save(self.TESTING_FINAL_IMAGES_FOLDER + 'optPsf_cut', optPsf_cut)
             np.save(self.TESTING_FINAL_IMAGES_FOLDER + 'optPsf_cut_downsampled', optPsf_cut_downsampled)
@@ -3651,7 +3651,7 @@ class Tokovinin_multi(object):
         self.save = save
         if DIRECTORY is None:
             DIRECTORY = '/tigress/ncaplar/'
-        self.DIRECTORY=DIRECTORY
+        self.DIRECTORY = DIRECTORY
         self.pupil_parameters = pupil_parameters
         self.use_pupil_parameters = use_pupil_parameters
         self.use_optPSF = use_optPSF
@@ -5718,7 +5718,7 @@ class LN_PFS_single(object):
 
             logging.info('explicit_psf_position in LN_PFS_single: '+str(explicit_psf_position))
             logging.info('supplied extra Zernike parameters (beyond zmax): ' + str(extraZernike))
-        
+
         self.PSF_DIRECTORY = PSF_DIRECTORY
 
         self.fiber_id = fiber_id
@@ -7628,7 +7628,7 @@ class Zernike_estimation_preparation(object):
         # folder contaning the data taken with F/2.8 stop in November 2020 on Subaru
         if dataset == 6:
             if socket.gethostname() == 'pfsa-usr01-gb.subaru.nao.ac.jp' or \
-                socket.gethostname() == 'pfsa-usr02-gb.subaru.nao.ac.jp':
+               socket.gethostname() == 'pfsa-usr02-gb.subaru.nao.ac.jp':
                 DATA_FOLDER = '/work/dev_2ddrp/ReducedData/Data_Nov_20/'
             else:
                 DATA_FOLDER = '/tigress/ncaplar/ReducedData/Data_Nov_20/'
@@ -7641,7 +7641,7 @@ class Zernike_estimation_preparation(object):
         # (21 fibers)
         if dataset == 8:
             if 'subaru' in socket.gethostname():
-                #DATA_FOLDER = '/work/ncaplar/ReducedData/Data_May_25_2021/'
+                # DATA_FOLDER = '/work/ncaplar/ReducedData/Data_May_25_2021/'
                 DATA_FOLDER = '/work/dev_2ddrp/ReducedData/Data_May_25_2021/'
             else:
                 DATA_FOLDER = '/tigress/ncaplar/ReducedData/Data_May_25_2021/'
@@ -7649,7 +7649,7 @@ class Zernike_estimation_preparation(object):
         STAMPS_FOLDER = DATA_FOLDER + 'Stamps_cleaned/'
         DATAFRAMES_FOLDER = DATA_FOLDER + 'Dataframes/'
         if 'subaru' in socket.gethostname():
-            #RESULT_FOLDER = '/work/ncaplar/Results/'
+            # RESULT_FOLDER = '/work/ncaplar/Results/'
             RESULT_FOLDER = self.DIRECTORY + 'Results/'
         else:
             RESULT_FOLDER = '/tigress/ncaplar/Results/'

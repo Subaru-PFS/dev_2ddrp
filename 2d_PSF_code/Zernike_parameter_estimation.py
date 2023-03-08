@@ -1,6 +1,6 @@
 # standard library imports
 from __future__ import absolute_import, division, print_function
-from Zernike_Module import LN_PFS_multi_same_spot, create_parInit, Tokovinin_multi,\
+from Zernike_Module import Tokovinin_multi,\
     Zernike_estimation_preparation, check_global_parameters
 import Zernike_Module
 import socket
@@ -49,7 +49,7 @@ from functools import partial
 # User has to manualy the version number in order to ensure
 # that the verions used is the one the user expects.
 # This is somewhat extreme, but potentially saves a lot of trouble
-assert Zernike_Module.__version__ == '0.51e', "Zernike_Module version is not as expected"
+assert Zernike_Module.__version__ == '0.52', "Zernike_Module version is not as expected"
 
 os.environ["MKL_NUM_THREADS"] = "1"
 os.environ["NUMEXPR_NUM_THREADS"] = "1"
@@ -519,7 +519,7 @@ Zernike_estimation_preparation_instance = \
     Zernike_estimation_preparation(list_of_labelInput=list_of_labelInput,
                                    list_of_spots=list_of_spots, dataset=dataset,
                                    list_of_arc=list_of_arc, eps=eps, nsteps=nsteps,
-                                   analysis_type=analysis_type,analysis_type_fiber=analysis_type_fiber)
+                                   analysis_type=analysis_type, analysis_type_fiber=analysis_type_fiber)
 
 particleCount, c1, c2 = Zernike_estimation_preparation_instance.return_auxiliary_info()
 
@@ -623,8 +623,8 @@ for i in ['m15', 'm1', 'm05', '0', 'p05', 'p1', 'p15']:
     if i in list_of_labelInput:
         list_of_labelInput_without_focus_or_near_focus.remove(i)
 
-print('list_of_labelInput_without_focus_or_near_focus: ' +
-      str(list_of_labelInput_without_focus_or_near_focus))
+print('list_of_labelInput_without_focus_or_near_focus: '
+      + str(list_of_labelInput_without_focus_or_near_focus))
 
 # positional indices of the defocused data in the whole set of input data
 # (for possible analysis with Tokovinin alrogithm)
@@ -633,8 +633,8 @@ for i in list_of_labelInput_without_focus_or_near_focus:
     index_of_list_of_labelInput_without_focus_or_near_focus.append(
         list_of_labelInput.index(i))
 
-print('index_of_list_of_labelInput_without_focus_or_near_focus: ' +
-      str(index_of_list_of_labelInput_without_focus_or_near_focus))
+print('index_of_list_of_labelInput_without_focus_or_near_focus: '
+      + str(index_of_list_of_labelInput_without_focus_or_near_focus))
 
 
 # Input the zmax that you wish to achieve in the analysis
@@ -671,7 +671,7 @@ print('print check just before the pool of workers is created')
 if 'subaru' in socket.gethostname():
     pool = Pool(32)
 else:
-    #pool = Pool(processes=multiprocessing.cpu_count())
+    # pool = Pool(processes=multiprocessing.cpu_count())
     pool = Pool(processes=20)
 print('print check just after the pool of workers is created')
 
@@ -803,18 +803,19 @@ for i in range(len(list_of_obs_cleaned)):
 # (8.) Create init parameters for particles
 ################################################
 
-# Hardwired on March 10, 2022 to study global par 
+# Hardwired on March 10, 2022 to study global par
 # list_of_array_of_particle_position_proposal, list_of_array_of_particle_velocity_proposal,\
 #    list_of_best_particle_likelihood, paramCount =\
-#    Zernike_estimation_preparation_instance.create_init_parameters_for_particles(zmax_input=twentytwo_or_extra, 
+#    Zernike_estimation_preparation_instance.create_init_parameters_for_particles(zmax_input=twentytwo_or_extra,
 #    analysis_type='fiber_par')
 
 # Modified April 1
 list_of_array_of_particle_position_proposal, list_of_array_of_particle_velocity_proposal,\
     list_of_best_particle_likelihood, paramCount =\
-    Zernike_estimation_preparation_instance.create_init_parameters_for_particles(zmax_input=twentytwo_or_extra, 
-    analysis_type=analysis_type, analysis_type_fiber=analysis_type_fiber)
-    
+    Zernike_estimation_preparation_instance.create_init_parameters_for_particles(
+        zmax_input=twentytwo_or_extra,
+        analysis_type=analysis_type, analysis_type_fiber=analysis_type_fiber)
+
 if analysis_type_fiber == 'fiber_par':
     up_to_which_z_var = False
 else:
@@ -844,18 +845,18 @@ for s in range(len(list_of_spots)):
         previous_best_result=None,
         use_only_chi=True,
         multi_background_factor=3,
-        up_to_which_z = up_to_which_z_var))
+        up_to_which_z=up_to_which_z_var))
 
 time_end_initial = time.time()
-print('Time for the initial evaluation is ' +
-      str(time_end_initial - time_start_initial))
+print('Time for the initial evaluation is '
+      + str(time_end_initial - time_start_initial))
 
 
 # the best likelihood after evaluation, at index 1 in the output
 # (index 0 shows the likelihood before the evaluation)
 for s in range(len(list_of_spots)):
-    print('Initial evaluation output for spot ' +
-          str(s) + ' is: ' + str(list_of_best_result[s][1]))
+    print('Initial evaluation output for spot '
+          + str(s) + ' is: ' + str(list_of_best_result[s][1]))
 
 print('Finished work on the initial best result')
 
@@ -867,8 +868,8 @@ list_of_obs_cleaned = Zernike_estimation_preparation_instance.create_list_of_obs
 obs = list_of_obs_cleaned[-1]
 for s in range(len(list_of_spots)):
     single_number_original = list_of_spots[s]
-    np.save(RESULT_FOLDER + 'initial_best_result_' + str(date_of_output) + '_Single_P_' +
-            str(obs) + str(single_number_original) + str(eps) + str(arc), list_of_best_result[s])
+    np.save(RESULT_FOLDER + 'initial_best_result_' + str(date_of_output) + '_Single_P_'
+            + str(obs) + str(single_number_original) + str(eps) + str(arc), list_of_best_result[s])
 
 # this allows to have multi_background_factor to be different in each step
 # at the moment set up to be 3 in each step
@@ -916,7 +917,7 @@ for step in range(nsteps):
             previous_best_result=list_of_best_result[s],
             use_only_chi=True,
             multi_background_factor=array_of_multi_background_factors[step],
-            up_to_which_z = up_to_which_z_var),
+            up_to_which_z=up_to_which_z_var),
             list_of_array_of_particle_position_proposal[s])
         out2 = np.array(list(out1))
         list_of_out2.append(out2)
@@ -924,12 +925,11 @@ for step in range(nsteps):
 
     time_end_evo_step = time.time()
 
-    print('Time for the evaluation of initial Tokovinin_multi_instance_without_pool in step ' +
-          str(step) + ' is ' + str(time_end_evo_step - time_start_evo_step))
+    print('Time for the evaluation of initial Tokovinin_multi_instance_without_pool in step '
+          + str(step) + ' is ' + str(time_end_evo_step - time_start_evo_step))
 
     # save ?
     # np.save(RESULT_FOLDER + 'list_of_out2_' + str(step), list_of_out2)
-
 
     ################################################
     # (11.) Create swarm
@@ -1016,8 +1016,8 @@ for step in range(nsteps):
         best_particle_likelihood_this_step = best_particle_this_step[0]
         # print('best_particle_likelihood until now for spot ' + str(s) + ', step ' +
         #       str(step) + ': ' + str(best_particle_likelihood))
-        print('Proposed best_particle_likelihood_this_step for spot ' + str(s) + ', step ' +
-              str(step) + ': ' + str(best_particle_likelihood_this_step))
+        print('Proposed best_particle_likelihood_this_step for spot ' + str(s) + ', step '
+              + str(step) + ': ' + str(best_particle_likelihood_this_step))
 
         # list_of_best_particle_this_step_single_spot = []
         # list_of_best_particle_likelihood_this_step_single_spot = []
@@ -1051,10 +1051,10 @@ for step in range(nsteps):
             # proposed solution
             # TODO: can be skipped if evaluating only pupil parameters
             print(
-                'Starting work on the new proposed best result in step ' +
-                str(step) + ' for spot ' + str(s))
+                'Starting work on the new proposed best result in step '
+                + str(step) + ' for spot ' + str(s))
             time_start_best = time.time()
-            
+
             fiber_par = True
             # attempt to evade the evaluation if not needed
             if fiber_par is True:
@@ -1069,32 +1069,32 @@ for step in range(nsteps):
                     previous_best_result=None,
                     use_only_chi=True,
                     multi_background_factor=array_of_multi_background_factors[step],
-                    up_to_which_z = up_to_which_z_var)
+                    up_to_which_z=up_to_which_z_var)
 
             time_end_best = time.time()
 
             # updating the list with best results, to be carried over for the next step
             list_of_best_results.append(best_result)
-            print('Time for the best evaluation for spot ' + str(s) + ' in step ' +
-                  str(step) + ' is ' + str(time_end_best - time_start_best))
+            print('Time for the best evaluation for spot ' + str(s) + ' in step '
+                  + str(step) + ' is ' + str(time_end_best - time_start_best))
 
             best_particle_likelihood_this_step = best_result[1]
             best_particle_position_this_step = best_result[8]
 
-            print('Best result proposed output for spot (first 5 par) ' + str(s) + ' is: ' +
-                  str(best_particle_proposal_position[:5]))
-            print('Best result proposed output for spot (fiber_par) ' + str(s) + ' is: ' +
-                  str(best_particle_proposal_position[19*2+10:19*2+15]))
-            print('Best result output after final Tokovinin for spot (first 5 par) ' + str(s) + ' is: ' +
-                  str(best_particle_position_this_step[:5]))
-            print('Best result proposed output for spot (fiber_par) ' + str(s) + ' is: ' +
-                  str(best_particle_position_this_step[19*2+10:19*2+15]))
+            print('Best result proposed output for spot (first 5 par) ' + str(s) + ' is: '
+                  + str(best_particle_proposal_position[:5]))
+            print('Best result proposed output for spot (fiber_par) ' + str(s) + ' is: '
+                  + str(best_particle_proposal_position[19*2+10:19*2+15]))
+            print('Best result output after final Tokovinin for spot (first 5 par) ' + str(s) + ' is: '
+                  + str(best_particle_position_this_step[:5]))
+            print('Best result proposed output for spot (fiber_par) ' + str(s) + ' is: '
+                  + str(best_particle_position_this_step[19*2+10:19*2+15]))
             # print(
             #    'best_particle_likelihood for spot ' + str(s) + ' until now: ' +
             #    str(best_particle_likelihood))
             print(
-                'Final best_particle_likelihood_this_step for spot ' + str(s) + ': ' +
-                str(best_particle_likelihood_this_step))
+                'Final best_particle_likelihood_this_step for spot ' + str(s) + ': '
+                + str(best_particle_likelihood_this_step))
 
             # if best_particle_likelihood_this_step>best_particle_likelihood:
             if best_particle_likelihood_this_step > -9999:
@@ -1142,7 +1142,7 @@ for step in range(nsteps):
 
     array_of_velocity_modifiers = np.random.random_sample(size=(len(list_of_spots), paramCount))*(2)
     array_of_velocity_modifiers = np.random.random_sample(size=(paramCount))*(2)
-    
+
     for s in range(len(list_of_spots)):
         swarm = list_of_swarms[s]
         best_particle_position = list_of_best_particle_position[s][0]
@@ -1170,7 +1170,7 @@ for step in range(nsteps):
             cog_vel = c1 * \
                 np.random.uniform(0, 1, size=paramCount) * (particle_position - particle_position)
             # change in 0.45
-            #soc_vel = c2 * array_of_velocity_modifiers[s] * (best_particle_position - particle_position)
+            # soc_vel = c2 * array_of_velocity_modifiers[s] * (best_particle_position - particle_position)
             soc_vel = c2 * array_of_velocity_modifiers * (best_particle_position - particle_position)
             proposed_particle_velocity = part_vel + cog_vel + soc_vel
 
@@ -1207,8 +1207,8 @@ for step in range(nsteps):
         array_of_swarms[s][step] = swarm
 
     time_end = time.time()
-    print('Time for the whole evaluation until step ' +
-          str(step) + ' is ' + str(time_end - time_start))
+    print('Time for the whole evaluation until step '
+          + str(step) + ' is ' + str(time_end - time_start))
 
     gbests = np.array(list_of_best_particle)
     swarms = np.array(list_of_swarm)
@@ -1301,4 +1301,4 @@ for s in range(len(list_of_spots)):
 
 sys.stdout.flush()
 pool.close()
-sys.exit(0) # noqa: W292
+sys.exit(0)  # noqa: W292
